@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -14,6 +14,7 @@ import { useAuth } from "../../contexts/AuthProvider";
 
 export default function SignUpScreen() {
   const { signUp } = useAuth();
+  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +31,11 @@ export default function SignUpScreen() {
       setError(error);
     } else if (needsEmailConfirmation) {
       setConfirmationSent(true);
+    } else {
+      // Don't rely solely on the passive onAuthStateChange -> _layout.tsx
+      // redirect chain, which has been observed to occasionally stick on
+      // web (see SPEC.md section 6).
+      router.replace("/(tabs)/clubs");
     }
   };
 

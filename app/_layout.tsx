@@ -14,10 +14,11 @@ function RootNavigator() {
     if (initializing) return;
 
     const inAuthGroup = segments[0] === "(auth)";
+    const inTabsGroup = segments[0] === "(tabs)";
 
     if (!session && !inAuthGroup) {
       router.replace("/(auth)/sign-in");
-    } else if (session && inAuthGroup) {
+    } else if (session && !inTabsGroup) {
       router.replace("/(tabs)/clubs");
     }
   }, [session, initializing, segments, router]);

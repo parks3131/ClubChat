@@ -104,10 +104,15 @@ app/                          Expo Router file-based routes
                                 exposes via `useClub()` context to all
                                 nested screens (see gotcha in section 6)
   (tabs)/clubs/[clubId]/(club-tabs)/
-    chat.tsx                   Chat UI — CURRENTLY MOCK DATA ONLY, see
-                                 section 7 (task #5 not finished)
-    calendar.tsx                Placeholder only (task #6 not started)
+    chat.tsx                   Real chat UI — messages, reactions, admin
+                                 pin/announce, realtime (task #5, done)
+    calendar.tsx                Real calendar list, grouped Upcoming/Past
+                                 (task #6, done)
     routines.tsx                 Placeholder only (future phase)
+  (tabs)/clubs/[clubId]/event/
+    [eventId].tsx                Event detail view (admin sees Edit/Delete)
+    create.tsx                   Admin-only create/edit form — edit mode
+                                 via `?eventId=` query param
   (tabs)/clubs/[clubId]/race/[raceId]/
                                 Placeholder screens only (chat, workout,
                                  carpool, info) — future phase, no backend
@@ -116,7 +121,11 @@ app/                          Expo Router file-based routes
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode —
-                                 reference pattern to follow for chat/calendar
+                                 reference pattern to follow for new features
+lib/messages.ts                 fetchMessages / sendMessage / reactions /
+                                 realtime subscription — chat backend
+lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
+                                 updateEvent / deleteEvent — calendar backend
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -136,10 +145,6 @@ supabase/migrations/
   0005_realtime.sql              Adds messages + message_reactions to the
                                  supabase_realtime publication — required
                                  for postgres_changes to fire at all
-
-lib/messages.ts                 fetchMessages / sendMessage / toggleReaction
-                                 / togglePinned / subscribeToNewMessages —
-                                 reference pattern for calendar_events next
 ```
 
 ## 5. Current status (what's actually done vs. not)
@@ -151,16 +156,15 @@ lib/messages.ts                 fetchMessages / sendMessage / toggleReaction
 | 3 | Auth flow (sign up/in/out, session persistence, route guard) | ✅ Done |
 | 4 | Club creation, invite-code join, admin/member roles | ✅ Done, verified live end-to-end |
 | 5 | Club group chat | ✅ Done — real messages, reactions, admin pin/announce, realtime confirmed live (verified by inserting a row directly via SQL and watching it appear in the browser with zero refresh). Photo/video attachments (Storage) deliberately **not** built yet. |
-| 6 | Club calendar | ⬜ Placeholder screen only |
+| 6 | Club calendar | ✅ Done — real `calendar_events` CRUD (`lib/calendar.ts`), list view grouped into Upcoming/Past (`(club-tabs)/calendar.tsx`), a detail screen (`event/[eventId].tsx`), and an admin-only create/edit form (`event/create.tsx`, edit mode via `?eventId=`). Verified live end-to-end via `CI=1 npx expo start --web` + Playwright: create, edit, delete, admin-vs-member visibility (no "+ New Event" FAB for members, direct navigation to `event/create` redirects members away), and realtime was **not** added (events change rarely; screen refetches on focus via `useFocusEffect` instead — see section 6 for why chat needed realtime but this doesn't). No new migration was needed — `calendar_events` schema + RLS already existed from 0001/0003. Date/time entry is plain `YYYY-MM-DD` / `HH:MM` text fields (no date-picker library is installed); good enough for MVP but a known UX rough edge if this needs to feel more polished later. |
 | — | Weekly routines | ⬜ Not started (no schema yet) |
 | — | Race sub-flow (sub-chat, workout, carpool, results) | ⬜ Not started (no schema yet, placeholder nav screens only) |
 | — | Polls, video messages | ⬜ Not started |
 
-**Immediate next step**: task #6, club calendar — real `calendar_events`
-CRUD (admin-only create/edit, member read) plus a real calendar UI (the
-current `calendar.tsx` is still a placeholder). Follow the `lib/messages.ts`
-pattern. Watch for the same RETURNING/SELECT-policy gotcha from section 6
-if calendar event creation ever needs to show the row back immediately.
+**Immediate next step**: weekly routines (no schema yet) — will need a new
+migration (e.g. `routines` table, admin-authored, club-scoped) plus a real
+`routines.tsx` UI, following the same `lib/*.ts` + screen pattern used for
+calendar and chat.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
@@ -233,6 +237,68 @@ their own race row immediately, same pattern).
   disables Fast Refresh, so after any route/layout change the dev server
   needs a restart (`pkill -f "expo start"`, then relaunch) rather than
   relying on hot reload to pick it up.
+- **`react-native-web`'s `Alert.alert` is a total no-op on web** (see
+  `node_modules/react-native-web/src/exports/Alert/index.js` —
+  `static alert() {}`). Any confirm-before-destructive-action flow (e.g.
+  delete event) needs a `Platform.OS === "web"` branch that uses
+  `window.confirm` instead, or the button silently does nothing on web
+  while still working fine on iOS/Android. Caught this only by actually
+  clicking Delete in the Playwright smoke test and checking the DB row
+  was still there — the click reported success with zero console errors.
+- **`router.back()` throws "action 'GO_BACK' was not handled"** if the
+  screen was reached via direct URL navigation (deep link / page refresh
+  on web) rather than by pushing from within the app, because there's no
+  history entry to pop. Any programmatic back-navigation triggered from a
+  guard or an action (e.g. redirecting a non-admin off an admin-only
+  screen, or leaving a detail screen after a delete) should check
+  `router.canGoBack()` first and fall back to `router.replace(...)` to a
+  known-good route. Caught by navigating directly to
+  `event/create`/`event/[eventId]` in the smoke test instead of always
+  clicking through from the list.
+- **The real bug behind several "infinite spinner at `/`" reports: the
+  auth-guard redirect in `app/_layout.tsx` had a logic gap for the bare
+  `/` route.** The original condition was:
+  ```ts
+  const inAuthGroup = segments[0] === "(auth)";
+  if (!session && !inAuthGroup) router.replace("/(auth)/sign-in");
+  else if (session && inAuthGroup) router.replace("/(tabs)/clubs");
+  ```
+  This only redirects in two cases: no session (→ sign-in), or a session
+  while stuck on an `(auth)` screen (→ clubs). But landing on plain `/`
+  (e.g. pasting `http://localhost:8081/` directly, which is exactly what
+  `app/index.tsx` renders — a permanent spinner waiting to be redirected
+  away) is in *neither* group, so **if a valid session already exists**,
+  neither branch fires and nothing ever redirects — the spinner never
+  clears. This is deterministic and 100% reproducible: any time you're
+  already logged in (valid `sb-...-auth-token` in `localStorage`, e.g.
+  from a previous test session) and navigate straight to `/`, it hangs.
+  It's easy to misdiagnose as a Supabase/session problem (that's what we
+  initially suspected, twice) because the symptom — spinner, zero errors,
+  zero relevant network activity — looks identical to a genuinely stuck
+  `getSession()` call. **How it was actually confirmed**: added temporary
+  `console.log`s inside `AuthProvider`'s effect; they showed
+  `getSession()` resolving in ~2ms with a valid session every time — so
+  the auth layer was never the problem, only the redirect condition
+  consuming that state. **Fix**: track `inTabsGroup` too and redirect
+  whenever a session exists and the user *isn't* already in the tabs
+  group, not just when they're stuck in the auth group:
+  ```ts
+  const inTabsGroup = segments[0] === "(tabs)";
+  if (!session && !inAuthGroup) router.replace("/(auth)/sign-in");
+  else if (session && !inTabsGroup) router.replace("/(tabs)/clubs");
+  ```
+  As defense-in-depth (kept, though it turned out not to be the cause
+  here), `contexts/AuthProvider.tsx`'s `getSession()` call also now has a
+  5-second timeout that falls back to "no session" rather than letting a
+  truly stuck call (e.g. a real cross-tab lock deadlock in
+  `@supabase/supabase-js`) hang `initializing` forever. And
+  `app/(auth)/sign-up.tsx` still does an explicit
+  `router.replace("/(tabs)/clubs")` right after a successful signup
+  rather than depending purely on the passive listener chain. Lesson:
+  when a "hang" has zero console errors and zero relevant network
+  requests, suspect the **navigation/state-machine logic** before
+  suspecting the network client — add logging to confirm which layer is
+  actually stuck before patching the one that seems most likely.
 
 ## 7. Local development setup (current state)
 
