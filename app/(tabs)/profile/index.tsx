@@ -54,10 +54,17 @@ export default function ProfileScreen() {
   const handleEditPic = async () => {
     if (!session) return;
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      reportError(new Error("Photo library access is required to change your picture."));
-      return;
+    // On web, launchImageLibraryAsync must run synchronously in response to
+    // the click (it's just an <input type=file>) — awaiting a permission
+    // check first consumes the browser's user-activation window, so the
+    // file picker silently fails to open. Permissions aren't a real concept
+    // on web anyway, so only gate native platforms on them.
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        reportError(new Error("Photo library access is required to change your picture."));
+        return;
+      }
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
