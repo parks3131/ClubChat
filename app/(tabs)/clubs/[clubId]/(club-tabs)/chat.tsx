@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -110,40 +111,49 @@ export default function ClubChatScreen() {
           }
 
           return (
-            <View style={[styles.bubble, item.messageType === "announcement" && styles.announcementBubble]}>
-              <View style={styles.bubbleHeader}>
-                <Text style={styles.senderName}>{item.senderName}</Text>
-                {item.pinned && <Text style={styles.pinnedBadge}>📌 Pinned</Text>}
-              </View>
-              <Text style={styles.body}>{item.body}</Text>
-              <View style={styles.bubbleFooter}>
-                {[...grouped.entries()].map(([emoji, count]) => (
-                  <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
-                    <Text style={[styles.reaction, myEmojis.has(emoji) && styles.reactionActive]}>
-                      {emoji} {count}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  onPress={() => setPickerMessageId(pickerMessageId === item.id ? null : item.id)}
-                >
-                  <Text style={styles.reaction}>+</Text>
-                </TouchableOpacity>
-                {club.role === "admin" && (
-                  <TouchableOpacity onPress={() => handleTogglePin(item)}>
-                    <Text style={styles.pinAction}>{item.pinned ? "Unpin" : "Pin"}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              {pickerMessageId === item.id && (
-                <View style={styles.pickerRow}>
-                  {REACTION_OPTIONS.map((emoji) => (
-                    <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
-                      <Text style={styles.pickerEmoji}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
+            <View style={styles.messageRow}>
+              {item.senderAvatarUrl ? (
+                <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>{item.senderName.charAt(0).toUpperCase() || "?"}</Text>
                 </View>
               )}
+              <View style={[styles.bubble, item.messageType === "announcement" && styles.announcementBubble]}>
+                <View style={styles.bubbleHeader}>
+                  <Text style={styles.senderName}>{item.senderName}</Text>
+                  {item.pinned && <Text style={styles.pinnedBadge}>📌 Pinned</Text>}
+                </View>
+                <Text style={styles.body}>{item.body}</Text>
+                <View style={styles.bubbleFooter}>
+                  {[...grouped.entries()].map(([emoji, count]) => (
+                    <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
+                      <Text style={[styles.reaction, myEmojis.has(emoji) && styles.reactionActive]}>
+                        {emoji} {count}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => setPickerMessageId(pickerMessageId === item.id ? null : item.id)}
+                  >
+                    <Text style={styles.reaction}>+</Text>
+                  </TouchableOpacity>
+                  {club.role === "admin" && (
+                    <TouchableOpacity onPress={() => handleTogglePin(item)}>
+                      <Text style={styles.pinAction}>{item.pinned ? "Unpin" : "Pin"}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {pickerMessageId === item.id && (
+                  <View style={styles.pickerRow}>
+                    {REACTION_OPTIONS.map((emoji) => (
+                      <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
+                        <Text style={styles.pickerEmoji}>{emoji}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
             </View>
           );
         }}
@@ -181,7 +191,11 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   list: { padding: 12, gap: 8 },
-  bubble: { backgroundColor: "#f1f5f9", borderRadius: 10, padding: 10, marginBottom: 4 },
+  messageRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
+  avatar: { width: 32, height: 32, borderRadius: 16 },
+  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
+  avatarInitial: { fontSize: 13, fontWeight: "700", color: "#475569" },
+  bubble: { flex: 1, backgroundColor: "#f1f5f9", borderRadius: 10, padding: 10 },
   announcementBubble: { backgroundColor: "#fef3c7" },
   bubbleHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   senderName: { fontWeight: "700", fontSize: 13, color: "#334155" },

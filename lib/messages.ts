@@ -5,6 +5,7 @@ export interface DisplayMessage {
   id: string;
   senderId: string;
   senderName: string;
+  senderAvatarUrl: string | null;
   messageType: MessageType;
   body: string | null;
   pinned: boolean;
@@ -21,11 +22,11 @@ async function attachSendersAndReactions(
   const messageIds = messages.map((m) => m.id);
 
   const [{ data: profiles }, { data: reactions }] = await Promise.all([
-    supabase.from("profiles").select("id, full_name").in("id", senderIds),
+    supabase.from("profiles").select("id, full_name, avatar_url").in("id", senderIds),
     supabase.from("message_reactions").select("message_id, user_id, emoji").in("message_id", messageIds),
   ]);
 
-  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const reactionsByMessage = new Map<string, { emoji: string; userId: string }[]>();
   for (const r of reactions ?? []) {
     const list = reactionsByMessage.get(r.message_id) ?? [];
@@ -36,7 +37,8 @@ async function attachSendersAndReactions(
   return messages.map((m) => ({
     id: m.id,
     senderId: m.sender_id,
-    senderName: nameById.get(m.sender_id) ?? "Unknown",
+    senderName: profileById.get(m.sender_id)?.full_name ?? "Unknown",
+    senderAvatarUrl: profileById.get(m.sender_id)?.avatar_url ?? null,
     messageType: m.message_type,
     body: m.body,
     pinned: m.pinned,

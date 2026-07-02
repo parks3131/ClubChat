@@ -34,6 +34,7 @@ export interface Database {
           sport: string | null;
           invite_code: string;
           join_policy: ClubJoinPolicy;
+          avatar_url: string | null;
           created_by: string;
           created_at: string;
         };

@@ -130,18 +130,46 @@ app/                          Expo Router file-based routes
                                 exposes via `useClub()` context to all
                                 nested screens (see gotcha in section 6)
   (tabs)/clubs/[clubId]/(club-tabs)/
-    chat.tsx                   Real chat UI — messages, multi-emoji
-                                 reaction picker, admin pin/announce,
-                                 realtime (task #5, done)
+    _layout.tsx                  Bottom tabs (Chat/Calendar/Routines — no
+                                 Members tab, that moved into club-profile,
+                                 see below); `headerTitle` is a
+                                 `TouchableOpacity` wrapping the club name
+                                 that pushes to `club-profile`, not a plain
+                                 string — that's what makes it tappable
+    chat.tsx                   Real chat UI — messages (each showing the
+                                 sender's avatar, or an initial-letter
+                                 placeholder), multi-emoji reaction picker,
+                                 admin pin/announce, realtime (task #5, done)
     calendar.tsx                Real calendar list, grouped Upcoming/Past
                                  (task #6, done)
     routines.tsx                 Placeholder only (future phase)
-    members.tsx                  Real roster (avatar + name + role, tap a
-                                 row to view that member's profile card),
-                                 admin-only "Make admin"/"Remove"/"Add a
-                                 member" actions and a "Pending requests"
-                                 approve/deny section for request-policy
-                                 clubs
+  (tabs)/clubs/[clubId]/club-profile/_layout.tsx
+                                Stack wrapping the club-profile view + edit
+                                 modal, same shape as (tabs)/profile/
+  (tabs)/clubs/[clubId]/club-profile/index.tsx
+                                Reached by tapping the club name in the
+                                 chat/calendar/routines header. Club
+                                 identity (avatar with an admin-only pencil
+                                 overlay to upload a new picture, name,
+                                 description, admin-only "Edit" button) on
+                                 top, then the full member roster below —
+                                 this is where "Members" lives now, there
+                                 is no separate bottom tab for it. Roster
+                                 rows show avatar + name + role and are
+                                 tappable through to `member/[userId]`;
+                                 admins additionally get "Make
+                                 admin"/"Remove" per row (not on their own
+                                 row), an "Add a member" search box, and a
+                                 "Pending requests" approve/deny section —
+                                 this is the old (club-tabs)/members.tsx,
+                                 moved and merged with the club-identity
+                                 section rather than kept standalone
+  (tabs)/clubs/[clubId]/club-profile/edit.tsx
+                                Admin-only form (name + description) for
+                                 the club identity; non-admins hitting this
+                                 route directly get redirected back to
+                                 club-profile (same `router.canGoBack()`
+                                 guard pattern as event/create.tsx)
   (tabs)/clubs/[clubId]/member/[userId].tsx
                                 Read-only profile card for any other club
                                  member (avatar, name, description, city,
@@ -161,18 +189,22 @@ app/                          Expo Router file-based routes
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
-                                 searchClubs / joinOrRequestClub —
-                                 reference pattern to follow for new features
+                                 searchClubs / joinOrRequestClub /
+                                 fetchClubProfile / updateClubProfile /
+                                 uploadClubAvatar — reference pattern to
+                                 follow for new features
 lib/messages.ts                 fetchMessages / sendMessage / reactions /
-                                 realtime subscription — chat backend
+                                 realtime subscription — chat backend.
+                                 DisplayMessage carries senderAvatarUrl now
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent — calendar backend
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest —
-                                 roster + join-request backend
+                                 roster + join-request backend.
+                                 ClubMemberRow carries avatarUrl now
 lib/profile.ts                   fetchProfile / updateProfile /
-                                 uploadAvatar — profile view/edit +
-                                 Supabase Storage avatar upload
+                                 uploadAvatar / formatDateOfBirth — profile
+                                 view/edit + Supabase Storage avatar upload
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -226,6 +258,17 @@ supabase/migrations/
                                  for role changes instead of join/leave;
                                  handles either direction even though only
                                  promote (not demote) has UI today
+  0013_club_avatar.sql             Adds clubs.avatar_url (editing it is
+                                 already covered by the existing "admins
+                                 can update their club" UPDATE policy from
+                                 0003_rls.sql — no RLS change needed)
+  0014_club_avatar_storage.sql     Creates the public 'club-avatars'
+                                 Storage bucket. RLS differs from
+                                 0010_avatar_storage.sql (profile pics):
+                                 ownership here is "club admin", not "the
+                                 uploading user", so the write policies
+                                 check `is_club_admin(folder_name::uuid)`
+                                 instead of `folder_name = auth.uid()`
 ```
 
 ## 5. Current status (what's actually done vs. not)
@@ -238,14 +281,15 @@ supabase/migrations/
 | 4 | Club creation, invite-code join, admin/member roles | ✅ Done, verified live end-to-end |
 | 5 | Club group chat | ✅ Done — real messages, multi-emoji reaction picker (tap "+" to choose from a set, tap an existing reaction to toggle your own), admin pin/announce, realtime confirmed live (verified by inserting a row directly via SQL and watching it appear in the browser with zero refresh). Photo/video attachments (Storage) deliberately **not** built yet. |
 | 6 | Club calendar | ✅ Done — real `calendar_events` CRUD (`lib/calendar.ts`), list view grouped into Upcoming/Past (`(club-tabs)/calendar.tsx`), a detail screen (`event/[eventId].tsx`), and an admin-only create/edit form (`event/create.tsx`, edit mode via `?eventId=`). Verified live end-to-end via `CI=1 npx expo start --web` + Playwright: create, edit, delete, admin-vs-member visibility (no "+ New Event" FAB for members, direct navigation to `event/create` redirects members away), and realtime was **not** added (events change rarely; screen refetches on focus via `useFocusEffect` instead — see section 6 for why chat needed realtime but this doesn't). No new migration was needed — `calendar_events` schema + RLS already existed from 0001/0003. Date/time entry is plain `YYYY-MM-DD` / `HH:MM` text fields (no date-picker library is installed); good enough for MVP but a known UX rough edge if this needs to feel more polished later. |
-| 7 | Members list + promote/remove/add | ✅ Done — `members.tsx` shows the full roster (avatar + name + role). Admins get "Make admin" and "Remove" per member (not shown on their own row), plus an "Add a member" search-by-name box that adds someone directly, bypassing `join_policy`/requests entirely (admin-initiated adds are trusted). All destructive/role-changing actions are confirmed via `window.confirm` on web / `Alert.alert` on native (section-6 gotcha). No migration needed for the original version — `club_members` INSERT/UPDATE/DELETE RLS and the open `profiles` SELECT policy already covered all of this. The duplicate-display-name rough edge noted originally is now resolved by task #10/#11 (avatars + tap-to-view-profile). |
-| 8 | Search-by-name club join + join policy | ✅ Done — migration `0006_join_requests.sql` adds `clubs.join_policy` (`open` \| `request`, default `request`) and a `club_join_requests` table. Club creation has a policy picker; `join.tsx` has a "Find a club" mode (debounced autosuggest via `search_clubs` RPC) alongside the unchanged invite-code mode. Picking an `open` club joins instantly; picking a `request` club files a request. Pending requests surface to admins in `members.tsx` with Approve/Deny (`decide_join_request` RPC). Verified live end-to-end with three test users covering both policies and the approve flow. |
+| 7 | Members list + promote/remove/add | ✅ Done — moved into `club-profile/index.tsx` (task #12); no standalone Members screen/tab exists anymore. Admins get "Make admin" and "Remove" per member (not shown on their own row), plus an "Add a member" search-by-name box that adds someone directly, bypassing `join_policy`/requests entirely (admin-initiated adds are trusted). All destructive/role-changing actions are confirmed via `window.confirm` on web / `Alert.alert` on native (section-6 gotcha). No migration needed for the original version — `club_members` INSERT/UPDATE/DELETE RLS and the open `profiles` SELECT policy already covered all of this. The duplicate-display-name rough edge noted originally is now resolved by task #10/#11 (avatars + tap-to-view-profile). |
+| 8 | Search-by-name club join + join policy | ✅ Done — migration `0006_join_requests.sql` adds `clubs.join_policy` (`open` \| `request`, default `request`) and a `club_join_requests` table. Club creation has a policy picker; `join.tsx` has a "Find a club" mode (debounced autosuggest via `search_clubs` RPC) alongside the unchanged invite-code mode. Picking an `open` club joins instantly; picking a `request` club files a request. Pending requests surface to admins in `club-profile/index.tsx` with Approve/Deny (`decide_join_request` RPC). Verified live end-to-end with three test users covering both policies and the approve flow. |
 | 9 | Chat system messages for membership changes | ✅ Done — migrations `0007_system_message_type.sql` (adds `'system'` to the `message_type` enum, in its own migration since a new enum value can't be referenced until the transaction that added it commits) and `0008_membership_chat_events.sql` (two `AFTER INSERT`/`AFTER DELETE` triggers on `club_members`). The triggers hook the table itself rather than each call site, so every path that changes membership — search-join, invite code, admin add/remove, approved request — posts a consistent message without each `lib/*.ts` function having to remember to do it. Message body branches on `auth.uid()` vs. the affected `user_id`: self-join/leave reads "X joined/left the club", admin-initiated reads "X was added/removed by Y". Rendered in `chat.tsx` as a centered italic line with no bubble/sender/reactions — visually distinct from real messages, per an explicit ask that it not look like a regular chat message. Verified live: both "added by" and "removed by" messages appeared correctly and in realtime via the existing `messages` subscription (no extra plumbing needed since these are just normal rows in the same table). |
 | — | Weekly routines | ⬜ Not started (no schema yet) |
 | — | Race sub-flow (sub-chat, workout, carpool, results) | ⬜ Not started (no schema yet, placeholder nav screens only) |
 | — | Polls, video messages | ⬜ Not started |
 | 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done — `profile.tsx` split into a folder (`profile/_layout.tsx` Stack, `profile/index.tsx` view, `profile/edit.tsx` modal form), per a hand-drawn wireframe from the founder. View screen: avatar (or an initial-letter placeholder if none set) with a pencil overlay button that directly opens the native/web image picker and uploads — no separate "Edit Profile" step for the photo specifically; name/email; a "Description" section (blank-state text if empty); a "Your clubs" list (tap a club to jump straight into its chat) — this last part wasn't in the wireframe, added per an explicit "it should show what clubs he is in" ask. "Edit Profile" opens a modal form (see task #11 for its full field set), `Save` writes via `lib/profile.ts` and pops back (`router.canGoBack()` fallback per the section-6 gotcha). Backend: migration `0009_profile_bio.sql` adds `profiles.bio`; migration `0010_avatar_storage.sql` creates a public `avatars` Storage bucket with RLS restricting writes to each user's own `{user_id}/` folder (this is the project's first use of Supabase Storage — chat photo/video attachments still don't use it). Avatar upload always overwrites the same storage path (`{user_id}/avatar`, no extension) and appends a `?t=<timestamp>` cache-buster to the stored public URL so re-uploads show immediately instead of hitting a stale cached image at the same URL. Added the `expo-image-picker` dependency + its `app.json` plugin entry (iOS photo-library usage string) — first native-module dependency beyond the initial scaffold. Verified live end-to-end via `CI=1 npx expo start --web` + Playwright, including actually uploading a real image through the browser's file picker (`browser_file_upload`) and confirming it persisted across a reload, not just an optimistic local update. **Follow-up fix**: the picker initially failed silently on real browsers (button visibly reacted to clicks, but no file dialog appeared) — `await`ing `requestMediaLibraryPermissionsAsync()` before `launchImageLibraryAsync()` was consuming the browser's user-activation window from the click before the picker call ran (Playwright's automated click didn't reproduce this, which is why the first round of testing missed it — see the web platform note in the Expo docs about `launchImageLibraryAsync` needing to run synchronously off a user gesture). Fix: skip the permission check entirely on web (it's not a meaningful concept there — it's just an `<input type=file>`), only gate native platforms on it. |
 | 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done, three related additions from the same founder note. **(a)** Migration `0012_role_change_chat_events.sql` adds an `AFTER UPDATE OF role` trigger on `club_members` (`log_member_role_changed`), same shape as task #9's join/leave triggers, posting "X was promoted to admin by Y" (and the reverse direction too, even though nothing demotes yet — costs nothing extra to handle both ways now). **(b)** `members.tsx` roster rows now show each member's avatar (or initial-letter placeholder) next to name/role, and tapping the avatar+name area navigates to a new read-only screen, `clubs/[clubId]/member/[userId].tsx` (registered in `[clubId]/_layout.tsx`'s Stack) — showing that member's avatar, name, description, city, date of birth, and school. It reuses `lib/profile.ts`'s `fetchProfile(userId)` unchanged, since `profiles` are readable by any authenticated user already. The tappable name/avatar area is a sibling to the admin action buttons (not a parent wrapping them) specifically to avoid press-event bubbling between nested `TouchableOpacity`s on `react-native-web`. **(c)** Migration `0011_profile_details.sql` adds `profiles.city` / `date_of_birth` / `school`; `profile/edit.tsx` gained matching inputs (date of birth as a plain `YYYY-MM-DD` text field, consistent with the calendar's existing date-entry convention — validated client-side against the same `DATE_RE` shape used in `event/create.tsx`) and `profile/index.tsx` displays all three. **Bug caught during testing**: displaying `date_of_birth` via `new Date(iso).toLocaleDateString()` showed a day earlier than what was saved (e.g. saved 1995-06-15, displayed "June 14") — `new Date("YYYY-MM-DD")` parses as UTC midnight, which rolls back a day once rendered in a timezone behind UTC. Fixed by adding `formatDateOfBirth` to `lib/profile.ts`, which builds the `Date` from local y/m/d components instead of parsing the ISO string, and using it from both the self profile view and the new member profile view instead of duplicating the (broken) logic. Verified live end-to-end: promoted a member and confirmed the chat message, added avatars and confirmed tap-through to a member's profile card, and re-checked the date display showed the correct day after the fix. |
+| 12 | Club profile screen, chat sender avatars, Members tab removed | ✅ Done, from a founder wireframe request. **(a)** Chat messages show the sender's avatar next to their name now (`lib/messages.ts`'s `DisplayMessage` gained `senderAvatarUrl`, joined from `profiles` the same way `senderName` already was — no new query). **(b)** The club name in the chat/calendar/routines header is now tappable — `(club-tabs)/_layout.tsx`'s `headerTitle` became a `TouchableOpacity` instead of a plain string, pushing to a new `club-profile` screen. Since it's a `Stack.Screen` push (not a tab), the default back arrow works for free and returns to chat, per an explicit "so we can return to the chat" ask. **(c)** New `club-profile/index.tsx` + `edit.tsx` (mirrors the `profile/` folder shape): shows the club's avatar (admin-only pencil overlay to upload, same pattern as task #10's profile picture but a separate `club-avatars` bucket since ownership is "club admin" not "the uploader" — see migration `0014_club_avatar_storage.sql`), name, description, and an admin-only "Edit" button opening a name/description form (`0013_club_avatar.sql` adds `clubs.avatar_url`; editing name/description needed no new RLS, the existing "admins can update their club" policy from 0003 already covered it). **(d)** The member roster (previously its own `members.tsx` + bottom tab) moved into this same screen, below the identity section, per an explicit "we dont want the members on the bottom" ask — `(club-tabs)/_layout.tsx` no longer registers a Members tab, and the old `members.tsx` file was deleted (its contents live in `club-profile/index.tsx` now, unchanged otherwise). Verified live end-to-end: tapped the club name from chat and landed on club-profile with a working back button, uploaded a club avatar, edited the description, confirmed a non-admin sees no Edit/pencil/Add-member controls, and confirmed a non-admin hitting `club-profile/edit` directly gets redirected back (same guard pattern as `event/create.tsx`). |
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
 
 **Immediate next step**: weekly routines (no schema yet) — will need a new

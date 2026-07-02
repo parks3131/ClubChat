@@ -71,6 +71,7 @@ export default function ClubLayout() {
     <ClubContext.Provider value={club}>
       <Stack>
         <Stack.Screen name="(club-tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="club-profile" options={{ headerShown: false }} />
         <Stack.Screen name="race/[raceId]" options={{ headerShown: false }} />
         <Stack.Screen name="event/[eventId]" options={{ title: "Event" }} />
         <Stack.Screen name="event/create" options={{ title: "New event", presentation: "modal" }} />

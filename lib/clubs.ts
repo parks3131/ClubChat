@@ -20,6 +20,13 @@ export interface SearchedClub {
   requestStatus: JoinRequestStatus | null;
 }
 
+export interface ClubProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+}
+
 export async function fetchMyClubs(userId: string): Promise<ClubWithRole[]> {
   const { data: memberships, error: membershipError } = await supabase
     .from("club_members")
@@ -85,4 +92,44 @@ export async function joinOrRequestClub(clubId: string): Promise<"joined" | "req
   const { data, error } = await supabase.rpc("join_or_request_club", { target_club_id: clubId });
   if (error) throw error;
   return data as "joined" | "requested";
+}
+
+export async function fetchClubProfile(clubId: string): Promise<ClubProfile> {
+  const { data, error } = await supabase
+    .from("clubs")
+    .select("id, name, description, avatar_url")
+    .eq("id", clubId)
+    .single();
+
+  if (error) throw error;
+  return { id: data.id, name: data.name, description: data.description, avatarUrl: data.avatar_url };
+}
+
+// Enforced by the existing "admins can update their club" RLS policy —
+// a non-admin's call fails at the database, this doesn't add a new gate.
+export async function updateClubProfile(clubId: string, params: { name: string; description: string }) {
+  const { error } = await supabase
+    .from("clubs")
+    .update({ name: params.name, description: params.description || null })
+    .eq("id", clubId);
+  if (error) throw error;
+}
+
+export async function uploadClubAvatar(clubId: string, fileUri: string, contentType: string): Promise<string> {
+  const response = await fetch(fileUri);
+  const blob = await response.blob();
+  const path = `${clubId}/avatar`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("club-avatars")
+    .upload(path, blob, { contentType, upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("club-avatars").getPublicUrl(path);
+  const publicUrl = `${data.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase.from("clubs").update({ avatar_url: publicUrl }).eq("id", clubId);
+  if (updateError) throw updateError;
+
+  return publicUrl;
 }

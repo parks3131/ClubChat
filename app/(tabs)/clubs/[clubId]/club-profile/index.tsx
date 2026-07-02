@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "../../../../../contexts/AuthProvider";
+import { fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
 import {
   addMember,
   decideJoinRequest,
@@ -43,13 +45,17 @@ function reportError(err: unknown) {
   else Alert.alert("Error", message);
 }
 
-export default function ClubMembersScreen() {
+export default function ClubProfileScreen() {
   const club = useClub();
   const router = useRouter();
   const { session } = useAuth();
+  const isAdmin = club.role === "admin";
+
+  const [profile, setProfile] = useState<ClubProfile | null>(null);
   const [members, setMembers] = useState<ClubMemberRow[]>([]);
   const [requests, setRequests] = useState<JoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const [addQuery, setAddQuery] = useState("");
@@ -57,12 +63,15 @@ export default function ClubMembersScreen() {
   const [addSearching, setAddSearching] = useState(false);
 
   const reload = useCallback(() => {
-    const loaders: Promise<unknown>[] = [fetchClubMembers(club.clubId).then(setMembers)];
-    if (club.role === "admin") {
+    const loaders: Promise<unknown>[] = [
+      fetchClubProfile(club.clubId).then(setProfile),
+      fetchClubMembers(club.clubId).then(setMembers),
+    ];
+    if (isAdmin) {
       loaders.push(fetchPendingRequests(club.clubId).then(setRequests));
     }
     return Promise.all(loaders);
-  }, [club.clubId, club.role]);
+  }, [club.clubId, isAdmin]);
 
   useFocusEffect(
     useCallback(() => {
@@ -78,7 +87,7 @@ export default function ClubMembersScreen() {
   );
 
   useEffect(() => {
-    if (club.role !== "admin") return;
+    if (!isAdmin) return;
     const trimmed = addQuery.trim();
     if (trimmed.length < 2) {
       setAddResults([]);
@@ -95,12 +104,42 @@ export default function ClubMembersScreen() {
         .finally(() => setAddSearching(false));
     }, 300);
     return () => clearTimeout(timeout);
-  }, [addQuery, club.role, members]);
+  }, [addQuery, isAdmin, members]);
+
+  const handleEditPic = async () => {
+    if (!isAdmin) return;
+
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        reportError(new Error("Photo library access is required to change the club picture."));
+        return;
+      }
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    setUploadingAvatar(true);
+    try {
+      const avatarUrl = await uploadClubAvatar(club.clubId, asset.uri, asset.mimeType ?? "image/jpeg");
+      setProfile((p) => (p ? { ...p, avatarUrl } : p));
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handlePromote = async (member: ClubMemberRow) => {
     const proceed = await confirmAction("Make admin?", `Make ${member.fullName} an admin?`);
     if (!proceed) return;
-
     setBusyUserId(member.userId);
     try {
       await promoteToAdmin(club.clubId, member.userId);
@@ -115,7 +154,6 @@ export default function ClubMembersScreen() {
   const handleRemove = async (member: ClubMemberRow) => {
     const proceed = await confirmAction("Remove member?", `Remove ${member.fullName} from the club?`);
     if (!proceed) return;
-
     setBusyUserId(member.userId);
     try {
       await removeMember(club.clubId, member.userId);
@@ -153,7 +191,7 @@ export default function ClubMembersScreen() {
     }
   };
 
-  if (loading) {
+  if (loading || !profile) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator />
@@ -168,7 +206,38 @@ export default function ClubMembersScreen() {
       contentContainerStyle={styles.list}
       ListHeaderComponent={
         <View>
-          {club.role === "admin" && (
+          <View style={styles.identitySection}>
+            <View style={styles.avatarWrap}>
+              {profile.avatarUrl ? (
+                <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>{profile.name.charAt(0).toUpperCase() || "?"}</Text>
+                </View>
+              )}
+              {isAdmin && (
+                <TouchableOpacity style={styles.editPicButton} onPress={handleEditPic} disabled={uploadingAvatar}>
+                  {uploadingAvatar ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.editPicIcon}>✎</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.name}>{profile.name}</Text>
+            <Text style={styles.description}>{profile.description || "No description yet."}</Text>
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => router.push(`/clubs/${club.clubId}/club-profile/edit`)}
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {isAdmin && (
             <View style={styles.addSection}>
               <Text style={styles.sectionTitle}>Add a member</Text>
               <TextInput
@@ -181,7 +250,7 @@ export default function ClubMembersScreen() {
               {addSearching && <ActivityIndicator style={{ marginTop: 6 }} />}
               {addResults.map((user) => (
                 <View key={user.id} style={styles.addResultRow}>
-                  <Text style={styles.name}>{user.fullName}</Text>
+                  <Text style={styles.rowName}>{user.fullName}</Text>
                   <TouchableOpacity
                     style={[styles.actionButton, styles.addButton]}
                     onPress={() => handleAdd(user)}
@@ -194,12 +263,12 @@ export default function ClubMembersScreen() {
             </View>
           )}
 
-          {club.role === "admin" && requests.length > 0 && (
+          {isAdmin && requests.length > 0 && (
             <View style={styles.requestsSection}>
               <Text style={styles.sectionTitle}>Pending requests</Text>
               {requests.map((r) => (
                 <View key={r.id} style={styles.requestRow}>
-                  <Text style={styles.name}>{r.fullName}</Text>
+                  <Text style={styles.rowName}>{r.fullName}</Text>
                   <View style={styles.requestActions}>
                     <TouchableOpacity
                       style={[styles.actionButton, styles.approveButton]}
@@ -233,18 +302,18 @@ export default function ClubMembersScreen() {
               onPress={() => router.push(`/clubs/${club.clubId}/member/${item.userId}`)}
             >
               {item.avatarUrl ? (
-                <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+                <Image source={{ uri: item.avatarUrl }} style={styles.memberAvatar} />
               ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Text style={styles.avatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
+                <View style={[styles.memberAvatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.memberAvatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
                 </View>
               )}
               <View>
-                <Text style={styles.name}>{item.fullName}</Text>
+                <Text style={styles.rowName}>{item.fullName}</Text>
                 <Text style={styles.role}>{item.role === "admin" ? "Admin" : "Member"}</Text>
               </View>
             </TouchableOpacity>
-            {club.role === "admin" && !isSelf && (
+            {isAdmin && !isSelf && (
               <View style={styles.memberActions}>
                 {item.role !== "admin" && (
                   <TouchableOpacity
@@ -272,9 +341,41 @@ export default function ClubMembersScreen() {
   );
 }
 
+const AVATAR_SIZE = 88;
+
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   list: { padding: 16, gap: 8 },
+  identitySection: { alignItems: "center", marginBottom: 12 },
+  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE, marginBottom: 8 },
+  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 },
+  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
+  avatarInitial: { fontSize: 32, fontWeight: "700", color: "#475569" },
+  editPicButton: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  editPicIcon: { color: "#fff", fontSize: 13 },
+  name: { fontSize: 20, fontWeight: "700", color: "#0f172a" },
+  description: { fontSize: 14, color: "#475569", textAlign: "center", marginTop: 6, paddingHorizontal: 12 },
+  editButton: {
+    borderWidth: 1,
+    borderColor: "#2563eb",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 18,
+    marginTop: 10,
+  },
+  editButtonText: { color: "#2563eb", fontWeight: "600" },
   sectionTitle: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 12, marginBottom: 6 },
   addSection: { marginBottom: 4 },
   input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, fontSize: 14 },
@@ -309,10 +410,9 @@ const styles = StyleSheet.create({
   },
   memberInfo: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   memberActions: { flexDirection: "row", gap: 8 },
-  avatar: { width: 36, height: 36, borderRadius: 18 },
-  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontSize: 15, fontWeight: "700", color: "#475569" },
-  name: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  memberAvatar: { width: 36, height: 36, borderRadius: 18 },
+  memberAvatarInitial: { fontSize: 15, fontWeight: "700", color: "#475569" },
+  rowName: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
   role: { fontSize: 12, color: "#64748b", marginTop: 2 },
   actionButton: { borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
   promoteText: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
