@@ -106,7 +106,15 @@ app/                          Expo Router file-based routes
   (auth)/sign-up.tsx          Real Supabase Auth sign-up form (handles
                                email-confirmation-required state)
   (tabs)/_layout.tsx           Bottom tabs: Clubs, Profile
-  (tabs)/profile.tsx           Shows profile row + sign out
+  (tabs)/profile/_layout.tsx    Stack wrapping the profile view + edit modal
+  (tabs)/profile/index.tsx      Real profile view — avatar (tap the pencil
+                                 overlay to pick+upload a new photo),
+                                 name/email, description/bio, the clubs
+                                 this user is in (tap one to jump into its
+                                 chat), sign out
+  (tabs)/profile/edit.tsx        Admin-only-to-self edit form (name + bio),
+                                 presented as a modal, `Save` writes via
+                                 lib/profile.ts and pops back
   (tabs)/clubs/_layout.tsx      Stack wrapping the clubs list + club detail
   (tabs)/clubs/index.tsx        Real list of the user's clubs (role badge)
   (tabs)/clubs/create.tsx       Real club creation form — name/sport/
@@ -152,6 +160,9 @@ lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest —
                                  roster + join-request backend
+lib/profile.ts                   fetchProfile / updateProfile /
+                                 uploadAvatar — profile view/edit +
+                                 Supabase Storage avatar upload
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -191,6 +202,12 @@ supabase/migrations/
                                  joined/left" or "X was added/removed by
                                  Y") — hooks the table so every join/leave
                                  path stays consistent automatically
+  0009_profile_bio.sql             Adds profiles.bio (free-text description)
+  0010_avatar_storage.sql          Creates the public 'avatars' Storage
+                                 bucket + RLS on storage.objects so each
+                                 user can only write inside their own
+                                 `{user_id}/` folder; reads are public
+                                 (needed for plain <Image>/Image src URLs)
 ```
 
 ## 5. Current status (what's actually done vs. not)
@@ -209,8 +226,8 @@ supabase/migrations/
 | — | Weekly routines | ⬜ Not started (no schema yet) |
 | — | Race sub-flow (sub-chat, workout, carpool, results) | ⬜ Not started (no schema yet, placeholder nav screens only) |
 | — | Polls, video messages | ⬜ Not started |
+| 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done — `profile.tsx` split into a folder (`profile/_layout.tsx` Stack, `profile/index.tsx` view, `profile/edit.tsx` modal form), per a hand-drawn wireframe from the founder. View screen: avatar (or an initial-letter placeholder if none set) with a pencil overlay button that directly opens the native/web image picker and uploads — no separate "Edit Profile" step for the photo specifically; name/email; a "Description" section (blank-state text if empty); a "Your clubs" list (tap a club to jump straight into its chat) — this last part wasn't in the wireframe, added per an explicit "it should show what clubs he is in" ask. "Edit Profile" opens a modal with just Name + Description, `Save` writes via `lib/profile.ts` and pops back (`router.canGoBack()` fallback per the section-6 gotcha). Backend: migration `0009_profile_bio.sql` adds `profiles.bio`; migration `0010_avatar_storage.sql` creates a public `avatars` Storage bucket with RLS restricting writes to each user's own `{user_id}/` folder (this is the project's first use of Supabase Storage — chat photo/video attachments still don't use it). Avatar upload always overwrites the same storage path (`{user_id}/avatar`, no extension) and appends a `?t=<timestamp>` cache-buster to the stored public URL so re-uploads show immediately instead of hitting a stale cached image at the same URL. Added the `expo-image-picker` dependency + its `app.json` plugin entry (iOS photo-library usage string) — first native-module dependency beyond the initial scaffold. Verified live end-to-end via `CI=1 npx expo start --web` + Playwright, including actually uploading a real image through the browser's file picker (`browser_file_upload`) and confirming it persisted across a reload, not just an optimistic local update. This also resolves the task-#7 rough edge about same-name members being indistinguishable — avatars now give a visual disambiguator, though nothing surfaces bios in the roster/search-to-add lists yet if that's wanted later. |
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
-| — | Profile enhancements (avatar/photo, description) | ⬜ Deliberately deferred — `profiles.avatar_url` column already exists (unused) but there's no upload UI or description field yet. Explicitly called out as the fix for same-name members being indistinguishable in rosters/search (task #7) — do this before or alongside any future roster UI that needs to disambiguate people. |
 
 **Immediate next step**: weekly routines (no schema yet) — will need a new
 migration (e.g. `routines` table, admin-authored, club-scoped) plus a real

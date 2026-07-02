@@ -23,7 +23,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ClubChat uses your photo library to set your profile picture."
+        }
+      ]
     ]
   }
 }
