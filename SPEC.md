@@ -49,8 +49,10 @@ as a final layer.
 
 ```
 User (auth.users + profiles)
- └─ Club  (top-level container, has an invite_code)
+ └─ Club  (top-level container, has an invite_code + join_policy)
      ├─ ClubMember (user_id, role: admin | member)
+     ├─ ClubJoinRequest (user_id, status: pending | approved | denied —
+     │                   only used when join_policy = 'request')
      ├─ Channel (1:1 with Club today; will gain a nullable race_id later
      │           so race sub-chats reuse the same messages table)
      │   └─ Message (text | photo | announcement, pinned, reactions)
@@ -70,6 +72,16 @@ Key design decision: **a Race is not a separate concept from a Club, it's
 the same shape (membership + chat + workout plan) nested one level down**.
 This is why `channels` is deliberately generic (club-scoped now, will grow
 a nullable `race_id` later) rather than being duplicated per feature.
+
+Another design decision (from a founder note on club discovery/roster
+gaps): **`join_policy` replaces what would otherwise have been an
+"invite-only" tier — there is no invite-only policy.** Every club is
+`open` (search-by-name joins instantly) or `request` (search-by-name
+files a request the admin must approve). The existing `invite_code` /
+`join_club_by_code` RPC is untouched and orthogonal to this — it's a
+private, always-instant-join side channel regardless of `join_policy`,
+and is the intended base for a future shareable join-link (deliberately
+deferred, not built yet).
 
 ## 3. Tech stack
 
@@ -97,18 +109,28 @@ app/                          Expo Router file-based routes
   (tabs)/profile.tsx           Shows profile row + sign out
   (tabs)/clubs/_layout.tsx      Stack wrapping the clubs list + club detail
   (tabs)/clubs/index.tsx        Real list of the user's clubs (role badge)
-  (tabs)/clubs/create.tsx       Real club creation form
-  (tabs)/clubs/join.tsx         Real invite-code join form
+  (tabs)/clubs/create.tsx       Real club creation form — name/sport/
+                                 description + join-policy picker (open vs
+                                 request-to-join)
+  (tabs)/clubs/join.tsx         Real join form — two modes: invite code
+                                 (unchanged, always-instant-join) and
+                                 "Find a club" (debounced search-by-name
+                                 with autosuggest, join/request button)
   (tabs)/clubs/[clubId]/_layout.tsx
                                 Fetches club + this user's role once,
                                 exposes via `useClub()` context to all
                                 nested screens (see gotcha in section 6)
   (tabs)/clubs/[clubId]/(club-tabs)/
-    chat.tsx                   Real chat UI — messages, reactions, admin
-                                 pin/announce, realtime (task #5, done)
+    chat.tsx                   Real chat UI — messages, multi-emoji
+                                 reaction picker, admin pin/announce,
+                                 realtime (task #5, done)
     calendar.tsx                Real calendar list, grouped Upcoming/Past
                                  (task #6, done)
     routines.tsx                 Placeholder only (future phase)
+    members.tsx                  Real roster (name + role), admin-only
+                                 "Make admin" action and a "Pending
+                                 requests" approve/deny section for
+                                 request-policy clubs
   (tabs)/clubs/[clubId]/event/
     [eventId].tsx                Event detail view (admin sees Edit/Delete)
     create.tsx                   Admin-only create/edit form — edit mode
@@ -120,12 +142,16 @@ app/                          Expo Router file-based routes
 
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
-lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode —
+lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
+                                 searchClubs / joinOrRequestClub —
                                  reference pattern to follow for new features
 lib/messages.ts                 fetchMessages / sendMessage / reactions /
                                  realtime subscription — chat backend
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent — calendar backend
+lib/members.ts                   fetchClubMembers / promoteToAdmin /
+                                 fetchPendingRequests / decideJoinRequest —
+                                 roster + join-request backend
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -145,6 +171,26 @@ supabase/migrations/
   0005_realtime.sql              Adds messages + message_reactions to the
                                  supabase_realtime publication — required
                                  for postgres_changes to fire at all
+  0006_join_requests.sql          Adds clubs.join_policy (open | request,
+                                 default request), club_join_requests table
+                                 + RLS, and three RPCs: search_clubs (finds
+                                 open/request clubs by name, excludes
+                                 already-joined, security definer since
+                                 non-members can't SELECT clubs directly),
+                                 join_or_request_club (instant-join if
+                                 open, else files/refreshes a pending
+                                 request), decide_join_request (admin
+                                 approve/deny, inserts club_members on
+                                 approval)
+  0007_system_message_type.sql    Adds 'system' to the message_type enum
+                                 (its own migration — a new enum value
+                                 can't be referenced in the same
+                                 transaction that added it)
+  0008_membership_chat_events.sql Triggers on club_members insert/delete
+                                 that post a 'system' chat message ("X
+                                 joined/left" or "X was added/removed by
+                                 Y") — hooks the table so every join/leave
+                                 path stays consistent automatically
 ```
 
 ## 5. Current status (what's actually done vs. not)
@@ -155,11 +201,16 @@ supabase/migrations/
 | 2 | Supabase schema + RLS (see migrations 0001-0005) | ✅ Done |
 | 3 | Auth flow (sign up/in/out, session persistence, route guard) | ✅ Done |
 | 4 | Club creation, invite-code join, admin/member roles | ✅ Done, verified live end-to-end |
-| 5 | Club group chat | ✅ Done — real messages, reactions, admin pin/announce, realtime confirmed live (verified by inserting a row directly via SQL and watching it appear in the browser with zero refresh). Photo/video attachments (Storage) deliberately **not** built yet. |
+| 5 | Club group chat | ✅ Done — real messages, multi-emoji reaction picker (tap "+" to choose from a set, tap an existing reaction to toggle your own), admin pin/announce, realtime confirmed live (verified by inserting a row directly via SQL and watching it appear in the browser with zero refresh). Photo/video attachments (Storage) deliberately **not** built yet. |
 | 6 | Club calendar | ✅ Done — real `calendar_events` CRUD (`lib/calendar.ts`), list view grouped into Upcoming/Past (`(club-tabs)/calendar.tsx`), a detail screen (`event/[eventId].tsx`), and an admin-only create/edit form (`event/create.tsx`, edit mode via `?eventId=`). Verified live end-to-end via `CI=1 npx expo start --web` + Playwright: create, edit, delete, admin-vs-member visibility (no "+ New Event" FAB for members, direct navigation to `event/create` redirects members away), and realtime was **not** added (events change rarely; screen refetches on focus via `useFocusEffect` instead — see section 6 for why chat needed realtime but this doesn't). No new migration was needed — `calendar_events` schema + RLS already existed from 0001/0003. Date/time entry is plain `YYYY-MM-DD` / `HH:MM` text fields (no date-picker library is installed); good enough for MVP but a known UX rough edge if this needs to feel more polished later. |
+| 7 | Members list + promote/remove/add | ✅ Done — `members.tsx` shows the full roster (name + role). Admins get "Make admin" and "Remove" per member (not shown on their own row), plus an "Add a member" search-by-name box that adds someone directly, bypassing `join_policy`/requests entirely (admin-initiated adds are trusted). All destructive/role-changing actions are confirmed via `window.confirm` on web / `Alert.alert` on native (section-6 gotcha). No migration needed — `club_members` INSERT/UPDATE/DELETE RLS and the open `profiles` SELECT policy already covered all of this. Known rough edge (acknowledged, not fixed): members with duplicate display names are indistinguishable in the roster/search-to-add lists — deferred until profile pictures/descriptions exist (see below). |
+| 8 | Search-by-name club join + join policy | ✅ Done — migration `0006_join_requests.sql` adds `clubs.join_policy` (`open` \| `request`, default `request`) and a `club_join_requests` table. Club creation has a policy picker; `join.tsx` has a "Find a club" mode (debounced autosuggest via `search_clubs` RPC) alongside the unchanged invite-code mode. Picking an `open` club joins instantly; picking a `request` club files a request. Pending requests surface to admins in `members.tsx` with Approve/Deny (`decide_join_request` RPC). Verified live end-to-end with three test users covering both policies and the approve flow. |
+| 9 | Chat system messages for membership changes | ✅ Done — migrations `0007_system_message_type.sql` (adds `'system'` to the `message_type` enum, in its own migration since a new enum value can't be referenced until the transaction that added it commits) and `0008_membership_chat_events.sql` (two `AFTER INSERT`/`AFTER DELETE` triggers on `club_members`). The triggers hook the table itself rather than each call site, so every path that changes membership — search-join, invite code, admin add/remove, approved request — posts a consistent message without each `lib/*.ts` function having to remember to do it. Message body branches on `auth.uid()` vs. the affected `user_id`: self-join/leave reads "X joined/left the club", admin-initiated reads "X was added/removed by Y". Rendered in `chat.tsx` as a centered italic line with no bubble/sender/reactions — visually distinct from real messages, per an explicit ask that it not look like a regular chat message. Verified live: both "added by" and "removed by" messages appeared correctly and in realtime via the existing `messages` subscription (no extra plumbing needed since these are just normal rows in the same table). |
 | — | Weekly routines | ⬜ Not started (no schema yet) |
 | — | Race sub-flow (sub-chat, workout, carpool, results) | ⬜ Not started (no schema yet, placeholder nav screens only) |
 | — | Polls, video messages | ⬜ Not started |
+| — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
+| — | Profile enhancements (avatar/photo, description) | ⬜ Deliberately deferred — `profiles.avatar_url` column already exists (unused) but there's no upload UI or description field yet. Explicitly called out as the fix for same-name members being indistinguishable in rosters/search (task #7) — do this before or alongside any future roster UI that needs to disambiguate people. |
 
 **Immediate next step**: weekly routines (no schema yet) — will need a new
 migration (e.g. `routines` table, admin-authored, club-scoped) plus a real

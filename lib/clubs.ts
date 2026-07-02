@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { ClubRole } from "../types/database";
+import type { ClubJoinPolicy, ClubRole, JoinRequestStatus } from "../types/database";
 
 export interface ClubWithRole {
   id: string;
@@ -8,6 +8,16 @@ export interface ClubWithRole {
   sport: string | null;
   invite_code: string;
   role: ClubRole;
+}
+
+export interface SearchedClub {
+  id: string;
+  name: string;
+  description: string | null;
+  sport: string | null;
+  joinPolicy: ClubJoinPolicy;
+  memberCount: number;
+  requestStatus: JoinRequestStatus | null;
 }
 
 export async function fetchMyClubs(userId: string): Promise<ClubWithRole[]> {
@@ -33,6 +43,7 @@ export async function createClub(params: {
   description: string;
   sport: string;
   createdBy: string;
+  joinPolicy: ClubJoinPolicy;
 }) {
   const { data, error } = await supabase
     .from("clubs")
@@ -41,6 +52,7 @@ export async function createClub(params: {
       description: params.description || null,
       sport: params.sport || null,
       created_by: params.createdBy,
+      join_policy: params.joinPolicy,
     })
     .select()
     .single();
@@ -53,4 +65,24 @@ export async function joinClubByCode(code: string) {
   const { data, error } = await supabase.rpc("join_club_by_code", { code });
   if (error) throw error;
   return data;
+}
+
+export async function searchClubs(query: string): Promise<SearchedClub[]> {
+  const { data, error } = await supabase.rpc("search_clubs", { query });
+  if (error) throw error;
+  return (data ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    sport: c.sport,
+    joinPolicy: c.join_policy,
+    memberCount: Number(c.member_count),
+    requestStatus: c.request_status,
+  }));
+}
+
+export async function joinOrRequestClub(clubId: string): Promise<"joined" | "requested"> {
+  const { data, error } = await supabase.rpc("join_or_request_club", { target_club_id: clubId });
+  if (error) throw error;
+  return data as "joined" | "requested";
 }

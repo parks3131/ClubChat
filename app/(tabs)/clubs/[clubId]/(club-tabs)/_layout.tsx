@@ -21,6 +21,7 @@ export default function ClubTabsLayout() {
       <Tabs.Screen name="chat" options={{ title: "Chat" }} />
       <Tabs.Screen name="calendar" options={{ title: "Calendar" }} />
       <Tabs.Screen name="routines" options={{ title: "Routines" }} />
+      <Tabs.Screen name="members" options={{ title: "Members" }} />
     </Tabs>
   );
 }

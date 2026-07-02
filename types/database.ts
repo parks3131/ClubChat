@@ -4,7 +4,9 @@
 
 export type ClubRole = "admin" | "member";
 export type CalendarEventType = "race" | "practice" | "team_bonding" | "volunteer" | "other";
-export type MessageType = "text" | "photo" | "announcement";
+export type MessageType = "text" | "photo" | "announcement" | "system";
+export type ClubJoinPolicy = "open" | "request";
+export type JoinRequestStatus = "pending" | "approved" | "denied";
 
 export interface Database {
   public: {
@@ -27,6 +29,7 @@ export interface Database {
           description: string | null;
           sport: string | null;
           invite_code: string;
+          join_policy: ClubJoinPolicy;
           created_by: string;
           created_at: string;
         };
@@ -116,12 +119,49 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["message_reactions"]["Row"]>;
         Relationships: [];
       };
+      club_join_requests: {
+        Row: {
+          id: string;
+          club_id: string;
+          user_id: string;
+          status: JoinRequestStatus;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["club_join_requests"]["Row"]> & {
+          club_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["club_join_requests"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: {};
     Functions: {
       join_club_by_code: {
         Args: { code: string };
         Returns: Database["public"]["Tables"]["clubs"]["Row"];
+      };
+      search_clubs: {
+        Args: { query: string };
+        Returns: {
+          id: string;
+          name: string;
+          description: string | null;
+          sport: string | null;
+          join_policy: ClubJoinPolicy;
+          member_count: number;
+          request_status: JoinRequestStatus | null;
+        }[];
+      };
+      join_or_request_club: {
+        Args: { target_club_id: string };
+        Returns: "joined" | "requested";
+      };
+      decide_join_request: {
+        Args: { request_id: string; approve: boolean };
+        Returns: undefined;
       };
     };
   };

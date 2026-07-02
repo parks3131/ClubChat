@@ -22,6 +22,8 @@ import {
 } from "../../../../../lib/messages";
 import { useClub } from "../_layout";
 
+const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
+
 export default function ClubChatScreen() {
   const club = useClub();
   const { session } = useAuth();
@@ -29,6 +31,7 @@ export default function ClubChatScreen() {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [asAnnouncement, setAsAnnouncement] = useState(false);
+  const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     fetchMessages(club.channelId)
@@ -60,9 +63,10 @@ export default function ClubChatScreen() {
     reload();
   };
 
-  const handleReact = async (messageId: string) => {
+  const handleReact = async (messageId: string, emoji: string) => {
     if (!session) return;
-    await toggleReaction(messageId, session.user.id, "👍");
+    setPickerMessageId(null);
+    await toggleReaction(messageId, session.user.id, emoji);
     reload();
   };
 
@@ -90,7 +94,21 @@ export default function ClubChatScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
-          const myReaction = item.reactions.some((r) => r.userId === session?.user.id);
+          if (item.messageType === "system") {
+            return (
+              <View style={styles.systemRow}>
+                <Text style={styles.systemText}>{item.body}</Text>
+              </View>
+            );
+          }
+
+          const grouped = new Map<string, number>();
+          const myEmojis = new Set<string>();
+          for (const r of item.reactions) {
+            grouped.set(r.emoji, (grouped.get(r.emoji) ?? 0) + 1);
+            if (r.userId === session?.user.id) myEmojis.add(r.emoji);
+          }
+
           return (
             <View style={[styles.bubble, item.messageType === "announcement" && styles.announcementBubble]}>
               <View style={styles.bubbleHeader}>
@@ -99,10 +117,17 @@ export default function ClubChatScreen() {
               </View>
               <Text style={styles.body}>{item.body}</Text>
               <View style={styles.bubbleFooter}>
-                <TouchableOpacity onPress={() => handleReact(item.id)}>
-                  <Text style={[styles.reaction, myReaction && styles.reactionActive]}>
-                    👍 {item.reactions.length > 0 ? item.reactions.length : ""}
-                  </Text>
+                {[...grouped.entries()].map(([emoji, count]) => (
+                  <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
+                    <Text style={[styles.reaction, myEmojis.has(emoji) && styles.reactionActive]}>
+                      {emoji} {count}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  onPress={() => setPickerMessageId(pickerMessageId === item.id ? null : item.id)}
+                >
+                  <Text style={styles.reaction}>+</Text>
                 </TouchableOpacity>
                 {club.role === "admin" && (
                   <TouchableOpacity onPress={() => handleTogglePin(item)}>
@@ -110,6 +135,15 @@ export default function ClubChatScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+              {pickerMessageId === item.id && (
+                <View style={styles.pickerRow}>
+                  {REACTION_OPTIONS.map((emoji) => (
+                    <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
+                      <Text style={styles.pickerEmoji}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
           );
         }}
@@ -156,8 +190,22 @@ const styles = StyleSheet.create({
   bubbleFooter: { flexDirection: "row", gap: 16, marginTop: 6 },
   reaction: { fontSize: 13, color: "#64748b" },
   reactionActive: { color: "#2563eb", fontWeight: "700" },
+  pickerRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignSelf: "flex-start",
+  },
+  pickerEmoji: { fontSize: 20 },
   pinAction: { fontSize: 13, color: "#2563eb" },
   empty: { textAlign: "center", marginTop: 40, color: "#888" },
+  systemRow: { alignItems: "center", marginVertical: 4 },
+  systemText: { fontSize: 12, color: "#94a3b8", fontStyle: "italic" },
   announceRow: {
     flexDirection: "row",
     alignItems: "center",
