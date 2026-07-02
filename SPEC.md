@@ -58,7 +58,10 @@ User (auth.users + profiles)
      │   └─ Message (text | photo | announcement, pinned, reactions)
      ├─ CalendarEvent (type: race | practice | team_bonding | volunteer | other)
      │   └─ (a "race"-typed event will spawn a Race — not yet built)
-     ├─ Routine (weekly workout plan — not yet built)
+     ├─ RoutineWorkout (dated weekly workout: activity_type run | swim,
+     │                   title, description — deliberately no structured
+     │                   exercise sub-table, per an explicit "keep it very
+     │                   simple" scoping call)
      └─ Race (mini-club nested under Club — not yet built)
          ├─ its own membership (subset of Club membership)
          ├─ its own Channel/Messages
@@ -150,7 +153,7 @@ app/                          Expo Router file-based routes
                                  section 6) since it's the only screen in
                                  this group reachable from a different
                                  top-level tab.
-  (tabs)/clubs/[clubId]/{chat,calendar,routines}.tsx
+  (tabs)/clubs/[clubId]/{chat,calendar}.tsx
                                 Plain Stack screens (no longer wrapped in
                                  a Tabs navigator — see task #13).
                                  `chat.tsx`: real chat UI — messages (each
@@ -178,8 +181,7 @@ app/                          Expo Router file-based routes
                                  Announcements tab (task #14).
                                  `calendar.tsx`: real calendar list, grouped
                                  Upcoming/Past (task #6, done).
-                                 `routines.tsx`: placeholder only (future
-                                 phase). The shared `headerTitle`
+                                 The shared `headerTitle`
                                  (`TouchableOpacity` wrapping the club name,
                                  pushing to `club-profile` — that's what
                                  makes it tappable), `headerRight`
@@ -187,8 +189,96 @@ app/                          Expo Router file-based routes
                                  (a `‹` back button — see next paragraph)
                                  are set once in `[clubId]/_layout.tsx`'s
                                  `Stack.Screen` options for
-                                 `index`/`chat`/`calendar`/`routines`,
-                                 rather than per-screen.
+                                 `index`/`chat`/`calendar`,
+                                 rather than per-screen. `routines` repeats
+                                 this same header setup itself (see below)
+                                 rather than being registered here, since it
+                                 needs its own nested Stack.
+  (tabs)/clubs/[clubId]/routines/
+                                Weekly routines (task #15) — its own nested
+                                 Stack (`routines/_layout.tsx`, same shape as
+                                 `club-profile/_layout.tsx`) rather than a
+                                 flat `Stack.Screen` like `event/`, since it
+                                 needs several sub-screens each with their
+                                 own back-fallback; only its `index` needs
+                                 the tappable-club-name/invite-code header
+                                 `index`/`chat`/`calendar` share, so
+                                 `routines/_layout.tsx` reconstructs that
+                                 header itself rather than importing it from
+                                 the parent layout.
+                                 `index.tsx`: the weekly view — Monday
+                                 through Sunday for a selected real calendar
+                                 week (not a repeating day-of-week template
+                                 — training progresses week over week, per
+                                 an explicit founder call between the two
+                                 options), with `‹`/`›` buttons to page a
+                                 week at a time. Only today and future days
+                                 are ever shown — days before today (within
+                                 the current week) are filtered out
+                                 entirely rather than displayed as
+                                 read-only history, and the `‹` button is
+                                 disabled once `weekStart` reaches the
+                                 current week's Monday, per an explicit
+                                 founder call ("we should be able to see
+                                 today and future days") — there is no way
+                                 to view a past week or a past day. Each
+                                 remaining day shows its workout(s), if any
+                                 (tappable through to `workout/[workoutId]`),
+                                 or, for members, "Rest day" when there's
+                                 nothing that day; admins additionally get
+                                 a "+ Add workout" row under every day
+                                 regardless of whether one already exists,
+                                 since a single day can hold more than one
+                                 workout (e.g. an AM run plus a PM swim).
+                                 `activity-type.tsx`: admin-only picker —
+                                 all 9 activity types from the reference
+                                 app's own picker (Run, Trail Run, Bike,
+                                 Swim, Strength, Hybrid Fitness, Indoor
+                                 Climb, Bouldering, XC Ski) plus a 10th
+                                 "Other" catch-all (same role as
+                                 `calendar_event_type`'s `other`), per a
+                                 follow-up founder ask to match the
+                                 reference list in full rather than the
+                                 originally-scoped Run/Swim-only — which
+                                 was easy to do once the create form no
+                                 longer has sport-specific fields (see
+                                 `workout/create.tsx` below). The list
+                                 (value/label/icon triples) lives once in
+                                 `lib/routines.ts`'s exported
+                                 `ACTIVITY_TYPES`, with `ACTIVITY_LABELS`/
+                                 `ACTIVITY_ICONS` derived from it — this
+                                 screen, `routines/index.tsx`,
+                                 `workout/create.tsx`, and
+                                 `workout/[workoutId].tsx` all import from
+                                 there rather than each keeping their own
+                                 copy, since duplicating a 10-entry list
+                                 across four files was exactly the kind of
+                                 drift risk not worth taking. Carries the
+                                 tapped day's date via `?date=` and pushes
+                                 to `workout/create`.
+                                 `workout/create.tsx`: admin-only
+                                 create/edit form (edit via `?workoutId=`,
+                                 same convention as `event/create.tsx`) —
+                                 deliberately just a title (defaults to the
+                                 activity type's name) and a description,
+                                 nothing else. An earlier version of this
+                                 screen had a full exercise builder (name +
+                                 Time-or-Distance target + notes per row)
+                                 and a Swim-only pool-length picker; both
+                                 were removed per an explicit follow-up
+                                 founder ask to keep this "very simple" —
+                                 see task #15's follow-up note.
+                                 `workout/[workoutId].tsx`: detail view —
+                                 activity badge, date, title, description —
+                                 read-only for members; admins get
+                                 Edit/Delete (same `window.confirm`/
+                                 `Alert.alert` platform-branch delete-
+                                 confirmation pattern as
+                                 `event/[eventId].tsx`). No completion
+                                 tracking — members can only view what an
+                                 admin planned, per an explicit founder
+                                 scoping call ("admin can add workouts and
+                                 members can only see workouts").
   (tabs)/clubs/[clubId]/highlights.tsx
                                 Reached by tapping the pinned strip atop
                                  chat. Two tabs, Pinned and Announcements
@@ -281,6 +371,11 @@ lib/members.ts                   fetchClubMembers / promoteToAdmin /
 lib/profile.ts                   fetchProfile / updateProfile /
                                  uploadAvatar / formatDateOfBirth — profile
                                  view/edit + Supabase Storage avatar upload
+lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
+                                 createWorkout / updateWorkout /
+                                 deleteWorkout — routines backend, plain
+                                 CRUD over `routine_workouts` (no exercise
+                                 sub-resource — see task #15's follow-up)
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -345,6 +440,28 @@ supabase/migrations/
                                  uploading user", so the write policies
                                  check `is_club_admin(folder_name::uuid)`
                                  instead of `folder_name = auth.uid()`
+  0015_routines.sql                Adds `routine_workouts` (club_id,
+                                 workout_date, activity_type [run|
+                                 trail_run|bike|swim|strength|
+                                 hybrid_fitness|indoor_climb|bouldering|
+                                 xc_ski|other], title, description,
+                                 created_by). RLS
+                                 follows the usual is_club_member (read) /
+                                 is_club_admin (write) split. No chicken-
+                                 and-egg SELECT-policy carve-out needed here
+                                 (unlike `clubs` in section 6) — the
+                                 creator is already a club member (an
+                                 admin) at INSERT time, so INSERT ...
+                                 RETURNING's implicit SELECT re-check
+                                 always passes. Originally also had a
+                                 `routine_exercises` table + a
+                                 `pool_length` column, both removed (this
+                                 migration was edited in place rather than
+                                 reversed in a new one, since it hadn't
+                                 shipped beyond this session/local dev
+                                 yet) once the founder asked to simplify
+                                 workouts down to just title + description
+                                 — see task #15's follow-up note.
 ```
 
 ## 5. Current status (what's actually done vs. not)
@@ -360,7 +477,6 @@ supabase/migrations/
 | 7 | Members list + promote/remove/add | ✅ Done — moved into `club-profile/index.tsx` (task #12); no standalone Members screen/tab exists anymore. Admins get "Make admin" and "Remove" per member (not shown on their own row), plus an "Add a member" search-by-name box that adds someone directly, bypassing `join_policy`/requests entirely (admin-initiated adds are trusted). All destructive/role-changing actions are confirmed via `window.confirm` on web / `Alert.alert` on native (section-6 gotcha). No migration needed for the original version — `club_members` INSERT/UPDATE/DELETE RLS and the open `profiles` SELECT policy already covered all of this. The duplicate-display-name rough edge noted originally is now resolved by task #10/#11 (avatars + tap-to-view-profile). |
 | 8 | Search-by-name club join + join policy | ✅ Done — migration `0006_join_requests.sql` adds `clubs.join_policy` (`open` \| `request`, default `request`) and a `club_join_requests` table. Club creation has a policy picker; `join.tsx` has a "Find a club" mode (debounced autosuggest via `search_clubs` RPC) alongside the unchanged invite-code mode. Picking an `open` club joins instantly; picking a `request` club files a request. Pending requests surface to admins in `club-profile/index.tsx` with Approve/Deny (`decide_join_request` RPC). Verified live end-to-end with three test users covering both policies and the approve flow. |
 | 9 | Chat system messages for membership changes | ✅ Done — migrations `0007_system_message_type.sql` (adds `'system'` to the `message_type` enum, in its own migration since a new enum value can't be referenced until the transaction that added it commits) and `0008_membership_chat_events.sql` (two `AFTER INSERT`/`AFTER DELETE` triggers on `club_members`). The triggers hook the table itself rather than each call site, so every path that changes membership — search-join, invite code, admin add/remove, approved request — posts a consistent message without each `lib/*.ts` function having to remember to do it. Message body branches on `auth.uid()` vs. the affected `user_id`: self-join/leave reads "X joined/left the club", admin-initiated reads "X was added/removed by Y". Rendered in `chat.tsx` as a centered italic line with no bubble/sender/reactions — visually distinct from real messages, per an explicit ask that it not look like a regular chat message. Verified live: both "added by" and "removed by" messages appeared correctly and in realtime via the existing `messages` subscription (no extra plumbing needed since these are just normal rows in the same table). |
-| — | Weekly routines | ⬜ Not started (no schema yet) |
 | — | Race sub-flow (sub-chat, workout, carpool, results) | ⬜ Not started (no schema yet, placeholder nav screens only) |
 | — | Polls, video messages | ⬜ Not started |
 | 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done — `profile.tsx` split into a folder (`profile/_layout.tsx` Stack, `profile/index.tsx` view, `profile/edit.tsx` modal form), per a hand-drawn wireframe from the founder. View screen: avatar (or an initial-letter placeholder if none set) with a pencil overlay button that directly opens the native/web image picker and uploads — no separate "Edit Profile" step for the photo specifically; name/email; a "Description" section (blank-state text if empty); a "Your clubs" list (tap a club to jump straight into its chat) — this last part wasn't in the wireframe, added per an explicit "it should show what clubs he is in" ask. "Edit Profile" opens a modal form (see task #11 for its full field set), `Save` writes via `lib/profile.ts` and pops back (`router.canGoBack()` fallback per the section-6 gotcha). Backend: migration `0009_profile_bio.sql` adds `profiles.bio`; migration `0010_avatar_storage.sql` creates a public `avatars` Storage bucket with RLS restricting writes to each user's own `{user_id}/` folder (this is the project's first use of Supabase Storage — chat photo/video attachments still don't use it). Avatar upload always overwrites the same storage path (`{user_id}/avatar`, no extension) and appends a `?t=<timestamp>` cache-buster to the stored public URL so re-uploads show immediately instead of hitting a stale cached image at the same URL. Added the `expo-image-picker` dependency + its `app.json` plugin entry (iOS photo-library usage string) — first native-module dependency beyond the initial scaffold. Verified live end-to-end via `CI=1 npx expo start --web` + Playwright, including actually uploading a real image through the browser's file picker (`browser_file_upload`) and confirming it persisted across a reload, not just an optimistic local update. **Follow-up fix**: the picker initially failed silently on real browsers (button visibly reacted to clicks, but no file dialog appeared) — `await`ing `requestMediaLibraryPermissionsAsync()` before `launchImageLibraryAsync()` was consuming the browser's user-activation window from the click before the picker call ran (Playwright's automated click didn't reproduce this, which is why the first round of testing missed it — see the web platform note in the Expo docs about `launchImageLibraryAsync` needing to run synchronously off a user gesture). Fix: skip the permission check entirely on web (it's not a meaningful concept there — it's just an `<input type=file>`), only gate native platforms on it. |
@@ -369,10 +485,11 @@ supabase/migrations/
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
 | 13 | Club navigation restructure (hub screen replaces bottom Tabs) + chat avatar → profile link | ✅ Done, per the plan below plus one deviation found during live verification. `(club-tabs)/_layout.tsx` and the `(club-tabs)` route group are gone; `chat.tsx`/`calendar.tsx`/`routines.tsx` moved up to be plain `Stack.Screen`s directly under `[clubId]/`, alongside a new hub screen at `[clubId]/index.tsx` (three tappable rows, Chat/Calendar/Routines). `[clubId]/_layout.tsx` now registers `index`/`chat`/`calendar`/`routines` individually, all sharing one `clubScreenOptions` object (tappable club-name `headerTitle` → `club-profile`, admin-only invite-code `headerRight`) instead of that logic living in the deleted Tabs layout. The two direct-entry call sites (`clubs/index.tsx`, `profile/index.tsx`'s "Your clubs" list) now push to `/clubs/${id}` (the hub) instead of straight to `/clubs/${id}/chat`; the `?from=profile` cross-tab-back-history param carries over unchanged, now read by the hub screen instead of the old Tabs layout. Chat avatars are now wrapped in a `TouchableOpacity` pushing to `member/[senderId]`. **Deviation from the original plan**: the plan's step 1 assumed chat/calendar/routines could get "zero custom back-button logic" and rely purely on native Stack back. That's true only when the screen was reached by clicking through the app — a direct URL load or page refresh on any of these screens (or the hub itself) has no navigation history for the native back button to pop, so it silently doesn't render at all (same root cause as the `router.canGoBack()` gotcha in section 6, just newly hit here because these screens are no longer nested under a Tabs navigator that had its own always-present custom back button). Caught live via Playwright by direct-navigating to each URL instead of only clicking through. **Fix**: `_layout.tsx` gives every one of `index`/`chat`/`calendar`/`routines` an explicit `headerLeft` (`canGoBack() ? back() : replace(fallback)`, fallback = the hub for chat/calendar/routines, `/clubs` for the hub) instead of relying on the native button. The same gap existed on two screens outside the original plan's scope — `club-profile/_layout.tsx` (reached from four different screens: hub, chat, calendar, routines — fixed with the same pattern, fallback = the hub, verified `canGoBack()` correctly returns to whichever of the four it was actually opened from, not just the fallback) and `(tabs)/profile/_layout.tsx` (a bottom-tab root with no back button at all previously — fixed the same way, fallback = `/clubs`). All five screens verified live end-to-end via Playwright, both by clicking through (real history) and by direct URL navigation (fallback path): Main → Hub → Chat/Calendar/Routines → back at each level, club name tap → club-profile → back returns to whichever screen it was opened from, Profile tab → back to Clubs. `npx tsc --noEmit` clean throughout. The three inline copies of the back-button component were later extracted into `components/BackHeaderButton.tsx`'s `makeBackHeaderLeft(router, fallback)` (caught by an advisor review after the fact, not part of the original verification pass — see that file's note). |
 | 14 | Chat: pinned-messages sticky strip, Highlights screen, per-message timestamps, auto-scroll-to-bottom | ✅ Done, from a founder wireframe request (reference screenshots were from a different app — confirmed with the founder that only two tabs, Pinned + Announcements, were wanted, not the third "Popular"/"My likes" tabs shown in the reference). **(a)** `chat.tsx` now renders a horizontally-scrollable sticky strip above the message list whenever ≥1 message is pinned, ordered newest-first (`[...messages].filter(pinned).reverse()`), each card showing sender avatar + name + truncated body; tapping any card pushes to `highlights?tab=pinned`, confirmed by the founder to always land on the Pinned tab rather than scrolling to that specific message. **(b)** New `highlights.tsx` screen: two tabs (Pinned / Announcements), both client-side filters over the same `fetchMessages` result chat already fetches (no new backend query or migration — `pinned`, `messageType`, `createdAt` all already existed on `DisplayMessage`), both newest-first, each row's avatar tappable through to `member/[userId]` (same pattern as chat). Registered in `[clubId]/_layout.tsx` with a plain "Highlights" title and `headerLeft` falling back to `chat` (via the shared `makeBackHeaderLeft` from task #13's later refactor). **(c)** Every real message bubble in chat now shows a small gray `HH:mm` (24-hour, locale-independent — built manually with `padStart` rather than `toLocaleTimeString`, so it doesn't vary by browser locale) timestamp right-aligned below the body. **(d)** Chat auto-scrolls to the newest message via a `FlatList` ref + `onContentSizeChange` → `scrollToEnd({ animated: true })`, which covers initial load, realtime updates from other members, and the current user's own sends with one code path (no separate manual `scrollToEnd()` call needed after `sendMessage`). Verified live end-to-end against a real club with real messages (not a fresh test club): pinned-strip card tap → landed on Highlights/Pinned showing the correct message; Announcements tab showed the correct announcement with no pin icon; timestamps appeared on every message; the list was already scrolled to the newest message on load. **Two issues caught after the initial pass, both from an advisor review + the founder's own live testing, not the original Playwright pass** (the test club only had one pinned message and one un-pinned announcement, so neither gap was exercised): **(1)** the strip is conditionally rendered (`pinnedMessages.length > 0`), so a club with announcements but nothing currently pinned had *no* UI path to the Announcements tab at all — fixed by adding a persistent "📌 Highlights" button to chat's header (`useLayoutEffect` + `navigation.setOptions` overriding the shared `headerRight`, same dynamic-override pattern as `event/create.tsx`'s title and the hub's `?from=profile` case), shown to every member regardless of admin status or pin state, alongside the existing admin-only invite code. **(2)** the founder flagged the strip rendering "too small" — the pinned card was visually squished into a single cramped line overlapping the message list below it; root cause was using `maxHeight` on a horizontal `ScrollView`, which doesn't reliably size the container's actual height on web. Fixed by switching to a fixed `height: 96` (plus `flexGrow: 0` / `flexShrink: 0` so it can't be compressed by sibling layout) and enlarging the card (72px tall, 36px avatar, 13px text) to match. Re-verified live with two pinned messages simultaneously (not just one, closing the gap in the original single-message-only test): both cards render side-by-side at full size with no overlap, newest-first ordering confirmed ("race day" pinned after "hey all" showed first), and the header button independently reaches Highlights (confirmed by loading `/highlights` with no `?tab` param) even without going through the strip. |
+| 15 | Weekly routines | ✅ Done, per a founder screenshot walkthrough of a reference training app plus four explicit scoping calls made up front: (1) workouts are **dated to a real calendar week**, not a repeating Monday-template, so training can progress week over week; (2) **Run and Swim only** for this first build (the reference app's picker also listed Bike/Strength/etc., deliberately not built yet); (3) exercises use a **simplified** name + optional Time-or-Distance target + notes, not the reference app's full zone/intensity-range builder; (4) this phase is **read-only for members** — no completion tracking/logging. Migration `0015_routines.sql` adds `routine_workouts` and `routine_exercises` (see section 4 for the full RLS shape). `lib/routines.ts` follows the established `lib/calendar.ts` pattern (`fetchWeekWorkouts`/`fetchWorkout`/`createWorkout`/`updateWorkout`/`deleteWorkout`), with exercises always replaced wholesale on save rather than diffed. UI: `routines/index.tsx` (weekly Mon–Sun view with `‹`/`›` week paging, per-day workout cards or "Rest day", admin-only "+ Add workout"), `routines/activity-type.tsx` (admin-only Run/Swim picker), `routines/workout/create.tsx` (admin-only create/edit form — title, description, Swim-only pool-length chips, an editable exercise list), `routines/workout/[workoutId].tsx` (detail view, Edit/Delete for admins only). `routines/` is its own nested Stack (`routines/_layout.tsx`, same shape as `club-profile/_layout.tsx`) rather than flat screens in the parent layout, since it needed several sub-screens each with their own back-fallback — the parent `[clubId]/_layout.tsx` now just has `<Stack.Screen name="routines" options={{ headerShown: false }} />`, identical to how `club-profile` and `race/[raceId]` are already registered. **Bug caught and fixed during live verification**: the week-range label (`formatWeekRange`) originally omitted the month from the end date when both dates fell in the same month (e.g. formatting just `{ day: "numeric", year: "numeric" }`) — in this environment's `Intl`, calling `toLocaleDateString` with `day`+`year` but no `month` doesn't produce a clean "12, 2026", it produces "2026 (day: 12)". Fixed by always including `month` on both the start and end date, dropping the same-month conditional entirely (a same-month range now just reads "Jul 6 – Jul 12, 2026", which is clearer anyway). Verified live end-to-end via `CI=1 npx expo start --web` + Playwright with two separate accounts (admin + a second member joined by invite code): created a Run workout with a Time-target exercise ("Warm Up", 10:00) and a Swim workout with a pool length (50m) and a Distance-target exercise ("Interval", 400m), confirmed both landed on the correct day of the correct week; edited the Swim workout (removed its exercise, saved) and confirmed the change persisted; deleted it via the confirm dialog and confirmed it disappeared from the weekly view; confirmed the member account sees no "+ Add workout"/Edit/Delete anywhere and sees "Rest day" on empty days; confirmed direct-URL navigation to `routines/activity-type` and `routines/workout/create` both redirect a member away (same guard pattern as `event/create.tsx`); confirmed week `‹`/`›` paging shows an empty next week correctly; confirmed the tappable club name still reaches `club-profile` from the routines screen, matching every other club-scoped screen. `npx tsc --noEmit` clean throughout. **Follow-up simplification + bug fix, from live founder testing right after this shipped**: (1) the founder didn't want any exercise-builder complexity at all — dropped the entire exercise list (name/target-type/target-value/notes, `+ Add Exercise`/`✕` rows) and the Swim-only pool-length picker from `workout/create.tsx` and `workout/[workoutId].tsx`, down to just a title + description, "very simple" per an explicit ask. `routine_exercises` and `routine_workouts.pool_length` were removed from `0015_routines.sql` directly (edited in place, not reversed via a new migration, since this table had never shipped beyond this session) and `lib/routines.ts`/`types/database.ts` simplified to match — `RoutineTargetType`/`RoutinePoolLength` and the whole `replaceExercises` delete-then-reinsert path are gone. Run/Swim as the two activity types is unchanged. (2) Separately, the founder found the back button on the `workout/create` modal screen and on `member/[userId]` was "clickable but not visible" — root cause: those two screens (plus, on inspection, `event/[eventId]` and `event/create`, which had the identical gap) were the only club-scoped screens left relying on React Navigation's *default* native back chevron instead of the app's own `makeBackHeaderLeft` (a plain Unicode "‹" `Text`, not an icon-font glyph) that every other screen already uses — the default chevron icon apparently fails to render visibly in this web setup while still being clickable. Fixed by giving all four screens an explicit `headerLeft: makeBackHeaderLeft(...)` in `[clubId]/_layout.tsx`/`routines/_layout.tsx`, matching the pattern everywhere else (fallback = `calendar` for the two event screens, `club-profile` for `member/[userId]`, `routines` for `workout/create`). Re-verified both fixes live: the simplified create form is just title+description for both Run and Swim, the "‹" is now visibly rendered (not just clickable) on `workout/create` and `member/[userId]`, and tapping it from `member/[userId]` correctly returns to `club-profile`. `npx tsc --noEmit` clean throughout. **Second follow-up, from a further founder ask right after that**: since the create form no longer has any sport-specific fields, there was no reason left to restrict the activity picker to Run/Swim only — expanded `activity-type.tsx` to all 9 types from the reference app's own picker (Run, Trail Run, Bike, Swim, Strength, Hybrid Fitness, Indoor Climb, Bouldering, XC Ski) plus a 10th "Other" catch-all the founder asked for immediately after seeing the 9, mirroring `calendar_event_type`'s own `other`. `routine_activity_type` (edited in place in `0015_routines.sql`, same as the earlier simplification, since it still hadn't shipped beyond this session) now has all 10 values. Pulled the value/label/icon list out of `activity-type.tsx` into a single exported `ACTIVITY_TYPES` (plus derived `ACTIVITY_LABELS`/`ACTIVITY_ICONS`) in `lib/routines.ts`, since duplicating a 10-entry list across `activity-type.tsx`, `routines/index.tsx`, `workout/create.tsx`, and `workout/[workoutId].tsx` (each previously kept its own 2-entry copy) would only get worse as more types are added. Verified live: all 10 rows render with distinct icons on `activity-type`, picking Bouldering pre-fills the title "Bouldering" and saves/loads correctly, and picking Other pre-fills "Other" (editable, same as every other type) and saves/loads correctly. `npx tsc --noEmit` clean throughout. **Third follow-up**: the weekly view originally showed all 7 days of the current week including ones already past (e.g. loading the view on a Thursday still showed Monday–Wednesday). Per an explicit founder confirmation ("we should be able to see today and future days"), `routines/index.tsx` now filters out any day before today (`dateKey < todayKey`) before rendering, and disables the `‹` prev-week button once `weekStart` reaches `getMonday(new Date())` (greyed out, `disabled` prop set) so there's no way to page to a fully-past week either. Future weeks are unaffected — all 7 days render normally since none of their dates are before today. Verified live on a Thursday: the current week showed only Thursday–Sunday, the `‹` button was inert (no `cursor: pointer`, click did nothing), and paging forward one week showed the full Monday–Sunday with `‹` re-enabled (since that week can page back to the current one). |
 
-**Immediate next step**: Weekly routines (no schema yet — would need
-a new `routines` table + `routines.tsx` UI, admin-authored, club-scoped,
-following the same `lib/*.ts` + screen pattern used for calendar and chat).
+**Immediate next step**: The Race sub-flow (sub-chat, workout, carpool,
+results) — no schema yet, only placeholder nav screens exist today under
+`race/[raceId]/`. This is the last major MVP phase before polls/video.
 
 ### Task #13 detail: club navigation restructure + chat avatar → profile link
 

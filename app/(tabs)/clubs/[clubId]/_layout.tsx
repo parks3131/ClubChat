@@ -107,23 +107,29 @@ export default function ClubLayout() {
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
           }}
         />
-        <Stack.Screen
-          name="routines"
-          options={{
-            ...clubScreenOptions,
-            title: "Routines",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
-          }}
-        />
+        <Stack.Screen name="routines" options={{ headerShown: false }} />
         <Stack.Screen
           name="highlights"
           options={{ title: "Highlights", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/chat`) }}
         />
         <Stack.Screen name="club-profile" options={{ headerShown: false }} />
         <Stack.Screen name="race/[raceId]" options={{ headerShown: false }} />
-        <Stack.Screen name="event/[eventId]" options={{ title: "Event" }} />
-        <Stack.Screen name="event/create" options={{ title: "New event", presentation: "modal" }} />
-        <Stack.Screen name="member/[userId]" options={{ title: "Member" }} />
+        <Stack.Screen
+          name="event/[eventId]"
+          options={{ title: "Event", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/calendar`) }}
+        />
+        <Stack.Screen
+          name="event/create"
+          options={{
+            title: "New event",
+            presentation: "modal",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/calendar`),
+          }}
+        />
+        <Stack.Screen
+          name="member/[userId]"
+          options={{ title: "Member", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/club-profile`) }}
+        />
       </Stack>
     </ClubContext.Provider>
   );

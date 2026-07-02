@@ -7,6 +7,17 @@ export type CalendarEventType = "race" | "practice" | "team_bonding" | "voluntee
 export type MessageType = "text" | "photo" | "announcement" | "system";
 export type ClubJoinPolicy = "open" | "request";
 export type JoinRequestStatus = "pending" | "approved" | "denied";
+export type RoutineActivityType =
+  | "run"
+  | "trail_run"
+  | "bike"
+  | "swim"
+  | "strength"
+  | "hybrid_fitness"
+  | "indoor_climb"
+  | "bouldering"
+  | "xc_ski"
+  | "other";
 
 export interface Database {
   public: {
@@ -139,6 +150,27 @@ export interface Database {
           user_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["club_join_requests"]["Row"]>;
+        Relationships: [];
+      };
+      routine_workouts: {
+        Row: {
+          id: string;
+          club_id: string;
+          workout_date: string;
+          activity_type: RoutineActivityType;
+          title: string;
+          description: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["routine_workouts"]["Row"]> & {
+          club_id: string;
+          workout_date: string;
+          activity_type: RoutineActivityType;
+          title: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["routine_workouts"]["Row"]>;
         Relationships: [];
       };
     };
