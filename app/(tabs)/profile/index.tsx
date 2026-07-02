@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useAuth } from "../../../contexts/AuthProvider";
 import { fetchMyClubs, type ClubWithRole } from "../../../lib/clubs";
-import { fetchProfile, uploadAvatar, type Profile } from "../../../lib/profile";
+import { fetchProfile, formatDateOfBirth, uploadAvatar, type Profile } from "../../../lib/profile";
 
 function reportError(err: unknown) {
   const message = err instanceof Error ? err.message : "Something went wrong";
@@ -120,6 +120,18 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Description</Text>
         <Text style={styles.bio}>{profile.bio || "No description yet."}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>City</Text>
+        <Text style={styles.bio}>{profile.city || "Not set"}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Date of birth</Text>
+        <Text style={styles.bio}>{formatDateOfBirth(profile.dateOfBirth)}</Text>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>School</Text>
+        <Text style={styles.bio}>{profile.school || "Not set"}</Text>
       </View>
 
       <View style={styles.section}>

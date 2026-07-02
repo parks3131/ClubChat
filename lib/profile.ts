@@ -5,23 +5,59 @@ export interface Profile {
   fullName: string;
   avatarUrl: string | null;
   bio: string;
+  city: string;
+  dateOfBirth: string | null;
+  school: string;
 }
 
+// Works for any user, not just the caller — profiles are readable by any
+// authenticated user (see 0003_rls.sql), which is what lets a member view
+// another member's profile card from the roster.
 export async function fetchProfile(userId: string): Promise<Profile> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, avatar_url, bio")
+    .select("id, full_name, avatar_url, bio, city, date_of_birth, school")
     .eq("id", userId)
     .single();
 
   if (error) throw error;
-  return { id: data.id, fullName: data.full_name, avatarUrl: data.avatar_url, bio: data.bio };
+  return {
+    id: data.id,
+    fullName: data.full_name,
+    avatarUrl: data.avatar_url,
+    bio: data.bio,
+    city: data.city,
+    dateOfBirth: data.date_of_birth,
+    school: data.school,
+  };
 }
 
-export async function updateProfile(userId: string, params: { fullName: string; bio: string }) {
+// Avoid `new Date(iso)`, which parses "YYYY-MM-DD" as UTC midnight and
+// then shifts a day earlier once rendered in a timezone behind UTC.
+// Building the Date from local y/m/d components sidesteps that entirely.
+export function formatDateOfBirth(iso: string | null): string {
+  if (!iso) return "Not set";
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+export async function updateProfile(
+  userId: string,
+  params: { fullName: string; bio: string; city: string; dateOfBirth: string | null; school: string }
+) {
   const { error } = await supabase
     .from("profiles")
-    .update({ full_name: params.fullName, bio: params.bio })
+    .update({
+      full_name: params.fullName,
+      bio: params.bio,
+      city: params.city,
+      date_of_birth: params.dateOfBirth,
+      school: params.school,
+    })
     .eq("id", userId);
   if (error) throw error;
 }

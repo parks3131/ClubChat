@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -44,6 +45,7 @@ function reportError(err: unknown) {
 
 export default function ClubMembersScreen() {
   const club = useClub();
+  const router = useRouter();
   const { session } = useAuth();
   const [members, setMembers] = useState<ClubMemberRow[]>([]);
   const [requests, setRequests] = useState<JoinRequestRow[]>([]);
@@ -226,10 +228,22 @@ export default function ClubMembersScreen() {
         const isSelf = item.userId === session?.user.id;
         return (
           <View style={styles.memberRow}>
-            <View>
-              <Text style={styles.name}>{item.fullName}</Text>
-              <Text style={styles.role}>{item.role === "admin" ? "Admin" : "Member"}</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.memberInfo}
+              onPress={() => router.push(`/clubs/${club.clubId}/member/${item.userId}`)}
+            >
+              {item.avatarUrl ? (
+                <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
+                </View>
+              )}
+              <View>
+                <Text style={styles.name}>{item.fullName}</Text>
+                <Text style={styles.role}>{item.role === "admin" ? "Admin" : "Member"}</Text>
+              </View>
+            </TouchableOpacity>
             {club.role === "admin" && !isSelf && (
               <View style={styles.memberActions}>
                 {item.role !== "admin" && (
@@ -293,7 +307,11 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 4,
   },
+  memberInfo: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   memberActions: { flexDirection: "row", gap: 8 },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
+  avatarInitial: { fontSize: 15, fontWeight: "700", color: "#475569" },
   name: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
   role: { fontSize: 12, color: "#64748b", marginTop: 2 },
   actionButton: { borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },

@@ -17,6 +17,9 @@ export interface Database {
           full_name: string;
           avatar_url: string | null;
           bio: string;
+          city: string;
+          date_of_birth: string | null;
+          school: string;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & { id: string };

@@ -4,6 +4,7 @@ import type { ClubRole } from "../types/database";
 export interface ClubMemberRow {
   userId: string;
   fullName: string;
+  avatarUrl: string | null;
   role: ClubRole;
   joinedAt: string;
 }
@@ -20,14 +21,15 @@ export async function fetchClubMembers(clubId: string): Promise<ClubMemberRow[]>
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, full_name")
+    .select("id, full_name, avatar_url")
     .in("id", members.map((m) => m.user_id));
 
-  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
 
   return members.map((m) => ({
     userId: m.user_id,
-    fullName: nameById.get(m.user_id) ?? "Unknown",
+    fullName: profileById.get(m.user_id)?.full_name ?? "Unknown",
+    avatarUrl: profileById.get(m.user_id)?.avatar_url ?? null,
     role: m.role,
     joinedAt: m.joined_at,
   }));
