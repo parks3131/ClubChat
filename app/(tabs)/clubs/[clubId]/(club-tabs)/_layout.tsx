@@ -10,6 +10,14 @@ export default function ClubTabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
+        headerLeft: () => (
+          <TouchableOpacity
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/clubs"))}
+            style={{ marginLeft: 12, padding: 4 }}
+          >
+            <Text style={{ fontSize: 24, color: "#2563eb" }}>‹</Text>
+          </TouchableOpacity>
+        ),
         headerTitle: () => (
           <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}>
             <Text style={{ fontSize: 17, fontWeight: "600" }}>{club.name}</Text>
