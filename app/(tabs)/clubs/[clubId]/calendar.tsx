@@ -1,8 +1,8 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { fetchEvents, type DisplayCalendarEvent } from "../../../../../lib/calendar";
-import { useClub } from "../_layout";
+import { fetchEvents, type DisplayCalendarEvent } from "../../../../lib/calendar";
+import { useClub } from "./_layout";
 
 const TYPE_LABELS: Record<string, string> = {
   race: "Race",

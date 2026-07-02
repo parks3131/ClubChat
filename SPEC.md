@@ -106,7 +106,14 @@ app/                          Expo Router file-based routes
   (auth)/sign-up.tsx          Real Supabase Auth sign-up form (handles
                                email-confirmation-required state)
   (tabs)/_layout.tsx           Bottom tabs: Clubs, Profile
-  (tabs)/profile/_layout.tsx    Stack wrapping the profile view + edit modal
+  (tabs)/profile/_layout.tsx    Stack wrapping the profile view + edit modal.
+                                 `index`'s `headerLeft` is a `‹` button —
+                                 `router.canGoBack()` → `router.back()`,
+                                 else `router.replace("/clubs")` — since
+                                 Profile is a bottom-tab root with no
+                                 back button otherwise (task #13 follow-up
+                                 fix, per an explicit "back button
+                                 everywhere" ask)
   (tabs)/profile/index.tsx      Real profile view — avatar (tap the pencil
                                  overlay to pick+upload a new photo),
                                  name/email, description/bio, the clubs
@@ -129,35 +136,86 @@ app/                          Expo Router file-based routes
                                 Fetches club + this user's role once,
                                 exposes via `useClub()` context to all
                                 nested screens (see gotcha in section 6)
-  (tabs)/clubs/[clubId]/(club-tabs)/
-    _layout.tsx                  Bottom tabs (Chat/Calendar/Routines — no
-                                 Members tab, that moved into club-profile,
-                                 see below); `headerTitle` is a
-                                 `TouchableOpacity` wrapping the club name
-                                 that pushes to `club-profile`, not a plain
-                                 string — that's what makes it tappable.
-                                 `headerLeft` is a `‹` back button
-                                 (`router.back()`, falling back to
-                                 `router.replace("/clubs")` if there's no
-                                 history) — needed because this Tabs
-                                 navigator is mounted under a Stack.Screen
-                                 with `headerShown: false` (see
-                                 `[clubId]/_layout.tsx` below), so it
-                                 doesn't inherit a Stack back button for
-                                 free the way every other pushed screen in
-                                 this app does; without this, there was no
-                                 way back to the clubs list from inside a
-                                 club at all
-    chat.tsx                   Real chat UI — messages (each showing the
-                                 sender's avatar, or an initial-letter
-                                 placeholder), multi-emoji reaction picker,
-                                 admin pin/announce, realtime (task #5, done)
-    calendar.tsx                Real calendar list, grouped Upcoming/Past
-                                 (task #6, done)
-    routines.tsx                 Placeholder only (future phase)
+  (tabs)/clubs/[clubId]/index.tsx
+                                Hub screen — three tappable rows (Chat /
+                                 Calendar / Routines), pushing to the
+                                 sibling `chat` / `calendar` / `routines`
+                                 screens. Landing point when you tap a club
+                                 from the Main list or Profile's "Your
+                                 clubs" list (task #13). Shares the same
+                                 header as those three screens (see
+                                 `[clubId]/_layout.tsx` below); also
+                                 handles the one cross-tab back-button
+                                 special case (`?from=profile`, see
+                                 section 6) since it's the only screen in
+                                 this group reachable from a different
+                                 top-level tab.
+  (tabs)/clubs/[clubId]/{chat,calendar,routines}.tsx
+                                Plain Stack screens (no longer wrapped in
+                                 a Tabs navigator — see task #13).
+                                 `chat.tsx`: real chat UI — messages (each
+                                 showing the sender's avatar, tappable
+                                 through to their `member/[userId]` profile,
+                                 or an initial-letter placeholder), a
+                                 bottom-right timestamp on every message,
+                                 multi-emoji reaction picker, admin
+                                 pin/announce, realtime (task #5, done),
+                                 auto-scroll to the newest message on
+                                 load/send/realtime update (via a
+                                 `FlatList` ref + `onContentSizeChange`),
+                                 and — when at least one message is pinned
+                                 — a horizontally-scrollable sticky strip
+                                 (fixed `height`, not `maxHeight` — see
+                                 task #14's note on why that matters on
+                                 web) above the message list showing pinned
+                                 messages newest-first; tapping any card in
+                                 it pushes to `highlights?tab=pinned`. A
+                                 persistent "📌 Highlights" header button
+                                 (overrides the shared `headerRight` via
+                                 `useLayoutEffect`) reaches the same screen
+                                 regardless of pin state, since the strip
+                                 alone can't be the only path to the
+                                 Announcements tab (task #14).
+                                 `calendar.tsx`: real calendar list, grouped
+                                 Upcoming/Past (task #6, done).
+                                 `routines.tsx`: placeholder only (future
+                                 phase). The shared `headerTitle`
+                                 (`TouchableOpacity` wrapping the club name,
+                                 pushing to `club-profile` — that's what
+                                 makes it tappable), `headerRight`
+                                 (admin-only invite code), and `headerLeft`
+                                 (a `‹` back button — see next paragraph)
+                                 are set once in `[clubId]/_layout.tsx`'s
+                                 `Stack.Screen` options for
+                                 `index`/`chat`/`calendar`/`routines`,
+                                 rather than per-screen.
+  (tabs)/clubs/[clubId]/highlights.tsx
+                                Reached by tapping the pinned strip atop
+                                 chat. Two tabs, Pinned and Announcements
+                                 (client-side filters over the same
+                                 `fetchMessages` result chat already uses —
+                                 no new query), each newest-first. Accepts
+                                 `?tab=pinned|announcements` to land on a
+                                 given tab; the pinned strip always passes
+                                 `?tab=pinned`. Rows show sender
+                                 avatar/name/timestamp + body; tapping the
+                                 avatar goes to that sender's
+                                 `member/[userId]` (same pattern as chat).
+                                 Registered in `[clubId]/_layout.tsx` with
+                                 a plain title and its own `headerLeft`
+                                 fallback to `chat` (task #14).
   (tabs)/clubs/[clubId]/club-profile/_layout.tsx
                                 Stack wrapping the club-profile view + edit
-                                 modal, same shape as (tabs)/profile/
+                                 modal, same shape as (tabs)/profile/.
+                                 `index`'s `headerLeft` is a `‹` button:
+                                 `router.canGoBack()` → `router.back()`
+                                 (returns to whichever of hub/chat/
+                                 calendar/routines it was actually opened
+                                 from — this is real in-app history, not a
+                                 fixed route), else `router.replace` to the
+                                 hub (`/clubs/${clubId}`) as the fallback
+                                 for the direct-URL/refresh case where no
+                                 history exists (task #13 follow-up fix)
   (tabs)/clubs/[clubId]/club-profile/index.tsx
                                 Reached by tapping the club name in the
                                  chat/calendar/routines header. Club
@@ -198,6 +256,12 @@ app/                          Expo Router file-based routes
                                  carpool, info) — future phase, no backend
                                  tables exist for races yet
 
+components/BackHeaderButton.tsx  makeBackHeaderLeft(router, fallback) —
+                                 shared `‹` headerLeft factory used by
+                                 every club-scoped Stack layout (task #13).
+                                 Extracted after the same ~10-line
+                                 canGoBack()/replace() component was
+                                 written inline three separate times.
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
@@ -303,14 +367,12 @@ supabase/migrations/
 | 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done, three related additions from the same founder note. **(a)** Migration `0012_role_change_chat_events.sql` adds an `AFTER UPDATE OF role` trigger on `club_members` (`log_member_role_changed`), same shape as task #9's join/leave triggers, posting "X was promoted to admin by Y" (and the reverse direction too, even though nothing demotes yet — costs nothing extra to handle both ways now). **(b)** `members.tsx` roster rows now show each member's avatar (or initial-letter placeholder) next to name/role, and tapping the avatar+name area navigates to a new read-only screen, `clubs/[clubId]/member/[userId].tsx` (registered in `[clubId]/_layout.tsx`'s Stack) — showing that member's avatar, name, description, city, date of birth, and school. It reuses `lib/profile.ts`'s `fetchProfile(userId)` unchanged, since `profiles` are readable by any authenticated user already. The tappable name/avatar area is a sibling to the admin action buttons (not a parent wrapping them) specifically to avoid press-event bubbling between nested `TouchableOpacity`s on `react-native-web`. **(c)** Migration `0011_profile_details.sql` adds `profiles.city` / `date_of_birth` / `school`; `profile/edit.tsx` gained matching inputs (date of birth as a plain `YYYY-MM-DD` text field, consistent with the calendar's existing date-entry convention — validated client-side against the same `DATE_RE` shape used in `event/create.tsx`) and `profile/index.tsx` displays all three. **Bug caught during testing**: displaying `date_of_birth` via `new Date(iso).toLocaleDateString()` showed a day earlier than what was saved (e.g. saved 1995-06-15, displayed "June 14") — `new Date("YYYY-MM-DD")` parses as UTC midnight, which rolls back a day once rendered in a timezone behind UTC. Fixed by adding `formatDateOfBirth` to `lib/profile.ts`, which builds the `Date` from local y/m/d components instead of parsing the ISO string, and using it from both the self profile view and the new member profile view instead of duplicating the (broken) logic. Verified live end-to-end: promoted a member and confirmed the chat message, added avatars and confirmed tap-through to a member's profile card, and re-checked the date display showed the correct day after the fix. |
 | 12 | Club profile screen, chat sender avatars, Members tab removed | ✅ Done, from a founder wireframe request. **(a)** Chat messages show the sender's avatar next to their name now (`lib/messages.ts`'s `DisplayMessage` gained `senderAvatarUrl`, joined from `profiles` the same way `senderName` already was — no new query). **(b)** The club name in the chat/calendar/routines header is now tappable — `(club-tabs)/_layout.tsx`'s `headerTitle` became a `TouchableOpacity` instead of a plain string, pushing to a new `club-profile` screen. Since it's a `Stack.Screen` push (not a tab), the default back arrow works for free and returns to chat, per an explicit "so we can return to the chat" ask. **(c)** New `club-profile/index.tsx` + `edit.tsx` (mirrors the `profile/` folder shape): shows the club's avatar (admin-only pencil overlay to upload, same pattern as task #10's profile picture but a separate `club-avatars` bucket since ownership is "club admin" not "the uploader" — see migration `0014_club_avatar_storage.sql`), name, description, and an admin-only "Edit" button opening a name/description form (`0013_club_avatar.sql` adds `clubs.avatar_url`; editing name/description needed no new RLS, the existing "admins can update their club" policy from 0003 already covered it). **(d)** The member roster (previously its own `members.tsx` + bottom tab) moved into this same screen, below the identity section, per an explicit "we dont want the members on the bottom" ask — `(club-tabs)/_layout.tsx` no longer registers a Members tab, and the old `members.tsx` file was deleted (its contents live in `club-profile/index.tsx` now, unchanged otherwise). Verified live end-to-end: tapped the club name from chat and landed on club-profile with a working back button, uploaded a club avatar, edited the description, confirmed a non-admin sees no Edit/pencil/Add-member controls, and confirmed a non-admin hitting `club-profile/edit` directly gets redirected back (same guard pattern as `event/create.tsx`). **Follow-up fix**: after this shipped, there was no way back to the clubs list from inside a club at all — Chat/Calendar/Routines are a Tabs navigator mounted under a Stack.Screen with `headerShown: false`, so unlike every other pushed screen in the app they don't inherit a Stack back button for free. Added a `‹` `headerLeft` button to `(club-tabs)/_layout.tsx` (`router.back()`, falling back to `router.replace("/clubs")`) so every screen has a way back except the clubs list itself (the landing screen right after sign-in, where a back button wouldn't go anywhere). **Second follow-up fix**: the back button worked when entering a club from the Clubs list, but not from Profile's "Your clubs" list — clicking it (or even the browser's own back button) landed on `/clubs` instead of `/profile`. Root cause: `router.push` across tabs (Profile's stack → a route living in the Clubs tab's stack) doesn't leave real back-history to the origin tab, confirmed by testing actual browser back-navigation (`page.goBack()`), not just the in-app button — it also went to `/clubs`, proving this is a nested-tab-navigator history quirk, not a bug in the button's own logic. Fixed by having `profile/index.tsx` pass `?from=profile` when pushing into a club, and `(club-tabs)/_layout.tsx` reading that via `useLocalSearchParams` to explicitly `router.replace("/profile")` when present, falling back to the existing `canGoBack()`/`/clubs` logic otherwise. Verified live both ways: entering from Clubs list → back lands on Clubs list; entering from Profile → back lands on Profile. |
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
-| 13 | Club navigation restructure (hub screen replaces bottom Tabs) + chat avatar → profile link | ⬜ **Planned, not yet built** — fully designed and approved by the founder, implementation just hasn't started (session ended on usage limit). Full plan below — follow it as-is, it's already been through a plan/review cycle. |
+| 13 | Club navigation restructure (hub screen replaces bottom Tabs) + chat avatar → profile link | ✅ Done, per the plan below plus one deviation found during live verification. `(club-tabs)/_layout.tsx` and the `(club-tabs)` route group are gone; `chat.tsx`/`calendar.tsx`/`routines.tsx` moved up to be plain `Stack.Screen`s directly under `[clubId]/`, alongside a new hub screen at `[clubId]/index.tsx` (three tappable rows, Chat/Calendar/Routines). `[clubId]/_layout.tsx` now registers `index`/`chat`/`calendar`/`routines` individually, all sharing one `clubScreenOptions` object (tappable club-name `headerTitle` → `club-profile`, admin-only invite-code `headerRight`) instead of that logic living in the deleted Tabs layout. The two direct-entry call sites (`clubs/index.tsx`, `profile/index.tsx`'s "Your clubs" list) now push to `/clubs/${id}` (the hub) instead of straight to `/clubs/${id}/chat`; the `?from=profile` cross-tab-back-history param carries over unchanged, now read by the hub screen instead of the old Tabs layout. Chat avatars are now wrapped in a `TouchableOpacity` pushing to `member/[senderId]`. **Deviation from the original plan**: the plan's step 1 assumed chat/calendar/routines could get "zero custom back-button logic" and rely purely on native Stack back. That's true only when the screen was reached by clicking through the app — a direct URL load or page refresh on any of these screens (or the hub itself) has no navigation history for the native back button to pop, so it silently doesn't render at all (same root cause as the `router.canGoBack()` gotcha in section 6, just newly hit here because these screens are no longer nested under a Tabs navigator that had its own always-present custom back button). Caught live via Playwright by direct-navigating to each URL instead of only clicking through. **Fix**: `_layout.tsx` gives every one of `index`/`chat`/`calendar`/`routines` an explicit `headerLeft` (`canGoBack() ? back() : replace(fallback)`, fallback = the hub for chat/calendar/routines, `/clubs` for the hub) instead of relying on the native button. The same gap existed on two screens outside the original plan's scope — `club-profile/_layout.tsx` (reached from four different screens: hub, chat, calendar, routines — fixed with the same pattern, fallback = the hub, verified `canGoBack()` correctly returns to whichever of the four it was actually opened from, not just the fallback) and `(tabs)/profile/_layout.tsx` (a bottom-tab root with no back button at all previously — fixed the same way, fallback = `/clubs`). All five screens verified live end-to-end via Playwright, both by clicking through (real history) and by direct URL navigation (fallback path): Main → Hub → Chat/Calendar/Routines → back at each level, club name tap → club-profile → back returns to whichever screen it was opened from, Profile tab → back to Clubs. `npx tsc --noEmit` clean throughout. The three inline copies of the back-button component were later extracted into `components/BackHeaderButton.tsx`'s `makeBackHeaderLeft(router, fallback)` (caught by an advisor review after the fact, not part of the original verification pass — see that file's note). |
+| 14 | Chat: pinned-messages sticky strip, Highlights screen, per-message timestamps, auto-scroll-to-bottom | ✅ Done, from a founder wireframe request (reference screenshots were from a different app — confirmed with the founder that only two tabs, Pinned + Announcements, were wanted, not the third "Popular"/"My likes" tabs shown in the reference). **(a)** `chat.tsx` now renders a horizontally-scrollable sticky strip above the message list whenever ≥1 message is pinned, ordered newest-first (`[...messages].filter(pinned).reverse()`), each card showing sender avatar + name + truncated body; tapping any card pushes to `highlights?tab=pinned`, confirmed by the founder to always land on the Pinned tab rather than scrolling to that specific message. **(b)** New `highlights.tsx` screen: two tabs (Pinned / Announcements), both client-side filters over the same `fetchMessages` result chat already fetches (no new backend query or migration — `pinned`, `messageType`, `createdAt` all already existed on `DisplayMessage`), both newest-first, each row's avatar tappable through to `member/[userId]` (same pattern as chat). Registered in `[clubId]/_layout.tsx` with a plain "Highlights" title and `headerLeft` falling back to `chat` (via the shared `makeBackHeaderLeft` from task #13's later refactor). **(c)** Every real message bubble in chat now shows a small gray `HH:mm` (24-hour, locale-independent — built manually with `padStart` rather than `toLocaleTimeString`, so it doesn't vary by browser locale) timestamp right-aligned below the body. **(d)** Chat auto-scrolls to the newest message via a `FlatList` ref + `onContentSizeChange` → `scrollToEnd({ animated: true })`, which covers initial load, realtime updates from other members, and the current user's own sends with one code path (no separate manual `scrollToEnd()` call needed after `sendMessage`). Verified live end-to-end against a real club with real messages (not a fresh test club): pinned-strip card tap → landed on Highlights/Pinned showing the correct message; Announcements tab showed the correct announcement with no pin icon; timestamps appeared on every message; the list was already scrolled to the newest message on load. **Two issues caught after the initial pass, both from an advisor review + the founder's own live testing, not the original Playwright pass** (the test club only had one pinned message and one un-pinned announcement, so neither gap was exercised): **(1)** the strip is conditionally rendered (`pinnedMessages.length > 0`), so a club with announcements but nothing currently pinned had *no* UI path to the Announcements tab at all — fixed by adding a persistent "📌 Highlights" button to chat's header (`useLayoutEffect` + `navigation.setOptions` overriding the shared `headerRight`, same dynamic-override pattern as `event/create.tsx`'s title and the hub's `?from=profile` case), shown to every member regardless of admin status or pin state, alongside the existing admin-only invite code. **(2)** the founder flagged the strip rendering "too small" — the pinned card was visually squished into a single cramped line overlapping the message list below it; root cause was using `maxHeight` on a horizontal `ScrollView`, which doesn't reliably size the container's actual height on web. Fixed by switching to a fixed `height: 96` (plus `flexGrow: 0` / `flexShrink: 0` so it can't be compressed by sibling layout) and enlarging the card (72px tall, 36px avatar, 13px text) to match. Re-verified live with two pinned messages simultaneously (not just one, closing the gap in the original single-message-only test): both cards render side-by-side at full size with no overlap, newest-first ordering confirmed ("race day" pinned after "hey all" showed first), and the header button independently reaches Highlights (confirmed by loading `/highlights` with no `?tab` param) even without going through the strip. |
 
-**Immediate next step**: task #13 below (already planned and approved,
-picking up on a session-limit reset should start here — it's ready to
-implement, not just an idea). Weekly routines (no schema yet — would need
+**Immediate next step**: Weekly routines (no schema yet — would need
 a new `routines` table + `routines.tsx` UI, admin-authored, club-scoped,
-following the same `lib/*.ts` + screen pattern used for calendar and chat)
-comes after that.
+following the same `lib/*.ts` + screen pattern used for calendar and chat).
 
 ### Task #13 detail: club navigation restructure + chat avatar → profile link
 
@@ -581,6 +643,37 @@ their own race row immediately, same pattern).
   origin, falling back to normal `canGoBack()`/tab-root logic otherwise.
   Any future screen reachable from more than one tab should use the same
   pattern rather than assuming `router.back()` "just works."
+- **Update (task #13): the Tabs-based back-button hack described above is
+  gone — but it turned out a custom `headerLeft` is still needed on every
+  one of these screens, not just the cross-tab one.** Chat/Calendar/
+  Routines are no longer a `Tabs` navigator nested under a
+  `headerShown: false` `Stack.Screen` — they're plain `Stack.Screen`s
+  directly under `[clubId]/`, with a new hub screen (`[clubId]/index.tsx`)
+  as the landing point instead of Chat. The original assumption was that
+  native Stack back would "just work for free" once these were plain
+  Stack screens, since a genuinely previous screen would exist in the
+  local stack. That's true when reached by clicking through the app, but
+  **a native back button only renders when `canGoBack()` is true, and
+  direct URL navigation or a page refresh on any of these screens leaves
+  no history at all** — this is the exact same `router.canGoBack()`
+  gotcha as the `event/[eventId]`/`event/create` entry above, just newly
+  surfaced here because these screens used to be nested under a Tabs
+  navigator with its own always-present custom back button, which masked
+  it. **Fix**: every one of `index`/`chat`/`calendar`/`routines` in
+  `[clubId]/_layout.tsx`, plus `club-profile/index` and `profile/index`,
+  now gets an explicit `headerLeft` — `canGoBack() ? back() : replace(
+  fallback)` — instead of relying on the native button, with the fallback
+  route picked per screen (chat/calendar/routines → the hub; the hub →
+  `/clubs`; club-profile → the hub; profile → `/clubs`). The `?from=
+  profile` cross-tab pattern above still layers on top of this the same
+  way it always did — it moved from the old Tabs layout's `headerLeft`
+  override to the hub screen's own `useLayoutEffect` +
+  `navigation.setOptions` override (same pattern `event/create.tsx` uses
+  for its dynamic title), which still takes precedence over the hub's own
+  base `headerLeft` when `from === "profile"` is present. Caught live by
+  testing direct URL navigation to each screen via Playwright, not just
+  clicking through — the click-through case looked completely correct
+  and would not have surfaced this on its own.
 
 ## 7. Local development setup (current state)
 

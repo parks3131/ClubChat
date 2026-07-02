@@ -1,0 +1,62 @@
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useLayoutEffect } from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useClub } from "./_layout";
+
+const SECTIONS: { key: "chat" | "calendar" | "routines"; label: string }[] = [
+  { key: "chat", label: "Chat" },
+  { key: "calendar", label: "Calendar" },
+  { key: "routines", label: "Routines" },
+];
+
+export default function ClubHubScreen() {
+  const club = useClub();
+  const router = useRouter();
+  const navigation = useNavigation();
+  // Reached from Profile's "Your clubs" list, a different top-level tab —
+  // that cross-tab push doesn't leave real back-history to /profile (see
+  // SPEC.md section 6), so the origin is passed explicitly and this screen
+  // overrides its own back button rather than relying on canGoBack().
+  const { from } = useLocalSearchParams<{ from?: string }>();
+
+  useLayoutEffect(() => {
+    if (from !== "profile") return;
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity onPress={() => router.replace("/profile")} style={{ marginLeft: 12, padding: 4 }}>
+          <Text style={{ fontSize: 24, color: "#2563eb" }}>‹</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [from, navigation, router]);
+
+  return (
+    <View style={styles.container}>
+      {SECTIONS.map((section) => (
+        <TouchableOpacity
+          key={section.key}
+          style={styles.row}
+          onPress={() => router.push(`/clubs/${club.clubId}/${section.key}`)}
+        >
+          <Text style={styles.rowLabel}>{section.label}</Text>
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 16, gap: 10 },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  rowLabel: { fontSize: 17, fontWeight: "600", color: "#0f172a" },
+  chevron: { fontSize: 20, color: "#94a3b8" },
+});

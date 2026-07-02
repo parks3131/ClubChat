@@ -57,7 +57,7 @@ export default function ClubsListScreen() {
           data={clubs}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.clubRow} onPress={() => router.push(`/clubs/${item.id}/chat`)}>
+            <TouchableOpacity style={styles.clubRow} onPress={() => router.push(`/clubs/${item.id}`)}>
               <Text style={styles.clubName}>{item.name}</Text>
               {item.role === "admin" && <Text style={styles.adminBadge}>Admin</Text>}
             </TouchableOpacity>

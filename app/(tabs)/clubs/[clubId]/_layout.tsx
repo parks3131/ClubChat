@@ -1,6 +1,7 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { createContext, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { makeBackHeaderLeft } from "../../../../components/BackHeaderButton";
 import { useAuth } from "../../../../contexts/AuthProvider";
 import { supabase } from "../../../../lib/supabase";
 import type { ClubRole } from "../../../../types/database";
@@ -24,6 +25,7 @@ export function useClub() {
 export default function ClubLayout() {
   const { clubId } = useLocalSearchParams<{ clubId: string }>();
   const { session } = useAuth();
+  const router = useRouter();
   const [club, setClub] = useState<ClubContextValue | null>(null);
 
   useEffect(() => {
@@ -67,10 +69,56 @@ export default function ClubLayout() {
     );
   }
 
+  const clubScreenOptions = {
+    headerShown: true,
+    headerTitle: () => (
+      <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}>
+        <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{club.name}</Text>
+      </TouchableOpacity>
+    ),
+    headerRight: () =>
+      club.role === "admin" ? (
+        <Text style={{ marginRight: 16, color: "#2563eb", fontWeight: "600" as const }}>
+          Invite: {club.inviteCode}
+        </Text>
+      ) : null,
+  };
+
   return (
     <ClubContext.Provider value={club}>
       <Stack>
-        <Stack.Screen name="(club-tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="index"
+          options={{ ...clubScreenOptions, title: club.name, headerLeft: makeBackHeaderLeft(router, "/clubs") }}
+        />
+        <Stack.Screen
+          name="chat"
+          options={{
+            ...clubScreenOptions,
+            title: "Chat",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
+          }}
+        />
+        <Stack.Screen
+          name="calendar"
+          options={{
+            ...clubScreenOptions,
+            title: "Calendar",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
+          }}
+        />
+        <Stack.Screen
+          name="routines"
+          options={{
+            ...clubScreenOptions,
+            title: "Routines",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
+          }}
+        />
+        <Stack.Screen
+          name="highlights"
+          options={{ title: "Highlights", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/chat`) }}
+        />
         <Stack.Screen name="club-profile" options={{ headerShown: false }} />
         <Stack.Screen name="race/[raceId]" options={{ headerShown: false }} />
         <Stack.Screen name="event/[eventId]" options={{ title: "Event" }} />

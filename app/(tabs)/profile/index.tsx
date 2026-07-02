@@ -143,7 +143,7 @@ export default function ProfileScreen() {
             <TouchableOpacity
               key={club.id}
               style={styles.clubRow}
-              onPress={() => router.push(`/clubs/${club.id}/chat?from=profile`)}
+              onPress={() => router.push(`/clubs/${club.id}?from=profile`)}
             >
               <Text style={styles.clubName}>{club.name}</Text>
               <Text style={styles.clubRole}>{club.role === "admin" ? "Admin" : "Member"}</Text>

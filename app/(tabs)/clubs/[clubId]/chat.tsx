@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -12,7 +13,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useAuth } from "../../../../../contexts/AuthProvider";
+import { useNavigation, useRouter } from "expo-router";
+import { useAuth } from "../../../../contexts/AuthProvider";
 import {
   fetchMessages,
   sendMessage,
@@ -20,19 +22,46 @@ import {
   toggleReaction,
   togglePinned,
   type DisplayMessage,
-} from "../../../../../lib/messages";
-import { useClub } from "../_layout";
+} from "../../../../lib/messages";
+import { useClub } from "./_layout";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
 
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function ClubChatScreen() {
   const club = useClub();
+  const router = useRouter();
+  const navigation = useNavigation();
   const { session } = useAuth();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [asAnnouncement, setAsAnnouncement] = useState(false);
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
+  const flatListRef = useRef<FlatList<DisplayMessage>>(null);
+
+  // The pinned strip below is only shown when something is pinned, so it
+  // can't be the only way to reach Highlights — Announcements needs to be
+  // reachable even in a club with nothing currently pinned. This overrides
+  // the shared headerRight (admin invite code, set in [clubId]/_layout.tsx)
+  // to add a persistent Highlights button alongside it.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerRightRow}>
+          <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/highlights`)}>
+            <Text style={styles.headerButton}>📌 Highlights</Text>
+          </TouchableOpacity>
+          {club.role === "admin" && <Text style={styles.headerButton}>Invite: {club.inviteCode}</Text>}
+        </View>
+      ),
+    });
+  }, [navigation, router, club.clubId, club.role, club.inviteCode]);
 
   const reload = useCallback(() => {
     fetchMessages(club.channelId)
@@ -84,16 +113,49 @@ export default function ClubChatScreen() {
     );
   }
 
+  const pinnedMessages = [...messages].filter((m) => m.pinned).reverse();
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      {pinnedMessages.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.pinnedStrip}
+          contentContainerStyle={styles.pinnedStripContent}
+        >
+          {pinnedMessages.map((m) => (
+            <TouchableOpacity
+              key={m.id}
+              style={styles.pinnedCard}
+              onPress={() => router.push(`/clubs/${club.clubId}/highlights?tab=pinned`)}
+            >
+              {m.senderAvatarUrl ? (
+                <Image source={{ uri: m.senderAvatarUrl }} style={styles.pinnedAvatar} />
+              ) : (
+                <View style={[styles.pinnedAvatar, styles.avatarPlaceholder]}>
+                  <Text style={styles.avatarInitial}>{m.senderName.charAt(0).toUpperCase() || "?"}</Text>
+                </View>
+              )}
+              <Text style={styles.pinnedText} numberOfLines={2}>
+                <Text style={styles.pinnedSender}>{m.senderName}: </Text>
+                {m.body}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
       <FlatList
+        ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => {
           if (item.messageType === "system") {
             return (
@@ -112,19 +174,24 @@ export default function ClubChatScreen() {
 
           return (
             <View style={styles.messageRow}>
-              {item.senderAvatarUrl ? (
-                <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Text style={styles.avatarInitial}>{item.senderName.charAt(0).toUpperCase() || "?"}</Text>
-                </View>
-              )}
+              <TouchableOpacity
+                onPress={() => router.push(`/clubs/${club.clubId}/member/${item.senderId}`)}
+              >
+                {item.senderAvatarUrl ? (
+                  <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                    <Text style={styles.avatarInitial}>{item.senderName.charAt(0).toUpperCase() || "?"}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
               <View style={[styles.bubble, item.messageType === "announcement" && styles.announcementBubble]}>
                 <View style={styles.bubbleHeader}>
                   <Text style={styles.senderName}>{item.senderName}</Text>
                   {item.pinned && <Text style={styles.pinnedBadge}>📌 Pinned</Text>}
                 </View>
                 <Text style={styles.body}>{item.body}</Text>
+                <Text style={styles.timestamp}>{formatTime(item.createdAt)}</Text>
                 <View style={styles.bubbleFooter}>
                   {[...grouped.entries()].map(([emoji, count]) => (
                     <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
@@ -190,6 +257,30 @@ export default function ClubChatScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  headerRightRow: { flexDirection: "row", alignItems: "center", gap: 14, marginRight: 16 },
+  headerButton: { color: "#2563eb", fontWeight: "600" },
+  pinnedStrip: {
+    height: 96,
+    flexGrow: 0,
+    flexShrink: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+    backgroundColor: "#fafafa",
+  },
+  pinnedStripContent: { paddingHorizontal: 12, paddingVertical: 12, gap: 10, alignItems: "center" },
+  pinnedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: 240,
+    height: 72,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    padding: 10,
+  },
+  pinnedAvatar: { width: 36, height: 36, borderRadius: 18 },
+  pinnedText: { flex: 1, fontSize: 13, lineHeight: 17, color: "#334155" },
+  pinnedSender: { fontWeight: "700" },
   list: { padding: 12, gap: 8 },
   messageRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
   avatar: { width: 32, height: 32, borderRadius: 16 },
@@ -201,6 +292,7 @@ const styles = StyleSheet.create({
   senderName: { fontWeight: "700", fontSize: 13, color: "#334155" },
   pinnedBadge: { fontSize: 12, color: "#92400e" },
   body: { fontSize: 15, color: "#0f172a" },
+  timestamp: { fontSize: 11, color: "#94a3b8", alignSelf: "flex-end", marginTop: 2 },
   bubbleFooter: { flexDirection: "row", gap: 16, marginTop: 6 },
   reaction: { fontSize: 13, color: "#64748b" },
   reactionActive: { color: "#2563eb", fontWeight: "700" },
