@@ -303,11 +303,133 @@ supabase/migrations/
 | 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done, three related additions from the same founder note. **(a)** Migration `0012_role_change_chat_events.sql` adds an `AFTER UPDATE OF role` trigger on `club_members` (`log_member_role_changed`), same shape as task #9's join/leave triggers, posting "X was promoted to admin by Y" (and the reverse direction too, even though nothing demotes yet — costs nothing extra to handle both ways now). **(b)** `members.tsx` roster rows now show each member's avatar (or initial-letter placeholder) next to name/role, and tapping the avatar+name area navigates to a new read-only screen, `clubs/[clubId]/member/[userId].tsx` (registered in `[clubId]/_layout.tsx`'s Stack) — showing that member's avatar, name, description, city, date of birth, and school. It reuses `lib/profile.ts`'s `fetchProfile(userId)` unchanged, since `profiles` are readable by any authenticated user already. The tappable name/avatar area is a sibling to the admin action buttons (not a parent wrapping them) specifically to avoid press-event bubbling between nested `TouchableOpacity`s on `react-native-web`. **(c)** Migration `0011_profile_details.sql` adds `profiles.city` / `date_of_birth` / `school`; `profile/edit.tsx` gained matching inputs (date of birth as a plain `YYYY-MM-DD` text field, consistent with the calendar's existing date-entry convention — validated client-side against the same `DATE_RE` shape used in `event/create.tsx`) and `profile/index.tsx` displays all three. **Bug caught during testing**: displaying `date_of_birth` via `new Date(iso).toLocaleDateString()` showed a day earlier than what was saved (e.g. saved 1995-06-15, displayed "June 14") — `new Date("YYYY-MM-DD")` parses as UTC midnight, which rolls back a day once rendered in a timezone behind UTC. Fixed by adding `formatDateOfBirth` to `lib/profile.ts`, which builds the `Date` from local y/m/d components instead of parsing the ISO string, and using it from both the self profile view and the new member profile view instead of duplicating the (broken) logic. Verified live end-to-end: promoted a member and confirmed the chat message, added avatars and confirmed tap-through to a member's profile card, and re-checked the date display showed the correct day after the fix. |
 | 12 | Club profile screen, chat sender avatars, Members tab removed | ✅ Done, from a founder wireframe request. **(a)** Chat messages show the sender's avatar next to their name now (`lib/messages.ts`'s `DisplayMessage` gained `senderAvatarUrl`, joined from `profiles` the same way `senderName` already was — no new query). **(b)** The club name in the chat/calendar/routines header is now tappable — `(club-tabs)/_layout.tsx`'s `headerTitle` became a `TouchableOpacity` instead of a plain string, pushing to a new `club-profile` screen. Since it's a `Stack.Screen` push (not a tab), the default back arrow works for free and returns to chat, per an explicit "so we can return to the chat" ask. **(c)** New `club-profile/index.tsx` + `edit.tsx` (mirrors the `profile/` folder shape): shows the club's avatar (admin-only pencil overlay to upload, same pattern as task #10's profile picture but a separate `club-avatars` bucket since ownership is "club admin" not "the uploader" — see migration `0014_club_avatar_storage.sql`), name, description, and an admin-only "Edit" button opening a name/description form (`0013_club_avatar.sql` adds `clubs.avatar_url`; editing name/description needed no new RLS, the existing "admins can update their club" policy from 0003 already covered it). **(d)** The member roster (previously its own `members.tsx` + bottom tab) moved into this same screen, below the identity section, per an explicit "we dont want the members on the bottom" ask — `(club-tabs)/_layout.tsx` no longer registers a Members tab, and the old `members.tsx` file was deleted (its contents live in `club-profile/index.tsx` now, unchanged otherwise). Verified live end-to-end: tapped the club name from chat and landed on club-profile with a working back button, uploaded a club avatar, edited the description, confirmed a non-admin sees no Edit/pencil/Add-member controls, and confirmed a non-admin hitting `club-profile/edit` directly gets redirected back (same guard pattern as `event/create.tsx`). **Follow-up fix**: after this shipped, there was no way back to the clubs list from inside a club at all — Chat/Calendar/Routines are a Tabs navigator mounted under a Stack.Screen with `headerShown: false`, so unlike every other pushed screen in the app they don't inherit a Stack back button for free. Added a `‹` `headerLeft` button to `(club-tabs)/_layout.tsx` (`router.back()`, falling back to `router.replace("/clubs")`) so every screen has a way back except the clubs list itself (the landing screen right after sign-in, where a back button wouldn't go anywhere). **Second follow-up fix**: the back button worked when entering a club from the Clubs list, but not from Profile's "Your clubs" list — clicking it (or even the browser's own back button) landed on `/clubs` instead of `/profile`. Root cause: `router.push` across tabs (Profile's stack → a route living in the Clubs tab's stack) doesn't leave real back-history to the origin tab, confirmed by testing actual browser back-navigation (`page.goBack()`), not just the in-app button — it also went to `/clubs`, proving this is a nested-tab-navigator history quirk, not a bug in the button's own logic. Fixed by having `profile/index.tsx` pass `?from=profile` when pushing into a club, and `(club-tabs)/_layout.tsx` reading that via `useLocalSearchParams` to explicitly `router.replace("/profile")` when present, falling back to the existing `canGoBack()`/`/clubs` logic otherwise. Verified live both ways: entering from Clubs list → back lands on Clubs list; entering from Profile → back lands on Profile. |
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred — founder wants this eventually but explicitly asked to defer it; `invite_code`/`join_club_by_code` already do the hard part, this is just UI + a URL scheme when picked back up. |
+| 13 | Club navigation restructure (hub screen replaces bottom Tabs) + chat avatar → profile link | ⬜ **Planned, not yet built** — fully designed and approved by the founder, implementation just hasn't started (session ended on usage limit). Full plan below — follow it as-is, it's already been through a plan/review cycle. |
 
-**Immediate next step**: weekly routines (no schema yet) — will need a new
-migration (e.g. `routines` table, admin-authored, club-scoped) plus a real
-`routines.tsx` UI, following the same `lib/*.ts` + screen pattern used for
-calendar and chat.
+**Immediate next step**: task #13 below (already planned and approved,
+picking up on a session-limit reset should start here — it's ready to
+implement, not just an idea). Weekly routines (no schema yet — would need
+a new `routines` table + `routines.tsx` UI, admin-authored, club-scoped,
+following the same `lib/*.ts` + screen pattern used for calendar and chat)
+comes after that.
+
+### Task #13 detail: club navigation restructure + chat avatar → profile link
+
+**Context.** The current per-club navigation uses a bottom Tabs bar
+(Chat / Calendar / Routines) nested inside each club, with a custom
+`headerLeft` back button hacked on top because Tabs navigators don't
+inherit a Stack back button for free (see the two "Follow-up fix" notes on
+task #12 above). The founder wants a stricter hierarchy instead, from a
+hand-drawn wireframe: **Main (clubs list) → tap a club → a hub screen
+listing Chat / Calendar / Routines as rows → tap one → that screen, with a
+normal back button returning one level at a time** (hub→main,
+screen→hub). This also makes back-navigation "just work" via the Stack's
+native back button instead of custom logic, for the same-tab case.
+
+Members/club identity stays exactly where it is today — reached by
+tapping the club name in the header, same as now, confirmed by the
+founder ("to see members they will go to chat and hit the club name same
+logic"). So `club-profile/` (avatar, description, edit, roster) is
+unchanged; only the *landing point* when you tap a club changes, from
+Chat directly to a new hub screen.
+
+Separately: chat message avatars aren't tappable yet, but should navigate
+to the sender's profile card (same `member/[userId]` screen already used
+from the roster).
+
+**Key insight: route paths don't change.** `(club-tabs)` is an Expo
+Router *route group* — the parentheses mean it never appeared in the URL.
+`/clubs/[clubId]/chat` and `/clubs/[clubId]/calendar` are already the real
+paths today. So removing the Tabs wrapper and turning chat/calendar/routines
+into plain `Stack.Screen`s does **not** change any existing link to them —
+only two call sites push directly into a club, and only those two need
+updating (see below).
+
+**Changes:**
+
+1. **Remove the Tabs wrapper, promote chat/calendar/routines to plain
+   Stack screens.** Delete `app/(tabs)/clubs/[clubId]/(club-tabs)/_layout.tsx`
+   and the `(club-tabs)` folder. Move `chat.tsx`, `calendar.tsx`,
+   `routines.tsx` up to `app/(tabs)/clubs/[clubId]/` directly, adjusting
+   each file's relative imports (one fewer `../` since they're one level
+   shallower now; e.g. the `useClub` import becomes `"./_layout"` instead
+   of `"../_layout"`). In `app/(tabs)/clubs/[clubId]/_layout.tsx`, replace
+   the single `<Stack.Screen name="(club-tabs)" .../>` entry with
+   individual entries for `index`, `chat`, `calendar`, `routines`, each
+   sharing the same `headerTitle` (tappable club name → `club-profile`,
+   exact behavior copied from the current `(club-tabs)/_layout.tsx`) and
+   `headerRight` (admin-only invite code, also copied as-is) — this
+   preserves "tap the club name to see members/profile" identically on
+   every one of these screens, per the founder's explicit confirmation.
+   `useRouter` needs to be imported into this layout file (not currently
+   used there). Chat/Calendar/Routines get zero custom back-button logic —
+   native Stack back (automatic once they're not the stack root)
+   correctly returns to the hub (`index`), since that's genuinely the
+   previous screen in the same tab's stack now.
+
+2. **New hub screen: `app/(tabs)/clubs/[clubId]/index.tsx`.** Three
+   tappable rows — Chat / Calendar / Routines — styled like existing list
+   rows elsewhere in the app (rounded rect, label + trailing `›`), pushing
+   to `chat` / `calendar` / `routines` respectively. Same shared header as
+   the other three screens (tappable name → `club-profile`, invite code).
+   Back-button special case: this is the only screen reachable from a
+   *different* top-level tab (Profile's "Your clubs" list), which — per
+   the section-6 gotcha above about cross-tab `router.push` — doesn't
+   leave real cross-tab back-history. Reuse the same `?from=profile`
+   query-param pattern already proven for this in the current
+   `(club-tabs)/_layout.tsx`: read `from` via `useLocalSearchParams`, and
+   if `from === "profile"`, override `headerLeft` (via `useLayoutEffect` +
+   `useNavigation().setOptions`, matching the dynamic-title pattern
+   already used in `event/create.tsx`) to `router.replace("/profile")`.
+   Otherwise, no override — native back to `/clubs` (the Main list) just
+   works, since `clubs/index.tsx` is genuinely beneath this screen in the
+   same stack.
+
+3. **Update the two entry points that push directly into a club.**
+   - `app/(tabs)/clubs/index.tsx` (Main list): change
+     `` router.push(`/clubs/${item.id}/chat`) `` → `` router.push(`/clubs/${item.id}`) ``
+     (lands on the new hub instead of skipping straight to Chat).
+   - `app/(tabs)/profile/index.tsx` ("Your clubs" list): change
+     `` router.push(`/clubs/${club.id}/chat?from=profile`) `` →
+     `` router.push(`/clubs/${club.id}?from=profile`) ``.
+
+4. **Chat avatar → sender's profile.** In
+   `app/(tabs)/clubs/[clubId]/chat.tsx`, wrap the sender avatar
+   (`Image`/initial-placeholder `View`, currently inside the `messageRow`)
+   in a `TouchableOpacity` that navigates to
+   `` router.push(`/clubs/${club.clubId}/member/${item.senderId}`) ``.
+   Applies to every real message (not system messages, which don't render
+   an avatar at all already). No special-casing your own messages —
+   tapping your own avatar shows your own read-only member card, which is
+   harmless and keeps the logic uniform.
+
+**Files touched:**
+- `app/(tabs)/clubs/[clubId]/(club-tabs)/_layout.tsx` — deleted
+- `app/(tabs)/clubs/[clubId]/(club-tabs)/{chat,calendar,routines}.tsx` — moved up one level, imports adjusted
+- `app/(tabs)/clubs/[clubId]/index.tsx` — new (hub screen)
+- `app/(tabs)/clubs/[clubId]/_layout.tsx` — Stack.Screen registrations updated, shared header options added
+- `app/(tabs)/clubs/[clubId]/chat.tsx` — avatar becomes tappable
+- `app/(tabs)/clubs/index.tsx` — club row now pushes to the hub
+- `app/(tabs)/profile/index.tsx` — club row now pushes to the hub (keeps `?from=profile`)
+- This SPEC.md — update repo layout (section 4) + status table (section 5) to reflect the new hierarchy once built, and note in section 6 that the old Tabs-based back-button hack is gone (replaced by native Stack back everywhere except the one documented cross-tab case)
+
+No migrations — this is entirely client-side routing/UI.
+
+**Verification:**
+- `npx tsc --noEmit` after the moves (relative-import path changes are the
+  main risk of breakage).
+- `CI=1 npx expo start --web` + Playwright, covering:
+  - Main list → tap a club → lands on hub with Chat/Calendar/Routines rows,
+    no bottom tab bar.
+  - Tap Chat → back button → returns to hub (not Main list).
+  - Tap the club name from the hub, and separately from Chat → both go to
+    `club-profile` (members/description/edit), confirming "same logic"
+    still holds on every screen.
+  - Profile tab → "Your clubs" → tap a club → lands on hub; back button →
+    returns to `/profile` (not `/clubs`).
+  - Main list → tap a club → hub → back button → returns to `/clubs`
+    (regression check for the non-cross-tab case).
+  - In Chat, tap a message's avatar → lands on that sender's `member/[userId]`
+    profile card.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
