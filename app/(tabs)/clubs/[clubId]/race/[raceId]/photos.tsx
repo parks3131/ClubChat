@@ -3,11 +3,11 @@ import { useRace } from "./_layout";
 
 // Placeholder — content to be scoped later (per an explicit founder note
 // that each of the 4 non-chat race sections would be detailed separately).
-export default function RaceCarpoolScreen() {
+export default function RacePhotosScreen() {
   const race = useRace();
   return (
     <View style={styles.container}>
-      <Text style={styles.placeholder}>Car assignments and groups for {race.name} — coming soon</Text>
+      <Text style={styles.placeholder}>Photos for {race.name} — coming soon</Text>
     </View>
   );
 }

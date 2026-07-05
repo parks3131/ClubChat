@@ -96,6 +96,7 @@ export interface Database {
         Row: {
           id: string;
           club_id: string;
+          race_id: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["channels"]["Row"]> & { club_id: string };
@@ -152,6 +153,54 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["club_join_requests"]["Row"]>;
         Relationships: [];
       };
+      races: {
+        Row: {
+          id: string;
+          club_id: string;
+          name: string;
+          event_date: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["races"]["Row"]> & {
+          club_id: string;
+          name: string;
+          event_date: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["races"]["Row"]>;
+        Relationships: [];
+      };
+      race_members: {
+        Row: {
+          race_id: string;
+          user_id: string;
+          joined_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["race_members"]["Row"]> & {
+          race_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["race_members"]["Row"]>;
+        Relationships: [];
+      };
+      race_join_requests: {
+        Row: {
+          id: string;
+          race_id: string;
+          user_id: string;
+          status: JoinRequestStatus;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["race_join_requests"]["Row"]> & {
+          race_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["race_join_requests"]["Row"]>;
+        Relationships: [];
+      };
       routine_workouts: {
         Row: {
           id: string;
@@ -197,6 +246,14 @@ export interface Database {
         Returns: "joined" | "requested";
       };
       decide_join_request: {
+        Args: { request_id: string; approve: boolean };
+        Returns: undefined;
+      };
+      request_join_race: {
+        Args: { target_race_id: string };
+        Returns: "joined" | "requested";
+      };
+      decide_race_join_request: {
         Args: { request_id: string; approve: boolean };
         Returns: undefined;
       };

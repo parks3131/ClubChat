@@ -1,16 +1,16 @@
-import { useLocalSearchParams } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import ChatScreen from "../../../../../../components/ChatScreen";
+import { useRace } from "./_layout";
 
 export default function RaceChatScreen() {
-  const { raceId } = useLocalSearchParams<{ raceId: string }>();
+  const race = useRace();
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.placeholder}>Chat for race {raceId} — future phase</Text>
-    </View>
+    <ChatScreen
+      channelId={race.channelId}
+      isAdmin={race.isAdmin}
+      placeholderName={race.name}
+      memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
+      highlightsPath={`/clubs/${race.clubId}/race/${race.raceId}/highlights`}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center" },
-  placeholder: { color: "#888" },
-});

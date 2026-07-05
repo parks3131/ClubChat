@@ -3,10 +3,11 @@ import { useLayoutEffect } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useClub } from "./_layout";
 
-const SECTIONS: { key: "chat" | "calendar" | "routines"; label: string }[] = [
+const SECTIONS: { key: "chat" | "calendar" | "routines" | "races"; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "calendar", label: "Calendar" },
   { key: "routines", label: "Routines" },
+  { key: "races", label: "Races & Meets" },
 ];
 
 export default function ClubHubScreen() {
@@ -23,7 +24,24 @@ export default function ClubHubScreen() {
     if (from !== "profile") return;
     navigation.setOptions({
       headerLeft: () => (
-        <TouchableOpacity onPress={() => router.replace("/profile")} style={{ marginLeft: 12, padding: 4 }}>
+        <TouchableOpacity
+          onPress={() => {
+            // Switching tabs alone leaves this hub (still tagged
+            // ?from=profile) sitting at the top of the Clubs tab's own
+            // Stack — React Navigation doesn't reset a tab's internal
+            // history just because a different tab became active. Left
+            // alone, later tapping the Clubs tab returns to this exact
+            // screen instead of the Main list, and its back button keeps
+            // firing this same override, bouncing back to Profile forever
+            // (a real loop, caught live via Playwright). Resetting this
+            // stack to its root first — before switching tabs — means
+            // the Clubs tab is back to its own Main list underneath, so
+            // there's nothing stale left for the tab bar to return to.
+            router.replace("/clubs");
+            router.replace("/profile");
+          }}
+          style={{ marginLeft: 12, padding: 4 }}
+        >
           <Text style={{ fontSize: 24, color: "#2563eb" }}>‹</Text>
         </TouchableOpacity>
       ),
