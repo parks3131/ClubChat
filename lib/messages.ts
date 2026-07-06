@@ -47,7 +47,22 @@ async function attachSendersAndReactions(
   }));
 }
 
-export async function fetchMessages(channelId: string): Promise<DisplayMessage[]> {
+export async function fetchMessages(
+  channelId: string,
+  options?: { limit?: number }
+): Promise<DisplayMessage[]> {
+  if (options?.limit) {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id, channel_id, sender_id, message_type, body, pinned, created_at")
+      .eq("channel_id", channelId)
+      .order("created_at", { ascending: false })
+      .limit(options.limit);
+
+    if (error) throw error;
+    return attachSendersAndReactions((data ?? []).reverse());
+  }
+
   const { data, error } = await supabase
     .from("messages")
     .select("id, channel_id, sender_id, message_type, body, pinned, created_at")

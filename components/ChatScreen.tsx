@@ -88,14 +88,14 @@ export default function ChatScreen({
   }, [navigation, router, highlightsPath, extraHeaderRight]);
 
   const reload = useCallback(() => {
-    fetchMessages(channelId)
+    fetchMessages(channelId, { limit: 50 })
       .then(setMessages)
       .catch(() => {});
   }, [channelId]);
 
   useEffect(() => {
     setLoading(true);
-    fetchMessages(channelId)
+    fetchMessages(channelId, { limit: 50 })
       .then(setMessages)
       .finally(() => setLoading(false));
 
