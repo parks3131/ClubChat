@@ -219,7 +219,14 @@ app/                          Expo Router file-based routes
                                 as `extraHeaderRight` (club-only, race chat
                                 has no equivalent).
   (tabs)/clubs/[clubId]/calendar.tsx
-                                Calendar list, grouped Upcoming/Past.
+                                Task #23 — merges calendar_events with
+                                races the caller has access to and Eboard
+                                meetings the caller is a member of (see
+                                lib/calendarFeed.ts) into one Upcoming/Past
+                                list, sorted by date/time, each row tagged
+                                with a badge (event type / "Race/Meet" /
+                                "Eboard Meeting") and tapping navigates to
+                                the real event/race/meeting screen.
   (tabs)/clubs/[clubId]/highlights.tsx
                                 Thin wrapper around the shared
                                 components/HighlightsScreen.tsx (same
@@ -414,6 +421,15 @@ lib/messages.ts                 fetchMessages / sendMessage / reactions /
                                  channel or a race's channel unchanged)
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent
+lib/calendarFeed.ts              Task #23 — fetchCalendarFeed(clubId,
+                                 userId, isClubAdmin) merges calendar.ts's
+                                 fetchEvents (always), races.ts's fetchRaces
+                                 (filtered to access !== "none"), and
+                                 eboard.ts's fetchEboardChannel+fetchMeetings
+                                 (only if isMember) into one sorted
+                                 CalendarFeedItem[] — no new tables/RLS,
+                                 every read already goes through each
+                                 feature's own existing policies
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest
 lib/profile.ts                   fetchProfile / updateProfile /
@@ -609,6 +625,7 @@ supabase/migrations/
 | 20 | Race: Photos + Result Link | ✅ Done, then merged into task #22 — see below. Originally its own screen (each a single optional URL directly on `races`, "stay tuned" placeholder when empty); the screen itself no longer exists as of task #22, but the underlying columns/behavior live on inside "Meet Information." |
 | 21 | Race: Location & Accommodation | ✅ Done, then merged into task #22 — see below. Originally its own screen (description + 2 links, combined edit form, fields hidden entirely when empty); superseded by task #22's "Meet Information," which folded Photos/Result Link into this screen and renamed it. |
 | 22 | Race: consolidate Photos/Result Link into Location & Accommodation → "Meet Information" | ✅ Done — see task #22 in `docs/HISTORY.md`. Founder follow-up right after #20 and #21 both shipped: fewer hub rows (3 instead of 5), one combined 5-field edit form. No new migration needed — all 5 columns already existed on `races`. Kept a deliberate per-field empty-state split: description/location/hotel hidden entirely, photos/results keep their original "stay tuned" placeholder. `photos.tsx`/`results.tsx` deleted along with their now-dead lib functions. **This was the last of Race's 4 originally-placeholder sections (task #16) — all 3 rows on the race hub are now fully built.** |
+| 23 | Unified club Calendar (events + races + Eboard meetings) | ✅ Done — see task #23 in `docs/HISTORY.md`. `lib/calendarFeed.ts` merges calendar_events (always), races the caller has access to, and Eboard meetings the caller is a member of into one date/time-sorted list — no new tables/RLS, pure aggregation over existing reads. Explicitly verified live that a regular club member (not an Eboard member) sees an Eboard meeting's calendar entry correctly absent, while still seeing calendar events and any race they have access to. |
 
 **Immediate next step**: the last major MVP phase is polls/video
 messages.

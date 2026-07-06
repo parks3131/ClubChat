@@ -1,41 +1,59 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { fetchEvents, type DisplayCalendarEvent } from "../../../../lib/calendar";
+import { useAuth } from "../../../../contexts/AuthProvider";
+import { fetchCalendarFeed, type CalendarFeedItem } from "../../../../lib/calendarFeed";
 import { useClub } from "./_layout";
 
-const TYPE_LABELS: Record<string, string> = {
-  race: "Race",
-  practice: "Practice",
-  team_bonding: "Team bonding",
-  volunteer: "Volunteer",
-  other: "Other",
-};
+function toDateKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
-function formatEventDate(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleString(undefined, {
+function formatItemDate(item: CalendarFeedItem) {
+  if (item.hasTime) {
+    return new Date(item.atIso).toLocaleString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  // Date-only (races) — build from y/m/d components rather than
+  // `new Date(iso)`, which parses as UTC midnight and can display a day
+  // early in timezones behind UTC (same bug formatDateOfBirth was fixed
+  // for — see SPEC.md section 6).
+  const [year, month, day] = item.atIso.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
 }
 
+// Merges calendar_events, races you have access to, and Eboard meetings
+// (if you're a member) into one date-ordered feed — see
+// lib/calendarFeed.ts for the per-source visibility rules. "Upcoming" vs
+// "Past" preserves each source's own existing cutoff convention rather
+// than one blunt timestamp comparison: a race stays "Upcoming" all day
+// today (date-string compare, matching races/index.tsx), while events/
+// meetings use a real timestamp compare.
 export default function ClubCalendarScreen() {
   const club = useClub();
+  const { session } = useAuth();
   const router = useRouter();
-  const [events, setEvents] = useState<DisplayCalendarEvent[]>([]);
+  const [items, setItems] = useState<CalendarFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
+      if (!session) return;
       let cancelled = false;
       setLoading(true);
-      fetchEvents(club.clubId)
+      fetchCalendarFeed(club.clubId, session.user.id, club.role === "admin")
         .then((data) => {
-          if (!cancelled) setEvents(data);
+          if (!cancelled) setItems(data);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -43,12 +61,16 @@ export default function ClubCalendarScreen() {
       return () => {
         cancelled = true;
       };
-    }, [club.clubId])
+    }, [club.clubId, club.role, session])
   );
 
   const now = Date.now();
-  const upcoming = events.filter((e) => new Date(e.startAt).getTime() >= now);
-  const past = events.filter((e) => new Date(e.startAt).getTime() < now).reverse();
+  const todayKey = toDateKey(new Date());
+  const isUpcoming = (item: CalendarFeedItem) =>
+    item.hasTime ? new Date(item.atIso).getTime() >= now : item.atIso.slice(0, 10) >= todayKey;
+
+  const upcoming = items.filter(isUpcoming);
+  const past = items.filter((i) => !isUpcoming(i)).reverse();
 
   if (loading) {
     return (
@@ -73,18 +95,14 @@ export default function ClubCalendarScreen() {
         renderItem={({ item: section }) => (
           <View>
             <Text style={styles.sectionHeader}>{section.title}</Text>
-            {section.data.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                style={styles.row}
-                onPress={() => router.push(`/clubs/${club.clubId}/event/${event.id}`)}
-              >
+            {section.data.map((item) => (
+              <TouchableOpacity key={item.id} style={styles.row} onPress={() => router.push(item.path)}>
                 <View style={styles.rowHeader}>
-                  <Text style={styles.rowTitle}>{event.title}</Text>
-                  <Text style={styles.typeBadge}>{TYPE_LABELS[event.eventType]}</Text>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={styles.typeBadge}>{item.badgeLabel}</Text>
                 </View>
-                <Text style={styles.rowDate}>{formatEventDate(event.startAt)}</Text>
-                {event.location && <Text style={styles.rowLocation}>{event.location}</Text>}
+                <Text style={styles.rowDate}>{formatItemDate(item)}</Text>
+                {item.subtitle && <Text style={styles.rowLocation}>{item.subtitle}</Text>}
               </TouchableOpacity>
             ))}
           </View>

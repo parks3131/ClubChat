@@ -1453,3 +1453,87 @@ empty link fields), filled in Photos and Result Link, and saved — a
 single Save call updated all 5 columns together, and the view immediately
 reflected both new links as tappable, replacing their placeholders.
 
+---
+
+## Task 23: Unified club Calendar (events + races + Eboard meetings)
+
+Founder request: the club Calendar should show calendar_events, races
+you're actually in, and Eboard meetings you're actually a member of, all
+merged into one date/time-ordered list — "if you are an Eboard member
+then the meeting there, [if] you are in race and meets that, [and] the
+calendar events, everything should be in calendar with date time order."
+
+### Why this needed no migration at all
+
+All three data sources already existed with their own established access
+rules: `calendar_events` (club-wide, always visible), `races` (visible in
+the plain list to everyone, but *access* — chat/roster/carpool/meet-info
+— gated to admins and approved `race_members`), and `eboard_meetings`
+(visible only to `eboard_channel_members`). The whole task was a new
+aggregator, `lib/calendarFeed.ts`, calling three already-existing fetch
+functions (`fetchEvents`, `fetchRaces`, `fetchEboardChannel` +
+`fetchMeetings`) and merging their results into one `CalendarFeedItem[]`
+sorted by timestamp. Races only have a date, not a time, so their sort
+key is synthesized as `${eventDate}T00:00:00`, with a `hasTime: false`
+flag telling the UI to format and bucket them differently.
+
+Per-source filtering, matching the founder's own phrasing exactly:
+- **Races**: only included if `race.access !== "none"` — i.e. only races
+  the caller can actually enter, not every race in the club (the plain
+  Races & Meets list is broader than this feed on purpose).
+- **Eboard meetings**: only included if `fetchEboardChannel(clubId,
+  userId)` reports `isMember: true` for the *specific calling user*. If
+  there's no Eboard channel yet, or the club exists but this user was
+  never added to it, this contributes nothing at all.
+
+### The catch, flagged mid-verification
+
+While first testing this live (as the admin who both created the Eboard
+channel and posted a meeting), the founder interrupted with a specific
+concern: "a member should not see admin meeting in his calendar" —
+clarified immediately after as specifically about Eboard meetings. This
+was already the intended design (see the `isMember` filter above), but
+rather than asserting it was already handled, it was verified directly:
+signed in as a second account (Bob) who was a **regular club member**
+(not an admin, not added to the Eboard channel, but was an approved
+participant on the test race) and confirmed his Calendar showed the
+calendar event and the race, but the Eboard meeting ("Officer sync") was
+correctly absent. Worth noting *why* this holds even more strongly than
+it might for a typical "role check" feature: club membership can't
+accidentally leak into Eboard visibility here even at the RLS layer,
+because `eboard_channel_members` membership itself is only ever grantable
+to existing club admins (enforced in migration 0017's insert policy) —
+so a plain member could never end up in that table in the first place,
+independent of anything this task's aggregation code does correctly or
+incorrectly.
+
+### UI (`calendar.tsx`)
+
+Each row gets a `badgeLabel`: the existing event-type chip text for
+calendar events (Practice/Volunteer/etc.), `"Race/Meet"` for races
+(deliberately not just "Race", to avoid confusion with `calendar_events`'
+own `event_type: "race"` value — an unrelated, pre-existing naming
+collision documented in SPEC.md section 1), and `"Eboard Meeting"` for
+meetings. Tapping a row navigates straight to `item.path` — the real
+event/race/meeting screen, each of which independently re-verifies
+access via its own existing guard (so even a stale/cached feed entry
+can't grant access beyond what the destination screen would allow
+anyway). "Upcoming" vs "Past" preserves each source's own original
+cutoff convention (timestamp-vs-now for timed items, date-string-vs-
+today for date-only races, matching `races/index.tsx`) rather than one
+blunt comparison across all three kinds.
+
+### Verification
+
+`npx tsc --noEmit` clean; no `supabase db reset` needed (no schema
+changes). Live end-to-end against "Location Test Club": created an
+Eboard meeting (Jul 15), a calendar event (Jul 20, Practice), and used
+the club's existing race (Aug 1) — as the admin, confirmed the Calendar
+showed all three in correct chronological order with the right badges,
+and that tapping each navigated to its real screen (meeting detail, race
+hub — event detail navigation was already proven by the pre-existing
+calendar.tsx code, not re-tested). Signed in as a second, non-admin,
+non-Eboard-member account and confirmed his Calendar showed the event and
+the race (he was an approved race participant) but not the Eboard
+meeting — the specific scenario the founder flagged mid-session.
+
