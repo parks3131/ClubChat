@@ -3,10 +3,11 @@ import { useLayoutEffect } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useClub } from "./_layout";
 
-const SECTIONS: { key: "chat" | "calendar" | "routines" | "races"; label: string }[] = [
+const SECTIONS: { key: "chat" | "calendar" | "routines" | "polls" | "races"; label: string }[] = [
   { key: "chat", label: "Chat" },
   { key: "calendar", label: "Calendar" },
   { key: "routines", label: "Routines" },
+  { key: "polls", label: "Polls" },
   { key: "races", label: "Races & Meets" },
 ];
 

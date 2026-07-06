@@ -329,6 +329,57 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["routine_workouts"]["Row"]>;
         Relationships: [];
       };
+      polls: {
+        Row: {
+          id: string;
+          club_id: string;
+          created_by: string;
+          question: string;
+          allow_multiple: boolean;
+          is_private: boolean;
+          is_closed: boolean;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["polls"]["Row"]> & {
+          club_id: string;
+          created_by: string;
+          question: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["polls"]["Row"]>;
+        Relationships: [];
+      };
+      poll_options: {
+        Row: {
+          id: string;
+          poll_id: string;
+          text: string;
+          position: number;
+          vote_count: number;
+        };
+        Insert: Partial<Database["public"]["Tables"]["poll_options"]["Row"]> & {
+          poll_id: string;
+          text: string;
+          position: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["poll_options"]["Row"]>;
+        Relationships: [];
+      };
+      poll_votes: {
+        Row: {
+          id: string;
+          poll_id: string;
+          option_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["poll_votes"]["Row"]> & {
+          poll_id: string;
+          option_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["poll_votes"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: {};
     Functions: {
@@ -374,6 +425,10 @@ export interface Database {
       };
       set_car_group_incharge: {
         Args: { p_group_id: string; p_user_id: string | null };
+        Returns: undefined;
+      };
+      cast_vote: {
+        Args: { p_option_id: string };
         Returns: undefined;
       };
     };

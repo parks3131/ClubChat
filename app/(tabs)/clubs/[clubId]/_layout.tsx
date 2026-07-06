@@ -114,6 +114,7 @@ export default function ClubLayout() {
           }}
         />
         <Stack.Screen name="routines" options={{ headerShown: false }} />
+        <Stack.Screen name="polls" options={{ headerShown: false }} />
         <Stack.Screen name="races" options={{ headerShown: false }} />
         <Stack.Screen name="eboard" options={{ headerShown: false }} />
         <Stack.Screen
