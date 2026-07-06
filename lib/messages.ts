@@ -49,15 +49,21 @@ async function attachSendersAndReactions(
 
 export async function fetchMessages(
   channelId: string,
-  options?: { limit?: number }
+  options?: { limit?: number; before?: string }
 ): Promise<DisplayMessage[]> {
   if (options?.limit) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("messages")
       .select("id, channel_id, sender_id, message_type, body, pinned, created_at")
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
       .limit(options.limit);
+
+    if (options.before) {
+      query = query.lt("created_at", options.before);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return attachSendersAndReactions((data ?? []).reverse());

@@ -32,6 +32,18 @@ function formatTime(iso: string) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+const PAGE_SIZE = 50;
+
+// createdAt is a Postgres timestamptz rendered as ISO 8601 with a
+// consistent offset, so lexicographic comparison sorts it correctly —
+// same assumption already implicit in fetchMessages' own
+// order("created_at") in lib/messages.ts.
+function mergeMessages(existing: DisplayMessage[], incoming: DisplayMessage[]): DisplayMessage[] {
+  const byId = new Map(existing.map((m) => [m.id, m]));
+  for (const m of incoming) byId.set(m.id, m);
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 // Shared by club chat (app/(tabs)/clubs/[clubId]/chat.tsx) and race chat
 // (app/(tabs)/clubs/[clubId]/race/[raceId]/chat.tsx) — both are just
 // messages in a channel (club-scoped or race-scoped), and the RLS/schema
@@ -64,10 +76,16 @@ export default function ChatScreen({
   const { session } = useAuth();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState("");
   const [asAnnouncement, setAsAnnouncement] = useState(false);
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList<DisplayMessage>>(null);
+  // Set right before an older page is prepended, so onContentSizeChange
+  // can jump back to the message the user was reading instead of
+  // scrolling to the bottom (its default behavior on every other change).
+  const olderPagePrependedCountRef = useRef<number | null>(null);
 
   // The pinned strip below is only shown when something is pinned, so it
   // can't be the only way to reach Highlights — Announcements needs to be
@@ -88,20 +106,49 @@ export default function ChatScreen({
   }, [navigation, router, highlightsPath, extraHeaderRight]);
 
   const reload = useCallback(() => {
-    fetchMessages(channelId, { limit: 50 })
-      .then(setMessages)
+    // Merge, don't replace: replacing would drop any older page the user
+    // has already loaded via scrolling up every time unrelated realtime
+    // activity (someone else's message/reaction/pin) fires.
+    fetchMessages(channelId, { limit: PAGE_SIZE })
+      .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
       .catch(() => {});
   }, [channelId]);
 
   useEffect(() => {
     setLoading(true);
-    fetchMessages(channelId, { limit: 50 })
-      .then(setMessages)
+    fetchMessages(channelId, { limit: PAGE_SIZE })
+      .then((initial) => {
+        setMessages(initial);
+        setHasMoreOlder(initial.length === PAGE_SIZE);
+      })
       .finally(() => setLoading(false));
 
     const unsubscribe = subscribeToNewMessages(channelId, reload);
     return unsubscribe;
   }, [channelId, reload]);
+
+  const handleLoadEarlier = async () => {
+    if (!hasMoreOlder || loadingOlder || messages.length === 0) return;
+    setLoadingOlder(true);
+    try {
+      const older = await fetchMessages(channelId, {
+        limit: PAGE_SIZE,
+        before: messages[0].createdAt,
+      });
+      if (older.length > 0) {
+        // Content size won't change (and onContentSizeChange won't fire to
+        // clear this) if older comes back empty, so only arm it when
+        // there's actually something being prepended.
+        olderPagePrependedCountRef.current = older.length;
+        setMessages((prev) => mergeMessages(prev, older));
+      }
+      setHasMoreOlder(older.length === PAGE_SIZE);
+    } catch {
+      // no-op: leave hasMoreOlder as-is so the user can just retry the tap
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   const handleSend = async () => {
     const body = draft.trim();
@@ -175,7 +222,37 @@ export default function ChatScreen({
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        onContentSizeChange={() => {
+          // After prepending an older page, jump back to the message the
+          // user was reading (now sitting right below the new page)
+          // instead of the default scroll-to-bottom every other change
+          // triggers here (initial load, send, react, pin, realtime reload).
+          const prependedCount = olderPagePrependedCountRef.current;
+          if (prependedCount !== null) {
+            olderPagePrependedCountRef.current = null;
+            requestAnimationFrame(() => {
+              flatListRef.current?.scrollToIndex({ index: prependedCount, animated: false });
+            });
+            return;
+          }
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }}
+        onScrollToIndexFailed={(info) => {
+          // FlatList can fail to scroll to an index it hasn't measured yet
+          // when row heights vary — standard workaround is a short retry.
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+          }, 50);
+        }}
+        onStartReached={handleLoadEarlier}
+        onStartReachedThreshold={0.5}
+        ListHeaderComponent={
+          loadingOlder ? (
+            <View style={styles.loadEarlierRow}>
+              <ActivityIndicator size="small" />
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => {
           if (item.messageType === "system") {
             return (
@@ -298,6 +375,7 @@ const styles = StyleSheet.create({
   pinnedText: { flex: 1, fontSize: 13, lineHeight: 17, color: "#334155" },
   pinnedSender: { fontWeight: "700" },
   list: { padding: 12, gap: 8 },
+  loadEarlierRow: { alignItems: "center", paddingVertical: 10 },
   messageRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
   avatar: { width: 32, height: 32, borderRadius: 16 },
   avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
