@@ -2028,3 +2028,157 @@ untouched in the common case.
 
 Cleaned up afterward: deleted the throwaway seed script, ran
 `supabase db reset` again to return the local DB to a clean state.
+## Task 28: Chat — scroll-triggered "Load earlier" pagination
+
+Right after task #27 shipped (cap chat to the latest 50 messages,
+older history unreachable), the founder asked what happens if you try
+to scroll up past the cap. Told them: nothing, older messages simply
+aren't reachable in the UI — that was the accepted tradeoff over the
+fuller cursor-pagination design from the original task #27 plan draft.
+The founder asked to build that fuller version now.
+
+### Plan and first design
+
+Entered Plan Mode fresh (overwriting the completed task #27 plan file,
+since this is a materially different task). The approved plan called
+for a `before` cursor on `fetchMessages`, a `mergeMessages` helper (byId
+merge, not replace, so a loaded older page survives unrelated realtime
+activity), a `hasMoreOlder`/`loadingOlder`-gated **"Load earlier
+messages" tap button** as `ListHeaderComponent`, and — the trickiest
+part — preserving scroll position when older messages are prepended
+above the current viewport.
+
+Checked whether RN's `maintainVisibleContentPosition` FlatList prop
+could handle the scroll-preservation problem for free: confirmed via
+`grep` that `react-native-web` doesn't implement it at all, and this
+app is smoke-tested on web, so it couldn't be relied on. Chose instead:
+a `suppressAutoScrollRef`-style ref (named `olderPagePrependedCountRef`
+in the actual code) armed right before a `handleLoadEarlier` state
+update, checked in `onContentSizeChange` to call `scrollToIndex({index:
+olderPageLength})` instead of the default `scrollToEnd` every other
+change in this screen triggers — landing the view back on the message
+that used to be first, now sitting right below the newly-prepended page.
+
+### A real bug, caught and fixed, in the scroll-preservation mechanism
+
+First live test (Playwright, seeded 75 messages, `scrollToIndex`
+called synchronously in `onContentSizeChange`) landed the view around
+message 61-70 instead of the expected ~26 — a ~35-message error, not
+just an off-by-a-few rounding issue. Read `scrollToIndex`'s actual
+implementation in `node_modules/react-native-web/dist/vendor/react-native/VirtualizedList/index.js`
+and found it falls back to an *approximate* offset computed from a
+`_highestMeasuredFrameIndex`/frame-metrics cache when no `getItemLayout`
+is provided (true here — message rows are variable-height). Hypothesis:
+that cache is stale immediately after a prepend, since it's keyed by
+position and the prepend just shifted everything.
+
+Consulted the advisor before spending more time down that path. Its
+correction: don't assume this is web-only — the file under
+`node_modules/react-native-web/dist/vendor/react-native/` is RNW's
+**vendored copy of React Native's actual `VirtualizedList`**, so the
+same approximate-offset-without-`getItemLayout` behavior applies on iOS/
+Android too, not something to defer as "just a web testing artifact."
+It suggested the cheap discriminating test first: wrap the
+`scrollToIndex` call in a `requestAnimationFrame` so the newly-prepended
+cells get a layout pass before the scroll — if that fixes it, it was a
+timing race, not a fundamental index-remapping problem; if not, the
+fallback would need to be a manual content-height-diffing approach (the
+pre-`maintainVisibleContentPosition` pattern: capture scroll offset and
+content height before the prepend, diff after, `scrollToOffset` by the
+delta).
+
+Ran the test: wrapping the `scrollToIndex` call in a single
+`requestAnimationFrame` (seeded 100 messages this time, for a cleaner
+before/after comparison) moved the landing spot from "wildly wrong" to
+within ~4 messages of the correct anchor (a small, explainable offset —
+the "Load earlier messages" header button itself adds height, shifting
+the visible window slightly). Confirmed this was a timing race, not an
+index-remapping problem — the one-line `rAF` fix was sufficient, the
+larger content-height-diffing fallback was not needed.
+
+### A false-alarm data-loss scare, and what it revealed about the test method
+
+Re-testing the full flow (load earlier → load earlier again, now
+returning 0 rows and correctly clearing `hasMoreOlder` → pin an old
+message) appeared to show the rendered message count collapsing from
+100 to 10 after the pin action — read initially as a serious regression
+where `mergeMessages` was somehow discarding already-loaded state.
+Checked the database directly first (`supabase db query` against the
+local Postgres instance) and confirmed all 100 rows were still there,
+and the correct message was marked `pinned = true` — ruling out real
+data loss immediately.
+
+To find the actual client-side cause, added temporary `console.log`
+statements around `mergeMessages`, `reload`, and the mount effect,
+restarted the dev server, and reran the exact repro sequence while
+reading `mcp__playwright__browser_console_messages`. The logs showed
+`resultLen: 100` on every single merge, both from the pin's explicit
+`reload()` call and a second `reload()` fired independently by the
+project-wide `message_reactions`/`messages` realtime subscription (the
+same one documented in `lib/messages.ts` as listening beyond just this
+channel) — the merge logic was correct every time.
+
+The "10 messages" figure came from the verification script itself, not
+the app: it counted DOM leaf elements matching `Message \d+`, which is
+only reliable if the FlatList renders every item into the DOM at once.
+It doesn't — `VirtualizedList` windows its rendering to the near-
+viewport range plus a buffer, so at certain scroll positions (right
+after a `scrollToEnd`, mid-animation, etc.) only a fraction of the
+`messages` array's ids are actually present as DOM nodes. Confirmed this
+by re-running the same DOM-scrape immediately after a fresh page
+navigation to the same URL and seeing a correct, full 50-message count —
+proving the state itself was never wrong, only this particular way of
+checking it. Lesson for testing any virtualized list in this app going
+forward: DOM-node counting confirms "what's currently rendered," not
+"what's in state" — use console-log-based state inspection or a fresh
+remount to check the latter, the way the `EXPLAIN`-over-DDL and
+DB-query-over-UI-claim lessons from tasks #25/#27 already established
+for other layers of this stack.
+
+### A real product-scope pivot, mid-build
+
+While the above was still being debugged, the founder clarified the
+actual expectation, unprompted: "if i open i can see the unread part
+and scroll below if i wanna see the older i scroll up and it loads as i
+scroll up the old messages" — i.e., automatic infinite-scroll-style
+loading, not a tap-a-button affordance. This was a real, if small,
+scope correction on an already-approved plan (the plan's Part 2
+explicitly specified a "Load earlier messages" `TouchableOpacity`).
+
+Checked whether FlatList/VirtualizedList supports a built-in "near the
+top" callback before reaching for a custom `onScroll`-threshold
+implementation: confirmed `onStartReached`/`onStartReachedThreshold`
+exist in `react-native-web`'s vendored `VirtualizedList` (mirrors the
+already-familiar `onEndReached` for infinite-scroll-down, just for the
+top edge) — a real, portable FlatList prop, not something to hand-roll.
+Replaced the tap button with `onStartReached={handleLoadEarlier}`
+`onStartReachedThreshold={0.5}` on the same `FlatList`; the
+`ListHeaderComponent` now only renders a small `ActivityIndicator`
+while `loadingOlder` is true (no "Load earlier messages" text/button —
+loading is automatic, so no affordance is needed to trigger it), and
+the now-unused `loadEarlierText` style was deleted. `handleLoadEarlier`
+itself, `mergeMessages`, and the scroll-position-preservation mechanism
+were all unchanged — only the trigger (tap vs. scroll proximity)
+changed.
+
+### Verification
+
+`npx tsc --noEmit` clean throughout (checked again after both the
+`rAF` fix and the `onStartReached` swap). Live via `CI=1 npx expo start
+--web` + Playwright, reusing the task #27 pattern of a throwaway
+`@supabase/supabase-js` script (same `created_by`-inclusive club-insert
+shape as `lib/clubs.ts`'s `createClub`, learned the hard way in task
+#27) to seed a fresh test club with 100 messages: confirmed the initial
+load shows only the latest 50 (`Message 51`-`Message 100`); simulated a
+real scroll-to-top via a raw `element.scrollTop = 0` plus a dispatched
+`scroll` event (Playwright has no built-in "scroll this nested web
+FlatList" gesture) and confirmed older messages prepended automatically
+with no click/tap anywhere in the sequence; repeated the scroll-to-top
+trigger a second time and confirmed it kept paging further back;
+pinned both an in-window message and the true oldest message
+(`Message 1`, only reachable after two rounds of auto-loading) and
+confirmed both correctly updated the pinned strip live and appeared in
+Highlights, cross-checked against the database directly rather than
+trusting the UI alone, given the false-alarm scare earlier in this same
+task. Cleaned up: deleted the throwaway seed script, ran `supabase db
+reset` to return to a clean slate.
