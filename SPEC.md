@@ -26,8 +26,7 @@ ClubChat is meant to be a purpose-built replacement, structured as a
 **template every club can use**:
 
 - **General club** (the persistent, top-level space for a club):
-  - **Chat**: text, photos, videos, reactions, announcements, polls,
-    pinning.
+  - **Chat**: text, photos, reactions, announcements, polls, pinning.
   - **Calendar**: races, practices/meets, team bonding events, volunteer
     work, etc. Tapping an entry shows a detail view (think: a cleaner
     Strava/Corros-style event view).
@@ -55,7 +54,7 @@ ClubChat is meant to be a purpose-built replacement, structured as a
 MVP prioritization the user and I agreed on: **club chat → club
 create/join + roles → calendar** first (these alone already beat
 GroupMe+Excel-screenshots), then **weekly routines**, then the full
-**Race sub-flow** (sub-chat, workout, carpool, results), then polls/video
+**Race sub-flow** (sub-chat, workout, carpool, results), then polls
 as a final layer.
 
 ## 2. Domain model
@@ -78,6 +77,17 @@ User (auth.users + profiles)
      │                   title, description — deliberately no structured
      │                   exercise sub-table, per an explicit "keep it very
      │                   simple" scoping call)
+     ├─ Poll (task #24 — question + N options, admin-created; per-poll
+     │        toggles for allow_multiple and is_private. Vote counts are
+     │        always public (denormalized on PollOption, trigger-
+     │        maintained); voter *identity* is RLS-gated to the creator
+     │        on a private poll, everyone on a public one — a voter
+     │        always sees their own vote either way. Close/reopen/delete
+     │        are creator-only, mirroring EboardMeeting rather than
+     │        Race/RoutineWorkout's "any club admin" pattern.)
+     │   ├─ PollOption (text, position, vote_count)
+     │   └─ PollVote (poll_id, option_id, user_id — unique per option per
+     │       user; cast/toggled/moved via the cast_vote RPC)
      ├─ Race (mini-club nested under Club, task #16 — always request-based
      │        access, no "open" policy like Club's join_policy: a club
      │        member requests, any club admin can approve or add directly.
@@ -190,8 +200,8 @@ app/                          Expo Router file-based routes
   (tabs)/clubs/[clubId]/_layout.tsx
                                 Fetches club + this user's role once,
                                 exposes via `useClub()` context. Registers
-                                index/chat/calendar/routines/races/highlights/
-                                club-profile/member/event/race as Stack
+                                index/chat/calendar/routines/polls/races/
+                                highlights/club-profile/member/event/race as Stack
                                 screens, sharing one `clubScreenOptions`
                                 object (tappable club-name headerTitle ->
                                 club-profile, admin-only invite-code
@@ -250,6 +260,21 @@ app/                          Expo Router file-based routes
                                 `workout/[workoutId].tsx`: detail view,
                                 read-only for members, Edit/Delete for
                                 admins. No completion tracking.
+  (tabs)/clubs/[clubId]/polls/
+                                Task #24 — own nested Stack (same shape as
+                                races/). `index.tsx`: Active/Closed grouped
+                                list (mirrors races/index.tsx's Upcoming/
+                                Finished), admin-only "+ Create Poll".
+                                `create.tsx`: admin-only, question + 2-10
+                                free-text options (dynamic add/remove) +
+                                two Switch toggles (allow-multiple,
+                                private vote). `[pollId].tsx`: vote by
+                                tapping an option (toggles off if already
+                                selected, moves the vote on a single-
+                                choice poll), counts always shown, voter
+                                names per option shown only when public or
+                                viewing as the creator; creator-only
+                                Close/Reopen/Delete.
   (tabs)/clubs/[clubId]/club-profile/
                                 Club identity (avatar, name, description,
                                 admin-only edit) + full member roster
@@ -438,6 +463,11 @@ lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
                                  ACTIVITY_LABELS/ACTIVITY_ICONS
+lib/polls.ts                     Task #24 — fetchPolls / createPoll /
+                                 fetchPoll / fetchPollVoters (only called
+                                 when eligible to see voters) / castVote
+                                 (wraps the cast_vote RPC) / setPollClosed /
+                                 deletePoll
 lib/races.ts                     Task #16 — fetchRaces (per-race access +
                                  request status for the current user) /
                                  createRace / requestJoinRace / fetchRace /
@@ -594,6 +624,18 @@ supabase/migrations/
                                  update policy already covers these
                                  columns too. Closes out the last of
                                  Race's 4 originally-placeholder sections.
+  0025_polls.sql                   Task #24 — polls / poll_options /
+                                 poll_votes + RLS; poll_options.vote_count
+                                 is denormalized and trigger-maintained so
+                                 counts stay public even on a private poll
+                                 whose individual poll_votes rows are RLS-
+                                 gated to the creator; cast_vote RPC casts/
+                                 toggles/moves a vote, deliberately plain
+                                 security-invoker (not security-definer)
+                                 and never uses INSERT...RETURNING (see
+                                 section 6's chicken-and-egg gotcha).
+                                 Close/reopen/delete are creator-only,
+                                 unlike races'/routines' any-admin pattern.
 ```
 
 ## 5. Current status
@@ -604,12 +646,11 @@ supabase/migrations/
 | 2 | Supabase schema + RLS (migrations 0001-0005) | ✅ Done |
 | 3 | Auth flow (sign up/in/out, session persistence, route guard) | ✅ Done |
 | 4 | Club creation, invite-code join, admin/member roles | ✅ Done, verified live end-to-end |
-| 5 | Club group chat | ✅ Done — messages, reactions, pin/announce, realtime. Photo/video attachments **not** built yet. |
+| 5 | Club group chat | ✅ Done — messages, reactions, pin/announce, realtime. Photo attachments **not** built yet. |
 | 6 | Club calendar | ✅ Done — CRUD, Upcoming/Past list, detail + admin create/edit. No realtime (refetch-on-focus instead — events change rarely). Plain text date/time fields, no date-picker lib. |
 | 7 | Members list + promote/remove/add | ✅ Done — lives in `club-profile/index.tsx`, no standalone Members screen. |
 | 8 | Search-by-name club join + join policy | ✅ Done — `open`/`request` policies, autosuggest search, admin approve/deny. Verified live with 3 test users. |
 | 9 | Chat system messages for membership changes | ✅ Done — DB triggers post join/leave/add/remove messages, rendered as centered italic lines. |
-| — | Polls, video messages | ⬜ Not started |
 | 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done — see task #10 in `docs/HISTORY.md`'s status table for the web image-picker user-activation gotcha. |
 | 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done — see task #11 in `docs/HISTORY.md`'s status table for the UTC date-off-by-one bug + fix (`formatDateOfBirth`). |
 | 12 | Club profile screen, chat sender avatars, Members tab removed | ✅ Done — see task #12 in `docs/HISTORY.md`'s status table for two follow-up back-button fixes (cross-tab history). |
@@ -626,9 +667,18 @@ supabase/migrations/
 | 21 | Race: Location & Accommodation | ✅ Done, then merged into task #22 — see below. Originally its own screen (description + 2 links, combined edit form, fields hidden entirely when empty); superseded by task #22's "Meet Information," which folded Photos/Result Link into this screen and renamed it. |
 | 22 | Race: consolidate Photos/Result Link into Location & Accommodation → "Meet Information" | ✅ Done — see task #22 in `docs/HISTORY.md`. Founder follow-up right after #20 and #21 both shipped: fewer hub rows (3 instead of 5), one combined 5-field edit form. No new migration needed — all 5 columns already existed on `races`. Kept a deliberate per-field empty-state split: description/location/hotel hidden entirely, photos/results keep their original "stay tuned" placeholder. `photos.tsx`/`results.tsx` deleted along with their now-dead lib functions. **This was the last of Race's 4 originally-placeholder sections (task #16) — all 3 rows on the race hub are now fully built.** |
 | 23 | Unified club Calendar (events + races + Eboard meetings) | ✅ Done — see task #23 in `docs/HISTORY.md`. `lib/calendarFeed.ts` merges calendar_events (always), races the caller has access to, and Eboard meetings the caller is a member of into one date/time-sorted list — no new tables/RLS, pure aggregation over existing reads. Explicitly verified live that a regular club member (not an Eboard member) sees an Eboard meeting's calendar entry correctly absent, while still seeing calendar events and any race they have access to. |
+| 24 | Polls: admin-created, single/multi-select voting, public/private voter visibility | ✅ Done — see task #24 in `docs/HISTORY.md`. New standalone "Polls" hub row (`polls`/`poll_options`/`poll_votes`, migration `0025_polls.sql`), structurally mirroring `races/`. Per-poll toggles for allow-multiple and private voting; vote counts are always public via a denormalized `poll_options.vote_count` trigger, while voter identity is RLS-gated to the creator (private polls) or everyone (public polls) — a voter always sees their own vote either way. Close/reopen/delete are **creator-only** (mirrors `eboard_meetings`, not the races/routines "any admin" pattern) — verified live that this holds at the RLS layer itself (a raw PATCH by a non-creator admin returned 0 rows updated), not just via hidden buttons. |
+| 25 | Code-quality audit + standardized error handling on data loads | ✅ Done — see task #25 in `docs/HISTORY.md`. A whole-codebase audit (no automated tests/CI/lint, missing FK indexes, no pagination, inconsistent error UX, zero accessibility labels, hand-written DB types) found that most screens' initial data fetch had no failure handling at all — worst case, the 3 club-scoped context layouts (`clubs/[clubId]`, `race/[raceId]`, `eboard`) could hang on a permanent spinner forever if their load query failed, with no escape. Fixed across ~24 files: a new shared `lib/reportError.ts` (deduped from 6 copies) and `components/LoadError.tsx` (message + retry), applied consistently — context layouts get a full-screen retry, list/detail screens get a real error state instead of silently rendering as if empty, edit-form prefill fetches no longer risk saving blank data over a real record, and transient actions (vote/close/delete) surface failures via alert. Verified live: a deliberately-broken load (nonexistent club UUID) now shows "Couldn't load this club." with a working retry instead of hanging. |
+| 26 | Add automated tests + CI | ✅ Done — see task #26 in `docs/HISTORY.md`. `jest-expo` + a first real (not token) test suite: `lib/dates.ts` — extracted from 2-3 duplicated per-screen copies of `toDateKey`/`getMonday`/`addDays`/`splitIso`/`combineToIso` (mirroring the `reportError` dedup from task #25) — plus `formatDateOfBirth` (locks in the task #11 UTC-off-by-one fix as a real regression test) and `fetchCalendarFeed` (mocked dependencies, covers task #23's access-filtering/sort-order rules that were previously only verified live by hand). `.github/workflows/ci.yml` runs `tsc --noEmit` + `npm test` on every push/PR. |
 
-**Immediate next step**: the last major MVP phase is polls/video
-messages.
+**Immediate next step**: video messages are no longer planned (dropped
+from scope). Tests + CI (task #26) and error-handling standardization
+(task #25) are both done. The remaining gaps from the code-quality
+audit, roughly in priority order: missing DB indexes on most foreign
+keys, no pagination on chat/lists, zero accessibility labels, hand-
+written `types/database.ts` (regenerate once a real hosted Supabase
+project exists), and no error monitoring (e.g. Sentry). Photo
+attachments in chat (task #5's note) is the one still-open MVP item.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

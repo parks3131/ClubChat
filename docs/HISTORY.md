@@ -1537,3 +1537,354 @@ non-Eboard-member account and confirmed his Calendar showed the event and
 the race (he was an approved race participant) but not the Eboard
 meeting — the specific scenario the founder flagged mid-session.
 
+## Task 24: Polls
+
+Founder request (with a hub screenshot for context): club admins create
+a poll with a question and N options; members vote, with a per-poll
+toggle for single-choice vs multi-select; vote counts show next to each
+option; and a per-poll public/private toggle — public means everyone can
+see who voted for what, private means only the poll's creator can see
+individual votes (everyone still sees the counts either way).
+
+Went through a full plan-mode pass first (the founder's own follow-up
+message was "plan advice think ask any questions"), including an
+`advisor()` call before writing anything down given this codebase's
+documented RLS scar tissue (section 6). Three decisions were pushed back
+to the founder via `AskUserQuestion` rather than assumed: placement (a
+new standalone "Polls" hub row, not inline chat messages — the original
+product-vision text in section 1 had lumped polls into Chat, but this
+matched an actual founder wireframe/ask better and mirrors the
+routines/races structural pattern), whether polls can be closed
+(yes, and reopened), and — flagged explicitly by the advisor as a real
+fork rather than a safe default — who can close/delete a poll once
+created: the founder chose **creator-only**, mirroring `eboard_meetings`
+(migrations 0019/0020) rather than the "any club admin" pattern used by
+races/routines/calendar-events.
+
+### Schema (`0025_polls.sql`): `polls` / `poll_options` / `poll_votes`
+
+The one genuinely new problem this feature posed: RLS is row-level, not
+column-level, so there's no way to let every member see a private poll's
+*vote counts* while hiding *who* voted, if counts were computed by
+counting visible `poll_votes` rows — a non-creator member on a private
+poll can only ever see their own vote row (per the RLS design below), so
+counting visible rows would undercount for everyone but the creator.
+Solved with a denormalized `vote_count` column on `poll_options`,
+maintained by an `AFTER INSERT/DELETE` trigger on `poll_votes` — counts
+live on a row every club member can already read (same as the option
+text), independent of privacy; only voter *identity* (the `poll_votes`
+rows themselves) is gated.
+
+The `poll_votes` SELECT policy: `can_access_poll(poll_id) and (user_id =
+auth.uid() or is_poll_creator(poll_id) or not is_poll_private(poll_id))`
+— a voter always sees their own vote regardless of privacy (needed to
+render "you voted for this" even on a private poll), the creator sees
+every vote on their own poll, and everyone sees everyone's on a public
+poll.
+
+Vote casting/toggling/moving (tap an already-selected option to retract;
+tap a different option on a single-choice poll to move the vote) is one
+`cast_vote(p_option_id)` RPC, deliberately plain `security invoker` (not
+`security definer`) since it only ever touches the caller's own rows —
+ordinary RLS is sufficient. It was also written to never use
+`INSERT ... RETURNING`, specifically to sidestep section 6's documented
+"INSERT...RETURNING also re-checks the SELECT policy" trap — worth
+calling out because the advisor flagged the non-creator-votes-on-a-
+private-poll path as the single highest-risk spot for that exact bug to
+resurface in this codebase, and it was verified live (not just read as
+correct) for that reason.
+
+Helper functions (`can_access_poll`, `is_poll_creator`, `is_poll_private`,
+`is_poll_closed`) are security-definer and, for `polls`' own update/delete
+policies, self-referencing (`is_poll_creator` queries `polls` while being
+used inside a policy *on* `polls`) — already a proven pattern in this
+codebase via `is_channel_member` being used inside `channels`' own SELECT
+policy (0016_races.sql), not a new risk.
+
+### UI
+
+New `app/(tabs)/clubs/[clubId]/polls/` directory, structurally identical
+to `races/` (`_layout.tsx` nested Stack, `index.tsx` Active/Closed list
+mirroring Upcoming/Finished, `create.tsx` admin-only form, `[pollId].tsx`
+detail/voting screen). `create.tsx` supports 2–10 free-text options via
+dynamic add/remove rows, plus two `Switch` toggles (already an established
+component in this codebase via `ChatScreen.tsx`'s announce toggle) for
+"allow multiple" and "private vote." `[pollId].tsx` shows vote counts
+next to every option unconditionally, and voter names per option only
+when `!poll.isPrivate || isCreator` (both a client-side fetch guard to
+avoid a wasted request, and independently enforced server-side by RLS).
+Creator-only Close/Reopen/Delete buttons, with the same
+`Platform.OS === "web"` → `window.confirm` branch as
+`event/[eventId].tsx`'s delete (section 6: `Alert.alert` is a no-op on
+web). Hub wiring: one new `SECTIONS` entry in `index.tsx` (visible to
+every member, same as Races & Meets — only poll *creation* is admin-
+gated) and one new `Stack.Screen` in `_layout.tsx`.
+
+### Verification
+
+`supabase db reset` (clean apply of `0025_polls.sql`) and `npx tsc
+--noEmit` clean. Live end-to-end via `CI=1 npx expo start --web` +
+Playwright with two accounts (Admin Ann, Member Mike — the same browser
+context shares localStorage/session, so the two accounts were driven
+sequentially with explicit sign-out/sign-in between switches, not two
+simultaneous tabs): created a public single-choice poll, voted as both
+accounts, and confirmed voting for a different option *moved* the vote
+rather than adding a second one (Bowling → Mini golf transitioned 1→0
+and 0→1 correctly). Created a private multi-select poll as Admin Ann,
+selected both options simultaneously and toggled one off, confirming
+multi-select and toggle-off both work independently per-option. Then, as
+Member Mike (non-creator), voted on that same private poll and confirmed
+— this being the specific path flagged as highest-risk — no RLS error,
+his own vote visible with a checkmark, and the other voter's identity
+correctly hidden behind "This is a private vote — only Admin Ann can see
+who voted for what." Switched back to Admin Ann and confirmed the
+creator view shows both voters' names per option. Promoted Member Mike
+to club admin (via the existing roster screen) specifically to test
+that admin status *alone* doesn't grant close/delete rights on someone
+else's poll: confirmed the buttons stay hidden for him, and — going a
+step further than the plan asked for — issued a raw authenticated PATCH
+against `/rest/v1/polls` as Mike to attempt reopening Admin Ann's closed
+poll directly (bypassing the UI entirely); it returned `200` with an
+empty result array, PostgREST's signature for "zero rows satisfied the
+UPDATE policy," confirming creator-only enforcement holds at the RLS
+layer itself, not just in hidden buttons. Regression-checked the hub
+(all 6 rows present, unaffected) and Chat (existing join/promote system
+messages still rendering).
+
+## Task 25: Code-quality audit + standardized error handling on data loads
+
+Founder request: "is what we built so far senior-engineer level, and if
+not, what's missing." Rather than answer from impression, ran an actual
+audit: `git status`/`tsc --noEmit`/dependency list, grep passes for
+secrets hygiene, console leftovers, error-handling coverage, DB indexes,
+pagination, accessibility props, and CI/lint/test config presence.
+
+### Findings
+
+What held up well: RLS/data-model discipline (security-definer helper
+functions, correct handling of the `INSERT...RETURNING` gotcha, per-
+feature access models chosen for real reasons, verified live at the RLS
+layer), SPEC.md/HISTORY.md documentation, consistent structural reuse
+across races/routines/eboard/polls, TypeScript strict mode with a clean
+`tsc`, no hardcoded secrets, `.env` properly ignored, debounced search
+inputs. What didn't: zero automated tests (every verification pass to
+date is manual/ad hoc, not saved or re-run — and a regression already
+slipped through once this way, the cross-tab back-button loop bug in
+section 6), no CI, no ESLint/Prettier, only 4 of ~15+ FK-heavy tables
+have explicit indexes, no pagination anywhere (`fetchMessages` loads a
+channel's entire history every call), zero `accessibilityLabel`/`Role`
+across 247 touchables, a hand-written `types/database.ts` with no build-
+time check that it still matches the schema, and no error monitoring.
+
+The founder picked **error handling** as the first gap to close, out of
+those nine — ranked because it's every user's first symptom (a hang or
+a blank screen with no explanation) and touches the whole app
+uniformly, so fixing it once as a shared pattern pays off everywhere at
+once.
+
+### The gap, precisely
+
+Most screens' initial fetch had the shape `fetchX(...).then(setX)
+.finally(() => setLoading(false))` with **no `.catch()`**. When the
+fetch rejects, `.then` is skipped, `.finally` still clears the loading
+flag, and the screen renders exactly as if the data were simply empty —
+indistinguishable from a real empty state, with the rejection either
+unhandled or silently swallowed. The worst instances were the three
+club-scoped **context-provider layouts** (`clubs/[clubId]/_layout.tsx`,
+`race/[raceId]/_layout.tsx`, `eboard/_layout.tsx`): their `load()`
+functions had no failure path at all, so a failed query left the
+context value unset and the screen stuck on an `ActivityIndicator`
+**forever**, with no escape short of restarting the app. One extra
+subtlety specific to `ClubLayout`: it destructured `{ data }` from three
+Supabase calls without ever checking the paired `error` field — since
+supabase-js doesn't throw on its own, nothing would even reach a
+try/catch; the fix had to explicitly check `error`/null-data on each
+leg, not just wrap the call in `try`.
+
+`app/(tabs)/clubs/index.tsx` was the one screen already doing this
+right (`.catch((err) => setError(...))` + a conditional render), and
+became the reference pattern to generalize — though even it lacked a
+retry button, relying on the user backing out and refocusing.
+
+Separately, 6 files (`club-profile/index.tsx`, `profile/index.tsx`,
+`eboard/roster.tsx`, `race/[raceId]/roster.tsx`,
+`race/[raceId]/carpool.tsx`, `race/[raceId]/location.tsx`) had each
+independently invented an identical local `reportError` helper
+(alert-based, for transient action failures) — proven convention, just
+duplicated 6 times instead of shared.
+
+### Fix — two shared pieces, then a bucketed pass over ~24 files
+
+`lib/reportError.ts` — the exact duplicated function, extracted once;
+the 6 files now import it. `components/LoadError.tsx` — new shared
+"message + Try again button" component, styled to the app's existing
+palette, used everywhere a full-screen data load can fail.
+
+Then, in order of severity:
+- **Context layouts** (3 files): `loadFailed` state + a `retryToken`
+  bumped by the retry button and added to the effect's dependency array
+  (since these already had a "load" closure defined inline in
+  `useEffect`, not a standalone callback) — renders `<LoadError
+  onRetry={...} />` instead of the permanent spinner.
+- **List/detail screens** (~15 files: races/polls/routines lists,
+  calendar, eboard meetings list, club-profile, event/workout/meeting
+  detail screens, member profile): added a `loadError` boolean, wired
+  `.catch()`, rendered `LoadError` in place of the list/empty-state.
+  Screens with a `Promise.all([...])` of parallel fetches (club-profile,
+  both roster screens) catch at the `Promise.all` level, not per-leg —
+  a partial failure still leaves the screen's data inconsistent either
+  way, so there's no value in trying to degrade gracefully per-field.
+- **Create/edit form prefill fetches** (5 files: event, workout, meeting
+  create/edit screens, both profile-edit screens): same `loadError` +
+  full-screen `LoadError` treatment around the *edit-mode* prefill
+  specifically (the *save* action's own existing `setError` + inline
+  text was left untouched) — a blank form after a failed prefill was a
+  real risk of silently saving blanks over a real record, not just a UX
+  papercut.
+- **Transient actions** (polls detail screen — vote/close/delete):
+  this screen was written earlier in the same session (the Polls
+  feature, task #24) and had already reproduced the exact same gap
+  before the audit even started. Added the same `.catch(reportError)`
+  convention to its vote/close/delete handlers plus a full `loadError`
+  treatment for its own initial fetch.
+
+### Verification
+
+`npx tsc --noEmit` clean after every bucket (checked incrementally, not
+just once at the end). Live via `CI=1 npx expo start --web` +
+Playwright: full regression pass across the hub, chat, races list, and
+a poll detail screen with zero console errors, confirming the "real
+empty state" vs "failed to load" distinction actually holds (races list
+correctly still shows "No races or meets yet." rather than an error).
+Then the specific induced-failure test the plan called out as highest-
+value: navigated directly to `/clubs/00000000-0000-0000-0000-000000000000`
+(a well-formed but nonexistent club UUID) and confirmed `ClubLayout` now
+shows "Couldn't load this club." with a working "Try again" button
+instead of the old permanent spinner — clicked retry and confirmed it
+re-attempts cleanly (same correct error state, no crash) rather than
+just verifying by code inspection.
+
+## Task 26: Add automated tests + CI
+
+Founder picked this as the next code-quality-audit item over DB indexes/
+pagination/accessibility, out of the five gaps left after task #25. The
+reasoning: every verification pass on this project to date has been
+manual/ad hoc (a Playwright pass clicked through once per feature, never
+saved or re-run), and a regression already slipped through this exact
+way once — the cross-tab back-button loop bug (section 6) shipped,
+regressed, and was only caught live by the founder.
+
+### Framework
+
+`jest-expo` — installed via `npx expo install jest-expo jest @types/jest`
+so it resolved the version matched to this project's Expo SDK 57
+(`jest-expo@57.0.1`), then manually moved from `dependencies` to
+`devDependencies` in `package.json` (`expo install` doesn't distinguish
+dev-only tooling). `jest.config.js` just sets the preset; no component-
+rendering tests yet (`@testing-library/react-native` would pull in a
+much bigger, separate decision about mocking Expo Router/Supabase for
+rendering) — this pass is pure-function and mocked-dependency unit tests
+only, deliberately scoped to where this app's *provable* logic bugs have
+actually occurred (date math), not rendering.
+
+Two real setup gotchas, both fixed in `jest.setup.js`:
+- `lib/supabase.ts` throws at import time if
+  `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` aren't set —
+  and Jest doesn't load `.env` on its own. Any test that imports a `lib/`
+  module which transitively imports `lib/supabase.ts` (e.g.
+  `formatDateOfBirth` from `lib/profile.ts`) would otherwise crash before
+  the test itself even runs. Fixed with dummy env values set in
+  `jest.setup.js`, so tests never need real credentials or a running
+  Supabase instance — this also has to work in CI, which has no `.env`.
+- `@react-native-async-storage/async-storage`'s native module isn't
+  available under plain Jest (no simulator/device backing it), and
+  `jest-expo`'s preset doesn't mock it since it's a separate community
+  package, not core Expo. Needed the package's own documented Jest mock,
+  registered in `jest.setup.js`.
+- Separately, `npx tsc --noEmit` failed on the new test files with
+  "Cannot find name 'describe'/'it'/'expect'" even though `@types/jest`
+  was installed — TypeScript's automatic `@types/*` inclusion wasn't
+  picking it up under this project's tsconfig (extends
+  `expo/tsconfig.base`, no explicit `types` array). Fixed by adding
+  `"types": ["jest"]` to `tsconfig.json`'s `compilerOptions` explicitly,
+  rather than relying on auto-inclusion.
+
+### Extracting `lib/dates.ts` (prerequisite for testing, and a dedup)
+
+`toDateKey` was defined identically in 3 files (`calendar.tsx`,
+`routines/index.tsx`, `races/index.tsx`); `splitIso`/`combineToIso`
+identically in 2 (`event/create.tsx`, `eboard/meeting/create.tsx`) — all
+private, non-exported functions, so none of them could be unit tested in
+place. Extracted verbatim (same logic, same comments, zero behavior
+change) into `lib/dates.ts`; the 5 call sites now import from there
+instead of keeping a local copy — the same move already made for
+`reportError` in task #25, done here specifically because these
+functions are exactly the class of bug (UTC-vs-local date parsing) this
+project has already shipped and fixed twice (`formatDateOfBirth` in
+task #11; the same class again in task #15/#16).
+
+### The first test suite
+
+Three files, chosen for being genuinely load-bearing rather than just
+exercising the setup:
+- `lib/dates.test.ts` — `toDateKey`, `getMonday` (including the
+  `day === 0` Sunday-rolls-back-6-days branch specifically — exactly the
+  kind of one-line date-math bug this app has hit before), `addDays`,
+  and a `splitIso`/`combineToIso` round-trip plus malformed-input cases.
+- `lib/profile.test.ts` — `formatDateOfBirth`: `null` → `"Not set"`, and
+  a date string that would render a day early under the naive
+  `new Date(iso)` parsing this function was specifically written to
+  avoid — turning a comment referencing a past bug into an actual
+  regression test for it.
+- `lib/calendarFeed.test.ts` — `fetchCalendarFeed` with
+  `fetchEvents`/`fetchRaces`/`fetchEboardChannel`/`fetchMeetings` fully
+  mocked via `jest.mock(...)` (no real Supabase call), asserting the
+  three rules task #23 verified live by hand: a race with
+  `access: "none"` excluded, Eboard meetings excluded when not a member
+  (or there's no channel at all — confirmed `fetchMeetings` isn't even
+  called in that case), and the merged result sorted ascending by
+  `atIso` across mixed event/race/meeting kinds.
+
+### CI
+
+`.github/workflows/ci.yml` — this repo has a real GitHub remote
+(`parks3131/ClubChat`) on `main`, confirmed before writing the workflow
+so it wasn't dead configuration. Triggers on `push`/`pull_request`;
+`actions/setup-node@v4` (Node 20, npm cache) → `npm ci` → `npx tsc
+--noEmit` → `npm test`. No lint step — no ESLint config exists yet,
+that's a separate, not-yet-chosen item from the same audit, not silently
+bundled in here.
+
+### Verification
+
+`npm test`: all 17 tests across 3 suites pass. `npx tsc --noEmit` clean.
+Simulated the CI job locally end-to-end before trusting the YAML —
+`npm ci` (catches lockfile/dependency-split mismatches `npm install`
+wouldn't), then `tsc --noEmit && npm test` in sequence, matching the
+workflow's actual steps exactly. Live regression via `CI=1 npx expo
+start --web` + Playwright on all 3 screens whose date helpers moved:
+calendar (empty state, no errors), routines week view (correctly showed
+"Jul 6 – Jul 12, 2026" for the actual current week, proving
+`getMonday`/`addDays` survived the extraction), and races list. Went one
+step further than a passive check on `event/create.tsx`: created a real
+event through the UI with a specific date/time, confirmed the detail
+view rendered it back correctly (`combineToIso`), opened Edit and
+confirmed the form re-populated the exact same date/time (`splitIso`),
+then deleted the test event — a full round trip through the extracted
+functions, not just a visual glance. Confirming the Actions workflow
+itself passes on GitHub requires a push, which was confirmed with the
+founder first (this repo has a real remote, and pushing is a visible,
+harder-to-undo action) rather than done unilaterally.
+
+Committed as 3 separate commits mirroring the actual units of work
+(Polls/task #24, error-handling standardization/task #25, tests+CI/
+task #26) per the founder's preference — one shared file
+(`clubs/[clubId]/_layout.tsx`, touched by both #24's hub-wiring and
+#25's error handling) was split cleanly between the first two commits by
+reconstructing the intermediate state rather than committing both
+changes together; the 5 files touched by both #25's LoadError additions
+and this task's `lib/dates.ts` extraction were left bundled into the
+#25 commit rather than attempting the same split five times over, since
+the interleaved hunks weren't cleanly separable without much riskier
+manual surgery.
+
