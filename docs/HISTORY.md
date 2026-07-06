@@ -873,3 +873,583 @@ SQL Editor in order (`0001` → `0002` → `0003` → `0004`), and swap the two
   Playwright MCP tools before declaring a feature done — this caught two
    real navigation bugs already (see section 6).
 
+---
+
+## Task 17: Eboard & Council
+
+Built from a founder's hand-drawn wireframe (photographed, four sections:
+a "for members" hub mockup without the row, a "for admins" hub mockup
+with it, a note on the create flow, and a "Chat / Meetings" box for what's
+inside). Before writing any code, three ambiguous points in the wireframe
+were resolved via `AskUserQuestion` rather than guessed, since each one
+materially changes the RLS design:
+
+1. **Structure** — is "Eboard & Council" a *list* of admin-created
+   sub-channels (like Races & Meets), or a single fixed chat per club?
+   → **Single fixed chat.** Exactly one `eboard_channels` row per club
+   (`unique` on `club_id`), no list/create-many flow.
+2. **Admin access** — for races, every club admin automatically has full
+   access to every race (`is_race_admin` == `is_club_admin`, no request
+   needed). Should Eboard/Council work the same way?
+   → **No.** Being a club admin only grants *visibility* (seeing the hub
+   row exists, and being eligible to request/be added) — not automatic
+   membership. An admin still has to request to join or be added by an
+   existing member. This is the single biggest deviation from the Race
+   pattern and drives most of the migration's shape.
+3. **Who can ever join** — could a non-admin ever be added to a specific
+   Eboard/Council channel?
+   → **No, admin-only.** Keeps it consistent with the hub row being
+   entirely invisible to regular members.
+4. **Meetings** (the second item in the wireframe's "Chat / Meetings"
+   box) — placeholder for now, scoped later, same as Race's four
+   unscoped sections.
+
+### Migration design (`0017_eboard.sql`)
+
+Same overall shape as `races` (0016): `eboard_channels`,
+`eboard_channel_members`, `eboard_channel_join_requests`, plus a nullable
+`channels.eboard_channel_id` so eboard chat reuses messages/
+message_reactions RLS with zero changes — exactly the same generic-
+`channels` payoff task #16 already demonstrated for races.
+
+The three deliberate deviations from races, encoded in RLS:
+- `eboard_channels` SELECT policy is `is_club_admin(club_id)` — any club
+  admin can see the row/name/description exists, whether or not they're a
+  member. No chicken-and-egg SELECT-after-INSERT issue (see section 6's
+  `clubs` gotcha) since `is_club_admin(club_id)` doesn't depend on
+  anything this row's own trigger creates.
+- A new generic helper, `is_user_club_admin(club_id, user_id)`, checks an
+  *arbitrary target user* (not just the caller) — needed because the
+  direct-add insert policy on `eboard_channel_members` must verify the
+  person being added is a club admin, not just that the adder is already
+  a member. Races never needed this since race membership has no such
+  eligibility requirement.
+- Approve/direct-add rights on `eboard_channel_members` and decide rights
+  on `eboard_channel_join_requests` both check `is_eboard_member(...)`
+  (existing membership), not `is_eboard_club_admin(...)` (any club
+  admin) — the opposite of races' `decide_race_join_request`, which
+  authorizes on `is_race_admin` (== `is_club_admin`) precisely because
+  every admin already has automatic race access anyway. Here that would
+  let any admin approve their own pending request instantly, defeating
+  the whole point of gating.
+- `is_channel_admin` for an eboard-scoped channel resolves to
+  `is_eboard_member(...)`, not `is_club_admin(...)` — but since the
+  insert policy above guarantees every member is already a club admin,
+  this is equivalent in practice: no separate "eboard admin" role is
+  needed, everyone inside has full pin/announce rights.
+
+**A real index-collision bug caught mid-migration, before any app code
+was touched**: the existing `channels_one_per_club` partial unique index
+from 0016 was `unique (club_id) where race_id is null`. An eboard
+channel's own `channels` row also has `race_id is null` (it's not a
+race), so it collides with the club's actual main channel under that same
+index — inserting the second row would fail. Re-scoped to
+`where race_id is null and eboard_channel_id is null`. The same
+`log_member_added`/`log_member_removed`/`log_member_role_changed`
+trigger functions 0016 already had to patch once (when race channels
+first broke the "one channel per club" assumption) needed a **second**
+patch for the identical reason — their `where club_id = ... and race_id
+is null` lookup now also matches an eboard channel's row, so `and
+eboard_channel_id is null` was added to all three.
+
+### Two more real bugs, caught live during the Playwright verification pass
+
+These were **not** caught by the migration/type-check pass — both only
+surfaced once actually clicking through the app as a non-admin/non-member
+user, which is exactly why SPEC.md section 8 insists on a live smoke test
+before declaring a feature done.
+
+1. **`app/(tabs)/clubs/[clubId]/_layout.tsx`'s main-channel lookup broke
+   the same way the trigger functions almost did, but in client code**:
+   `supabase.from("channels").select("id").eq("club_id", clubId).is("race_id", null).single()`
+   — once an eboard channel existed, this matched 2 rows (the real main
+   channel and the eboard channel's row, both `race_id is null`) and
+   `.single()` threw a 406. This broke `club-profile` (and would have
+   broken club chat) for *any* club that had ever created an Eboard &
+   Council channel, admin or not — a total regression of an unrelated,
+   already-shipped screen. Caught by simply navigating to
+   `club-profile` after creating the test club's eboard channel. Fixed by
+   adding `.is("eboard_channel_id", null)` to the same query — this was
+   the one place in the whole client codebase still doing this lookup
+   (checked via `grep -rn 'is("race_id"'` across `app/` and `lib/` to
+   confirm no other instances existed).
+2. **`lib/eboard.ts`'s `fetchEboardChannel` unconditionally fetched the
+   `channels` row** (`eq("eboard_channel_id", row.id).single()`) even for
+   a club admin who wasn't yet an eboard member. But the `channels`
+   SELECT policy routes through `is_channel_member`, which for an
+   eboard-scoped channel is `is_eboard_member(...)` — deliberately *not*
+   `is_club_admin`, per deviation #2 above. So a non-member admin's read
+   was correctly blocked by RLS, returned 0 rows, and `.single()` threw a
+   406 — which surfaced as a permanent spinner on the Eboard & Council
+   hub screen the moment a promoted-but-not-yet-a-member admin opened it.
+   Caught live testing exactly that path (promote a member to admin, sign
+   in as them, open the row). Fixed by only querying the `channels` row
+   *after* confirming membership — a non-member never needs `channelId`
+   anyway, since `chat.tsx`/`roster.tsx`'s mutation actions are already
+   gated on `isMember`.
+
+### Verification
+
+Both bugs above were fixed, the dev server restarted (`CI=1` disables
+Fast Refresh, per section 6), and the full flow re-verified end-to-end
+with three accounts against a fresh test club ("Eboard Test Club"):
+- As the creating admin (Ann): created "Eboard" (name + description, no
+  date field), confirmed she was auto-added to its roster and a dedicated
+  channel was auto-created, hub showed Chat + Meetings.
+- Sent a chat message, pinned it, confirmed the pinned strip + badge +
+  Highlights screen all matched club/race chat exactly (full parity from
+  the shared `ChatScreen`/`HighlightsScreen` components, zero eboard-
+  specific chat code needed).
+- As a second user (Bob) who joined the club as a **regular member**:
+  confirmed the "Eboard & Council" row was entirely absent from the club
+  hub, and that navigating to `/eboard` directly redirected away —
+  regular members can't even discover the feature exists.
+- Promoted Bob to club admin, signed in as him: the row now appeared, but
+  clicking it showed "Request to join" (not automatic access, unlike
+  races) — confirmed the deliberate deviation is actually wired up
+  end-to-end, not just in the RLS policies. Requested, then confirmed a
+  direct URL hit to `/eboard/chat` bounced back to the hub (still not a
+  member while pending).
+- As Ann: opened the roster (reached by tapping the channel name, same
+  pattern as club-profile/race roster), saw Bob's pending request,
+  approved it.
+- Added a third account (Carol), promoted her to club admin, then — as
+  Ann, an existing eboard member — used the roster's "Add a member"
+  search (confirmed scoped to this club's own admins only, via
+  `searchClubAdminsToAdd`) to add Carol directly, with no request step at
+  all.
+- Confirmed both paths produced the correct system messages in eboard
+  chat ("Member Bob was added by Admin Ann", "Admin Carol was added by
+  Admin Ann"), and separately confirmed the main club chat's own
+  join/promotion system messages were unaffected (regression check on
+  the trigger-function patch).
+- **Deny path** (flagged as an untested gap by a self-review pass after
+  the rest of this task looked done): added a fourth admin (Dana),
+  requested, denied as Ann. Confirmed the request left the pending queue
+  with no `eboard_channel_members` row created, and — the part that
+  actually exercises `request_join_eboard_channel`'s
+  `on conflict (...) do update ... where status <> 'pending'` upsert
+  branch — that Dana's own hub view reset to "Request to join" rather
+  than getting stuck showing "Requested" after the denial. This mattered
+  more than a routine coverage gap: Deny is the other half of the one
+  authorization rule this task deliberately reworked (decided by an
+  existing member, not by any club admin), so it was worth confirming
+  end-to-end rather than trusting the Approve path alone.
+- `npx tsc --noEmit` clean throughout.
+
+---
+
+## Task 18: Eboard & Council — Meetings
+
+Built from a second founder wireframe scoping the "Meetings" placeholder
+task #17 left behind: fields for date+time, meeting title, description,
+and a meeting link (examples given: "Zoom, brightspace"). The wireframe
+sketched a calendar-grid date picker (year/month arrows, a day grid) and
+an AM/PM time stepper widget, but explicitly annotated both as "If its UI
+thing we can do later" — so this task used the plain `YYYY-MM-DD` +
+`HH:MM` text-field convention already established for calendar events
+(`event/create.tsx`), races, and DOB throughout the app, rather than
+introducing a new date-picker library or building a custom calendar-grid
+component. Deferring that widget was an explicit, in-wireframe founder
+call, not a scope cut made unilaterally.
+
+### Data model (`0018_eboard_meetings.sql`)
+
+`eboard_meetings`: `eboard_channel_id`, `title`, `description`,
+`meeting_link`, `meeting_at` (a single combined timestamp, not separate
+start/end like `calendar_events` — the wireframe only asked for one
+date+time), `created_by`. RLS follows the same reasoning as the rest of
+Eboard & Council: since every `eboard_channel_member` is already
+guaranteed to be a club admin (enforced in 0017's insert policy), any
+member could originally select/insert/update/delete freely — no separate
+"eboard admin" role, consistent with chat's pin/announce rights.
+
+### UI
+
+- `meetings.tsx` (replacing task #17's placeholder): Upcoming/Past list,
+  same grouping shape as `calendar.tsx`, gated on `eboard.channel.isMember`
+  the same way `chat.tsx` is (a direct URL hit from a non-member bounces
+  back to the hub).
+- `meeting/create.tsx`: title, description, the plain date/time fields
+  described above, and an optional link field. Reuses `event/create.tsx`'s
+  `splitIso`/`combineToIso` helpers verbatim (duplicated locally rather
+  than extracted to a shared module, matching this codebase's existing
+  style of small per-screen duplication over premature abstraction).
+- `meeting/[meetingId].tsx`: detail view + Edit/Delete, modeled directly
+  on `event/[eventId].tsx` including its `Platform.OS === "web"` delete-
+  confirm branch (react-native-web's `Alert.alert` is a no-op — SPEC.md
+  section 6's gotcha, already hit once before, applied here without
+  re-discovering it).
+
+### Follow-up 1, same session: creator-only edit
+
+Right after this shipped, the founder asked for a scope tightening: only
+the meeting's creator should be able to edit it, and the detail view
+should show who created it.
+
+`0019_eboard_meetings_creator_edit.sql` drops and recreates the update
+policy as `using (is_eboard_member(...) and created_by = auth.uid())`
+(delete policy untouched at this point). `lib/eboard.ts`'s
+`fetchMeetings`/`fetchMeeting` gained an `attachCreatorNames` helper — the
+exact same pattern `lib/calendar.ts` already uses for `createdByName` —
+so the detail screen could show "Added by \<name\>" (matching
+`event/[eventId].tsx`'s "Created by" line almost verbatim). The Edit
+button is hidden client-side for non-creators
+(`meeting.createdBy === session?.user.id`), and `meeting/create.tsx` also
+redirects a non-creator away if they hit the edit URL directly instead of
+letting them fill out a form that would fail on submit.
+
+### Follow-up 2, same session: creator-only delete too
+
+Immediately after verifying follow-up 1, the founder tightened it
+further: delete should also be creator-only, not open to any eboard
+member — every other member's role on someone else's meeting is now
+purely to view it. `0020_eboard_meetings_creator_delete.sql` drops and
+recreates the delete policy with the same
+`created_by = auth.uid()` check. On the UI side, the Edit/Delete
+`<View style={styles.actions}>` block in `meeting/[meetingId].tsx` was
+wrapped in the same `meeting.createdBy === session?.user.id` condition
+that already gated Edit alone — a non-creator now sees neither button,
+just the read-only detail (title, when, link, description, "Added by").
+
+### Verification
+
+`supabase db reset` + `npx tsc --noEmit` clean after the initial build
+and both follow-ups. Live end-to-end with two accounts against a fresh
+test club each time a policy changed: as the creating admin (Ann),
+created a meeting with all fields including a Zoom link, confirmed the
+detail view formatted the date/time correctly and the link rendered as
+tappable; edited the title and confirmed the change persisted; confirmed
+the list screen correctly grouped it under "Upcoming"; deleted it and
+confirmed the list returned to its empty state — all as the creator, with
+both buttons visible. After follow-up 2, promoted a second member (Bob)
+to club admin and added him directly to the eboard channel (not via
+request, to isolate "not the creator" from any membership-path
+variable), then — signed in as Bob, viewing a meeting Ann had created —
+confirmed the detail screen showed "Added by Admin Ann" with no Edit or
+Delete button rendered at all, just the read-only fields.
+
+---
+
+## Task 19: Race — Car Assignments & Groups
+
+Scoped from a founder wireframe: a race admin creates auto-numbered
+groups ("Group 1", "Group 2", ...) under a race — no naming prompt, the
+wireframe showed "+ Add Group" with no name field drawn at all — adds
+members to each, and designates one "Incharge" per group. Filled in the
+last of Race's four originally-placeholder sections that had an actual
+scope handed down (Location & Accommodation, Photos, and Result Link
+remain placeholders).
+
+Before writing any code, four ambiguous points were resolved via
+`AskUserQuestion` rather than guessed, since each shapes the RLS design:
+
+1. **Member pool** — should "Add member" search the race's own roster
+   (approved `race_members` + club admins, who have automatic race
+   access without a roster row), or the whole club regardless of race
+   membership? → **Race roster only.** This is the opposite scoping from
+   `race/roster.tsx`'s own "Add a member" (which deliberately searches
+   the *whole club*, since that screen's job is adding people *to* the
+   race in the first place) — car groups assume you're already in.
+2. **One group per person?** → **Yes.** A person can't be in two car
+   groups for the same race simultaneously.
+3. **Who manages** (create groups, add/remove members, set Incharge)?
+   → **Admins only**, consistent with every other management surface in
+   this app (race roster, eboard roster, club-profile). Regular race
+   members get the identical view, read-only.
+4. **Group naming** — auto-numbered instantly, or prompt for a name like
+   Eboard's create form? → **Auto-numbered, no prompt** — matches the
+   wireframe exactly.
+
+### Data model (`0021_race_car_groups.sql`)
+
+`race_car_groups` (`race_id`, `name`, `incharge_user_id`) and
+`race_car_group_members` (`car_group_id`, `race_id`, `user_id`,
+`added_by`). `race_id` is deliberately denormalized onto the membership
+table — the "one group per person per race" rule from decision #2 is
+enforced with a single `unique(race_id, user_id)` constraint, which
+wouldn't be expressible as a table constraint if `race_id` only lived on
+the parent `race_car_groups` row.
+
+A new helper, `is_user_race_participant(race_id, user_id)`, checks an
+*arbitrary target user* (not just the caller) against
+`race_members` OR club-admin status — needed because the add-member
+insert policy must verify the person being added actually has race
+access (decision #1), the same shape of problem `is_user_club_admin`
+solved for Eboard's direct-add in task #17.
+
+Two data-integrity pieces neither asked for explicitly but implied by
+"Incharge" being a real relationship, not just a label:
+- A trigger (`clear_incharge_on_member_removed`) nulls out a group's
+  `incharge_user_id` if that specific member is later removed from the
+  group — otherwise removing someone would leave the badge pointing at a
+  no-longer-member.
+- `set_car_group_incharge` is its own RPC rather than a plain client
+  `update`, so it can validate the target is a *current member of that
+  group* before setting them Incharge — "the admin can make anyone
+  Incharge" in the wireframe means anyone in the group, not literally
+  anyone in the race.
+
+### UI (`race/[raceId]/carpool.tsx`)
+
+Group cards, each listing members with an inline admin-only "+ Add
+member" search (only one group's search box open at a time — opening
+another's collapses the first) and per-member "Make/Remove Incharge" +
+"Remove" buttons. An admin-only "+ Add Group" button creates the next
+group with a client-computed name (`Group ${groups.length + 1}`) — no
+RPC needed for creation, matching how `createRace` and other simple list
+items in this app are just plain inserts. Regular race members see
+identical cards with no buttons at all, including the Incharge tag,
+per an explicit follow-up ask ("the incharge tag should be visible to
+everyone who can see") confirming it was never meant to be admin-only
+information — checked against the code and it already rendered
+unconditionally, no change needed, just re-verified live to be sure.
+
+### A real bug caught immediately by its own Playwright pass
+
+The very first click on "+ Add member" produced 66 console errors:
+`Maximum update depth exceeded`. Root cause: the pool of user IDs to
+exclude from search (everyone already in *any* group, per decision #2)
+was computed as a plain `groups.flatMap(...)` inline in the component
+body — a brand-new array on every render. That array was a dependency of
+the debounce `useEffect` driving the search box, and that same effect's
+early-return branch called `setAddResults([])` unconditionally whenever
+the query was under 2 characters. Since `[] !== []` by reference, that
+`setState` always triggered a re-render; the re-render recomputed the
+`flatMap` into a new array; the new array changed the effect's
+dependency; the effect ran again — an infinite loop, entirely deterministic,
+that fired the instant the add-member UI was opened (even before typing
+anything). Fixed by wrapping the computation in `useMemo(() => ...,
+[groups])`, so the array is stable across renders that don't actually
+change group membership. Caught and fixed before any further manual
+testing — exactly the kind of bug a plain `tsc --noEmit` pass can't see,
+since the code was fully type-correct.
+
+### Verification
+
+`supabase db reset` + `npx tsc --noEmit` clean after the fix. Live
+end-to-end with two accounts against a fresh race ("Nittany Lion
+Invitational"): as the admin (Ann), created two empty groups, added
+herself (a club admin with no `race_members` row) to Group 1 via search,
+set her Incharge, then confirmed she was excluded from Group 2's search
+results entirely (one-group-per-person, decision #2, working via the
+exclude-list). Removed her from Group 1 — confirmed the group emptied,
+the stale Incharge was cleared by the trigger, and she reappeared in
+Group 2's search immediately afterward. Added her to Group 2 fresh
+(confirmed as a new membership, not Incharge) and set Incharge there
+too. Added a second account (Bob) to the race as a **regular member**
+(not admin, via race roster's normal add-member flow) and confirmed his
+view of the same screen showed both groups, all members, and the
+Incharge badge, but zero action buttons anywhere — no Add member, no Add
+Group, no Make/Remove Incharge, no Remove.
+
+### Follow-up, same session: delete a group
+
+Deliberately left out of the initial scope (the wireframe only sketched
+"+ Add Group", nothing about removing one), but the founder hit this gap
+immediately in practice — created a test group, then asked to delete it.
+`0022_race_car_groups_delete.sql` adds the missing admin-only delete
+policy on `race_car_groups` (0021 had insert/select/update but no delete
+policy at all, so the table was silently undeletable via the client
+until this). `race_car_group_members` already cascades on
+`car_group_id`'s FK, so no separate cleanup of membership rows was
+needed. `deleteCarGroup(groupId)` added to `lib/carGroups.ts`; the UI
+gained a per-group, admin-only "Delete" text button in the group card's
+header, using the same `Platform.OS === "web"` confirm branch (`Alert.alert`
+is a no-op on web) already established in `event/[eventId].tsx`.
+Verified live: created a group, deleted it, confirmed the list returned
+to "No car groups yet." with no orphaned membership rows left behind.
+
+---
+
+## Task 20: Race — Photos + Result Link
+
+The last two of Race's originally four placeholder sections (task #16)
+to get scoped — only Location & Accommodation remains. Founder's spec
+was explicit and simple: each is a single link (Photos → typically a
+Google Photos album, Result Link → typically a results website), visible
+to everyone with race access, any admin can add/edit/delete it, and an
+empty state should read "no photos/result link added — stay tuned."
+
+This is the simplest of the Race sub-features so far — deliberately so.
+Rather than a new table (the pattern used for Eboard meetings and car
+groups), `0023_race_links.sql` just adds two nullable text columns
+(`photos_link`, `results_link`) directly to `races`. **No new RLS policy
+was needed at all**: `races` already has an "admins can update races"
+policy from `0016_races.sql` that covers the entire row, so it
+automatically extends to whatever columns get added later. This is the
+same reasoning `channels.race_id`/`eboard_channel_id` demonstrated for
+generic reuse, just for RLS policies instead of shared UI components —
+worth calling out because it's the first race-related change since 0016
+that shipped with *zero* new database policies.
+
+**Key contrast with Eboard meetings (task #18)**: meetings ended up
+creator-only for both edit and delete, after two explicit founder
+tightenings. Photos/Result Link went the other way from the start — "any
+admin can edit or delete" was the spec from day one, no restriction to
+whoever added the link. Both models coexist in the app now; the
+difference is deliberate, not inconsistent — meetings are personal notes
+one officer posts, while a race's photos/results links are shared
+reference info any admin should be able to fix if it goes stale or wrong.
+
+### UI (`photos.tsx` / `results.tsx`)
+
+Nearly identical screens (mirroring each other, not sharing a component —
+consistent with this codebase's light-duplication-over-abstraction style
+for two-instance patterns). No separate create/edit route: tapping
+"+ Add link" or "Edit" swaps the screen into an inline single-`TextInput`
+form in place, with Cancel/Save — simpler than Eboard meeting's
+`create.tsx` since there's only one field and no date/time to combine.
+Delete uses the same `Platform.OS === "web"` confirm branch as
+`event/[eventId].tsx` and race car groups' delete.
+
+### Verification
+
+`supabase db reset` + `npx tsc --noEmit` clean. Live end-to-end with two
+different admin accounts (Ann created the race and the initial photos
+link; Carol, promoted to admin afterward, had no special relationship to
+either link) against a fresh test race: confirmed the "No photos link
+added yet — stay tuned!" / "No result link added yet — stay tuned!" empty
+states render correctly; added a photos link as Ann; **as Carol**, opened
+the same screen, edited the link successfully, then deleted it — both
+operations succeeding confirms edit/delete are genuinely open to any
+admin, not silently scoped to the creator the way meetings are. Added a
+result link and confirmed a regular race member (Bob, added directly to
+the race roster, not an admin) saw the link rendered as tappable with
+zero Edit/Delete controls anywhere on the screen.
+
+---
+
+## Task 21: Race — Location & Accommodation
+
+The last of Race's four originally-placeholder sections (task #16) to
+get scoped — with this shipped, all 5 rows on the race hub (Chat,
+Location & Accommodation, Car Assignments & Groups, Photos, Result Link)
+are fully built, none left as placeholders.
+
+Founder's spec: a free-text info section (where to meet on campus, what
+to bring, requirements — written by admins) plus two link fields, one
+for the race/event location and one for the hotel. Before building,
+four points were clarified via `AskUserQuestion` since the founder's
+phrasing was ambiguous on each:
+
+1. **Is the race/event location a link or free text?** The founder had
+   explicitly called the hotel field "a link pasting place" but only said
+   "a place to paste race or event location" for the other, without the
+   word "link." → **Also a link**, same shape as hotel (e.g. Google Maps).
+2. **Empty-state behavior** — task #20 (Photos/Result Link) shows a
+   "stay tuned" placeholder to everyone when empty. The founder's wording
+   here was different: "if its not filled it the link will not be visible
+   for members." → **Hidden entirely, no placeholder text at all** — a
+   deliberate contrast with task #20, not an oversight. Confirmed this
+   applies to the description field too, not just the two links.
+3. **Edit flow** — task #20's two links are independently editable inline
+   boxes. The founder described "these two boxes will be available while
+   editing" as a set. → **One combined edit form** for all three fields,
+   a single Save commits all of them together — different from
+   photos.tsx/results.tsx's per-field pattern.
+4. **Who can edit** → **Any club admin**, consistent with Photos/Result
+   Link, not creator-restricted like Eboard meetings.
+
+### Data model (`0024_race_location_info.sql`)
+
+Three more nullable columns directly on `races`
+(`info_description`, `location_link`, `hotel_link`) — same
+no-new-table, no-new-RLS shape as task #20's `photos_link`/`results_link`,
+for the same reason: `0016_races.sql`'s "admins can update races" policy
+already covers the whole row, so any column added later is automatically
+writable by any admin with zero new policies. This is now the second
+race feature in a row to ship without touching RLS at all.
+
+### UI (`location.tsx`)
+
+Unlike `photos.tsx`/`results.tsx` (parallel screens, each with its own
+inline single-field edit), this one screen handles all three fields
+together: view mode conditionally renders each of Info/Race-Event-
+Location/Hotel only if non-empty (no fallback placeholder — a real,
+literal difference from task #20, not styling reuse), plus an admin-only
+"Edit Info" button that's always present regardless of whether anything's
+been filled in yet. Edit mode swaps in one form — a multiline `TextInput`
+for the description plus two link fields — with Cancel/Save, and Save
+calls `updateRaceLocationInfo` once with all three values (each
+individually trimmed to `null` if blank, same convention as every other
+optional-field save in this app).
+
+### Verification
+
+`supabase db reset` + `npx tsc --noEmit` clean. Live end-to-end: as the
+creating admin (Ann), confirmed the empty state showed nothing but the
+"Edit Info" button (no placeholder text for any of the three fields, per
+decision #2); opened Edit, filled in all three fields in the one combined
+form, saved, and confirmed all three rendered correctly in view mode with
+both links tappable. Added a second member (Bob) directly to the race
+roster as a **regular member, not an admin**, and confirmed his view
+showed all three fields read-only with the "Edit Info" button entirely
+absent — matching every other admin-gated race screen in this app.
+
+---
+
+## Task 22: Race — consolidate Photos/Result Link into "Meet Information"
+
+Right after tasks #20 (Photos + Result Link) and #21 (Location &
+Accommodation) both shipped as separate screens, the founder asked to
+merge them: instead of 5 rows on the race hub, fold Photos and Result
+Link into the Location & Accommodation screen and give the whole thing a
+better name. Two things were clarified via `AskUserQuestion` before
+touching code:
+
+1. **New name** — the founder's own suggestion was "Meet Information";
+   offered as one of three options (the others were "Race Info" and
+   "Details") and confirmed as-is.
+2. **Empty-state consistency** — Location & Accommodation's fields were
+   hidden entirely when empty (task #21); Photos/Result Link showed a
+   "stay tuned" placeholder (task #20). Merging them raised the question
+   of whether to unify to one rule. → **Keep the split**: description/
+   location/hotel stay hidden entirely, photos/results keep their
+   original "stay tuned" text. A deliberate, requested inconsistency
+   within one screen, not a bug — worth calling out clearly in code
+   comments so a future session doesn't "fix" it into uniformity.
+
+### What made this a pure refactor, not a new feature
+
+No new migration was needed at all. `photos_link`/`results_link`
+(task #20) and `info_description`/`location_link`/`hotel_link`
+(task #21) already existed as five nullable columns on `races`, all
+already covered by the same "admins can update races" policy from
+`0016_races.sql`. The entire task #22 was: extend `RaceLocationInfo` and
+`fetchRaceLocationInfo`/`updateRaceLocationInfo` in `lib/races.ts` to
+cover all 5 fields instead of 3, delete the now-redundant
+`fetchRaceLinks`/`updateRacePhotosLink`/`updateRaceResultsLink` (grepped
+first to confirm they had no other callers), delete `photos.tsx` and
+`results.tsx` outright, remove their two `Stack.Screen` registrations
+from `race/[raceId]/_layout.tsx`, and cut the race hub's `SECTIONS` array
+from 5 entries down to 3 (Chat, Meet Information, Car Assignments &
+Groups) with the "location" key's label changed to "Meet Information" —
+the route/file name itself stayed `location.tsx`/`"location"` since
+that's an internal detail nobody but future-Claude reads.
+
+`location.tsx` itself grew from 3 view-mode sections to 5: the two new
+ones (Photos, Result Link) render a "stay tuned" placeholder in the
+`else` branch instead of nothing, matching the string task #20's
+screens originally shipped with (`"No photos link added yet — stay
+tuned!"` / `"No result link added yet — stay tuned!"`). Edit mode grew
+from 3 `TextInput`s to 5, still one form, still one `Save` calling
+`updateRaceLocationInfo` once with all five values.
+
+### Verification
+
+`npx tsc --noEmit` clean — no `supabase db reset` was even necessary
+since no schema changed. Live check against the same "Test Race" used
+for tasks #20/#21's own verification (data from both had survived
+independently in their respective columns): confirmed the race hub now
+shows exactly 3 rows with the row relabeled "Meet Information"; opened
+it as a regular member (Bob) and confirmed the pre-existing description/
+location/hotel values still rendered correctly, while Photos and Result
+Link (never filled for this race) showed their "stay tuned" placeholders
+rather than being silently hidden — confirming the deliberate per-field
+split survived the merge correctly. Signed in as the admin (Ann), opened
+Edit, saw all 5 fields pre-filled (the 3 pre-existing values plus the 2
+empty link fields), filled in Photos and Result Link, and saved — a
+single Save call updated all 5 columns together, and the view immediately
+reflected both new links as tappable, replacing their placeholders.
+

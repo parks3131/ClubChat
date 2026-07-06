@@ -146,7 +146,7 @@ export default function RaceLayout() {
           name="location"
           options={{
             ...raceScreenOptions,
-            title: "Location & Accommodation",
+            title: "Meet Information",
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
           }}
         />
@@ -155,22 +155,6 @@ export default function RaceLayout() {
           options={{
             ...raceScreenOptions,
             title: "Car Assignments & Groups",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
-          }}
-        />
-        <Stack.Screen
-          name="photos"
-          options={{
-            ...raceScreenOptions,
-            title: "Photos",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
-          }}
-        />
-        <Stack.Screen
-          name="results"
-          options={{
-            ...raceScreenOptions,
-            title: "Result Link",
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
           }}
         />

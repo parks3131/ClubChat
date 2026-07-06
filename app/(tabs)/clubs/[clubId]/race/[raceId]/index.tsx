@@ -4,10 +4,8 @@ import { useRace } from "./_layout";
 
 const SECTIONS: { key: string; label: string }[] = [
   { key: "chat", label: "Chat" },
-  { key: "location", label: "Location & Accommodation" },
+  { key: "location", label: "Meet Information" },
   { key: "carpool", label: "Car Assignments & Groups" },
-  { key: "photos", label: "Photos" },
-  { key: "results", label: "Result Link" },
 ];
 
 function formatEventDate(dateKey: string) {

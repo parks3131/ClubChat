@@ -202,3 +202,52 @@ export async function searchClubMembersToAdd(
   const exclude = new Set(excludeIds);
   return (profiles ?? []).filter((p) => !exclude.has(p.id)).map((p) => ({ id: p.id, fullName: p.full_name }));
 }
+
+export interface RaceLocationInfo {
+  description: string | null;
+  locationLink: string | null;
+  hotelLink: string | null;
+  photosLink: string | null;
+  resultsLink: string | null;
+}
+
+// "Meet Information" — originally two separate task #20/#21 features
+// (Photos + Result Link, and Location & Accommodation) with their own
+// screens, consolidated by founder request into one combined section
+// right after both shipped. All 5 fields live directly on races (no new
+// table/RLS either way — the existing "admins can update races" policy
+// from 0016_races.sql already covers every column here) and are edited
+// together as one form with a single Save, matching how Location &
+// Accommodation always worked. View-mode empty-state differs per field:
+// description/location/hotel are hidden entirely when empty, while
+// photos/results keep their original "stay tuned" placeholder text — a
+// deliberate, requested inconsistency, not an oversight (see docs/HISTORY.md).
+export async function fetchRaceLocationInfo(raceId: string): Promise<RaceLocationInfo> {
+  const { data, error } = await supabase
+    .from("races")
+    .select("info_description, location_link, hotel_link, photos_link, results_link")
+    .eq("id", raceId)
+    .single();
+  if (error) throw error;
+  return {
+    description: data.info_description,
+    locationLink: data.location_link,
+    hotelLink: data.hotel_link,
+    photosLink: data.photos_link,
+    resultsLink: data.results_link,
+  };
+}
+
+export async function updateRaceLocationInfo(raceId: string, info: RaceLocationInfo) {
+  const { error } = await supabase
+    .from("races")
+    .update({
+      info_description: info.description,
+      location_link: info.locationLink,
+      hotel_link: info.hotelLink,
+      photos_link: info.photosLink,
+      results_link: info.resultsLink,
+    })
+    .eq("id", raceId);
+  if (error) throw error;
+}

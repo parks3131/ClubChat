@@ -41,7 +41,13 @@ export default function ClubLayout() {
           .eq("user_id", session!.user.id)
           .single(),
         supabase.from("clubs").select("name, invite_code").eq("id", clubId).single(),
-        supabase.from("channels").select("id").eq("club_id", clubId).is("race_id", null).single(),
+        supabase
+          .from("channels")
+          .select("id")
+          .eq("club_id", clubId)
+          .is("race_id", null)
+          .is("eboard_channel_id", null)
+          .single(),
       ]);
 
       if (!cancelled && membership && clubRow && channelRow) {
@@ -109,6 +115,7 @@ export default function ClubLayout() {
         />
         <Stack.Screen name="routines" options={{ headerShown: false }} />
         <Stack.Screen name="races" options={{ headerShown: false }} />
+        <Stack.Screen name="eboard" options={{ headerShown: false }} />
         <Stack.Screen
           name="highlights"
           options={{ title: "Highlights", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/chat`) }}

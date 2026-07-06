@@ -67,7 +67,8 @@ User (auth.users + profiles)
      ├─ ClubJoinRequest (user_id, status: pending | approved | denied —
      │                   only used when join_policy = 'request')
      ├─ Channel (club-scoped by default; a race-scoped Channel has a
-     │           non-null race_id instead — see Race below)
+     │           non-null race_id, an eboard-scoped one a non-null
+     │           eboard_channel_id, instead — see Race/EboardChannel below)
      │   └─ Message (text | photo | announcement, pinned, reactions)
      ├─ CalendarEvent (type: race | practice | team_bonding | volunteer | other
      │                 — the "race" type here is unrelated to Race below;
@@ -77,20 +78,60 @@ User (auth.users + profiles)
      │                   title, description — deliberately no structured
      │                   exercise sub-table, per an explicit "keep it very
      │                   simple" scoping call)
-     └─ Race (mini-club nested under Club, task #16 — always request-based
-              access, no "open" policy like Club's join_policy: a club
-              member requests, any club admin can approve or add directly.
-              No separate "race admin" role — club admins already have
-              full access to every race under their club.)
-         ├─ RaceMember (user_id — approved roster; admins aren't listed
-         │              here, is_club_admin already covers them)
-         ├─ RaceJoinRequest (user_id, status: pending | approved | denied)
-         ├─ its own Channel/Messages (same generic Channel/Message tables
-         │   as the club's main chat — full feature parity, incl. pins/
-         │   reactions/announcements/system messages, comes for free)
-         ├─ results link — placeholder screen only, not yet scoped
-         ├─ location / accommodation info — placeholder screen only
-         └─ Car assignments & groups — placeholder screen only
+     ├─ Race (mini-club nested under Club, task #16 — always request-based
+     │        access, no "open" policy like Club's join_policy: a club
+     │        member requests, any club admin can approve or add directly.
+     │        No separate "race admin" role — club admins already have
+     │        full access to every race under their club.)
+     │   ├─ RaceMember (user_id — approved roster; admins aren't listed
+     │   │              here, is_club_admin already covers them)
+     │   ├─ RaceJoinRequest (user_id, status: pending | approved | denied)
+     │   ├─ its own Channel/Messages (same generic Channel/Message tables
+     │   │   as the club's main chat — full feature parity, incl. pins/
+     │   │   reactions/announcements/system messages, comes for free)
+     │   ├─ "Meet Information" (tasks #20/#21, merged into one section by
+     │   │   a task #22 founder follow-up right after both shipped
+     │   │   separately) — 5 nullable text columns directly on races, no
+     │   │   new table: info_description, location_link, hotel_link,
+     │   │   photos_link, results_link. All 5 edited together as one
+     │   │   combined form, any club admin can edit [not creator-
+     │   │   restricted, unlike Eboard meetings]. View-mode empty-state
+     │   │   deliberately differs per field: description/location/hotel
+     │   │   are hidden entirely with no placeholder when empty, while
+     │   │   photos/results keep a "stay tuned" placeholder — an explicit
+     │   │   founder choice, not an inconsistency.
+     │   └─ RaceCarGroup (task #19, from a founder wireframe — auto-
+     │       numbered groups, "Group 1"/"Group 2"/..., no naming prompt.
+     │       Membership scoped to who already has race access (roster +
+     │       club admins), one group per person per race, admin-only to
+     │       manage; everyone with race access can view read-only,
+     │       including the Incharge tag.)
+     │       ├─ RaceCarGroupMember (user_id — unique per race, not just
+     │       │   per group, so a person can't be in two groups at once)
+     │       └─ one designated Incharge per group (must be a current
+     │           member of that group; cleared automatically if that
+     │           member is removed)
+     └─ EboardChannel (exactly one per club, task #17, from a founder
+                 wireframe — a private mini-club for club admins only.
+                 Deliberately NOT shaped like Race: being a club admin
+                 only grants *visibility* of this row and eligibility to
+                 request/be added, not automatic membership — an admin
+                 still has to request or be added by an existing member.
+                 Approve/direct-add rights belong to existing members,
+                 not to "any club admin" the way Race's do. Every member
+                 is guaranteed to already be a club admin, so no separate
+                 "eboard admin" role is needed once inside.)
+         ├─ EboardChannelMember (user_id — approved roster, always a
+         │                       subset of club admins)
+         ├─ EboardChannelJoinRequest (user_id, status: pending | approved
+         │                            | denied)
+         ├─ its own Channel/Messages (same generic tables, full parity)
+         └─ EboardMeeting (task #18 — title, description, meeting_link,
+                           meeting_at; any eboard member can create, but
+                           only the creator can edit or delete — two
+                           founder follow-ups after task #18 shipped —
+                           everyone else is view-only, and the detail
+                           view shows "Added by <name>")
 ```
 
 Key design decision: **a Race is not a separate concept from a Club, it's
@@ -242,14 +283,59 @@ app/                          Expo Router file-based routes
                                 own verification pass, fixed by reordering).
                                 Anyone without access is redirected to the
                                 races list rather than shown a locked hub.
-                                `index.tsx`: hub — 5 rows (Chat, Location &
-                                Accommodation, Car Assignments & Groups,
-                                Photos, Result Link); the last 4 are
-                                placeholder screens, content to be scoped
-                                later per an explicit founder note.
+                                `index.tsx`: hub — 3 rows (Chat, Meet
+                                Information, Car Assignments & Groups).
+                                Originally 5 rows (Location & Accommodation
+                                and Photos/Result Link were separate) — task
+                                #22 merged the latter two into the former
+                                and renamed it "Meet Information" right
+                                after both shipped (see task #22 in
+                                docs/HISTORY.md). No placeholder screens
+                                left anywhere under Race.
                                 `chat.tsx`/`highlights.tsx`: thin wrappers
                                 around the same shared components club
                                 chat uses — full feature parity for free.
+                                `location.tsx` ("Meet Information", route
+                                name unchanged even though the display
+                                label isn't "location" anymore): 5 fields —
+                                description, race/event location link,
+                                hotel link, photos link, result link — all
+                                on `races`, no new table, edited together
+                                as one combined form with a single Save.
+                                Empty-state deliberately differs per field:
+                                description/location/hotel are hidden
+                                entirely (no placeholder) when empty, while
+                                photos/results keep the "No photos/result
+                                link added yet — stay tuned!" placeholder
+                                text they originally shipped with in the
+                                separate photos.tsx/results.tsx screens
+                                (task #20, now deleted). Any club admin can
+                                edit all 5 fields.
+                                `carpool.tsx`: task #19 — Car Assignments &
+                                Groups, from a founder wireframe. Admin-only
+                                "+ Add Group" creates an auto-numbered group
+                                immediately (no naming prompt, matching the
+                                wireframe exactly); each group card lists
+                                members with an inline admin-only "+ Add
+                                member" search (scoped to who already has
+                                race access — roster + club admins, see
+                                `searchRaceParticipantsToAdd` — and
+                                excluding anyone already in *any* group for
+                                this race, since membership is one-group-
+                                per-person); per-member "Make/Remove
+                                Incharge" and "Remove" buttons, admin-only.
+                                A per-group admin-only "Delete" button
+                                (confirm-gated, same web/native branch as
+                                event/[eventId].tsx's delete) was added
+                                right after initial ship, once the founder
+                                actually tried to clean up a group they'd
+                                created — members cascade-delete via the
+                                existing FK, no extra cleanup code needed.
+                                Regular race members see the same cards
+                                read-only, Incharge tag included. Hit a real
+                                infinite-render bug during its own
+                                Playwright pass — see task #19 in
+                                `docs/HISTORY.md`.
                                 `roster.tsx`: reached by tapping the race
                                 name in the header (same "tap the name for
                                 membership" pattern as club-profile) —
@@ -259,6 +345,46 @@ app/                          Expo Router file-based routes
                                 No separate "race admin" role; a club
                                 admin already has full access to every
                                 race under their club.
+  (tabs)/clubs/[clubId]/eboard/
+                                Task #17 — "Eboard & Council", a private
+                                mini-club for club admins only, exactly
+                                one per club (no list, unlike races/).
+                                Own nested Stack: `_layout.tsx` gates on
+                                club.role === "admin" (redirects a
+                                non-admin hitting the URL directly) and
+                                fetches the club's eboard channel (if any)
+                                + this user's membership/request status,
+                                exposed via `useEboard()`. `index.tsx`
+                                branches on that: no channel yet -> admin
+                                sees a "+ Create" prompt; channel exists
+                                but not a member -> name/description +
+                                Request-to-join/Requested; a member -> hub
+                                with Chat/Meetings rows. `create.tsx`:
+                                name + description (no date field, unlike
+                                races). `chat.tsx`/`highlights.tsx`: thin
+                                wrappers around the same shared components
+                                club/race chat use. `meetings.tsx`:
+                                task #18 — Upcoming/Past list (same shape
+                                as calendar.tsx), any member can create.
+                                `meeting/create.tsx`: title, description,
+                                date+time (same plain YYYY-MM-DD + HH:MM
+                                fields as event/create.tsx — the
+                                wireframe's calendar-grid/AM-PM-stepper
+                                widget was explicitly flagged as UI polish
+                                for later), link (Zoom/Meet/etc, optional);
+                                redirects away if a non-creator hits an
+                                edit URL directly. `meeting/[meetingId].tsx`:
+                                detail view; Edit/Delete only render for
+                                the creator (two founder follow-ups after
+                                task #18 shipped — RLS enforces both, the
+                                buttons are also hidden client-side),
+                                "Added by <name>", tappable link opens via
+                                `Linking.openURL`.
+                                `roster.tsx`: pending requests + add-member
+                                (search scoped to this club's own admins),
+                                both gated on the *caller* already being a
+                                member — not on club-admin status the way
+                                races/roster.tsx gates on it.
 
 components/BackHeaderButton.tsx  makeBackHeaderLeft(router, fallback) —
                                  shared `‹` headerLeft factory
@@ -301,7 +427,38 @@ lib/races.ts                     Task #16 — fetchRaces (per-race access +
                                  createRace / requestJoinRace / fetchRace /
                                  fetchRaceMembers / fetchPendingRaceRequests /
                                  decideRaceJoinRequest / addRaceMember /
-                                 searchClubMembersToAdd
+                                 searchClubMembersToAdd / fetchRaceLocationInfo /
+                                 updateRaceLocationInfo ("Meet Information",
+                                 tasks #20/#21/#22 — one combined
+                                 fetch/update covering all 5 fields
+                                 [description, location, hotel, photos,
+                                 results]; the original separate
+                                 fetchRaceLinks/updateRacePhotosLink/
+                                 updateRaceResultsLink from task #20 were
+                                 deleted once task #22 merged everything
+                                 into fetchRaceLocationInfo/updateRaceLocationInfo)
+lib/eboard.ts                     Task #17 — fetchEboardChannel (null if
+                                 none created yet; membership/request
+                                 status checked with an explicit
+                                 eq("user_id", userId), since — unlike
+                                 races — presence of a roster row isn't a
+                                 valid "am I a member" proxy here, any
+                                 club admin can read the full roster) /
+                                 createEboardChannel / requestJoinEboardChannel /
+                                 fetchEboardMembers / fetchPendingEboardRequests /
+                                 decideEboardJoinRequest / addEboardMember /
+                                 searchClubAdminsToAdd / fetchMeetings /
+                                 fetchMeeting / createMeeting / updateMeeting /
+                                 deleteMeeting (task #18)
+lib/carGroups.ts                 Task #19 — fetchCarGroups (groups with
+                                 members + incharge name attached) /
+                                 createCarGroup (name computed by the
+                                 caller as `Group ${groups.length + 1}`,
+                                 no server-side naming) / deleteCarGroup /
+                                 addCarGroupMember / removeCarGroupMember /
+                                 setCarGroupIncharge / searchRaceParticipantsToAdd
+                                 (race roster ∪ club admins, excluding
+                                 anyone already in any group for the race)
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 
@@ -347,6 +504,80 @@ supabase/migrations/
                                  RPCs (mirrors 0006's club join-request
                                  shape, but always request-based — no
                                  "open" branch)
+  0017_eboard.sql                  Task #17 — eboard_channels (unique per
+                                 club) / eboard_channel_members /
+                                 eboard_channel_join_requests + RLS;
+                                 channels.eboard_channel_id (nullable),
+                                 which required re-scoping the existing
+                                 "one main channel per club" partial
+                                 unique index (it only excluded
+                                 `race_id is null`, which an eboard
+                                 channel's row also satisfies) and
+                                 re-patching the three membership-system-
+                                 message trigger functions a second time
+                                 (0016 already had to do this once for
+                                 races) since their "find the club's one
+                                 main channel" lookup would otherwise match
+                                 2 rows once an eboard channel exists;
+                                 is_channel_member/is_channel_admin gain a
+                                 third branch; request_join_eboard_channel /
+                                 decide_eboard_join_request RPCs, decided
+                                 by an existing eboard member rather than
+                                 by "any club admin" (see task #17 in
+                                 docs/HISTORY.md for the full access-model
+                                 reasoning)
+  0018_eboard_meetings.sql         Task #18 — eboard_meetings (title,
+                                 description, meeting_link, meeting_at) +
+                                 RLS: any existing eboard_channel_member
+                                 can select/insert/update/delete, no
+                                 separate role, same as the rest of this
+                                 feature
+  0019_eboard_meetings_creator_edit.sql
+                                 Founder follow-up right after task #18
+                                 shipped: replaces the update policy so
+                                 only the meeting's creator (created_by =
+                                 auth.uid()) can edit it
+  0020_eboard_meetings_creator_delete.sql
+                                 Second follow-up, same session: delete
+                                 also restricted to the creator — every
+                                 other eboard member is now view-only on
+                                 a meeting
+  0021_race_car_groups.sql         Task #19 — race_car_groups /
+                                 race_car_group_members (unique(race_id,
+                                 user_id) enforces one group per person per
+                                 race — race_id is denormalized onto the
+                                 membership table just for this constraint)
+                                 + RLS: view for anyone with race access,
+                                 write admin-only. New helper
+                                 is_user_race_participant(race_id, user_id)
+                                 scopes the add-member pool to the race's
+                                 own roster + club admins, not the whole
+                                 club. A trigger clears incharge_user_id if
+                                 that member is removed from the group;
+                                 set_car_group_incharge RPC validates the
+                                 target is a current group member before
+                                 setting it.
+  0022_race_car_groups_delete.sql  Founder follow-up right after task #19
+                                 shipped ("if I added the group I wanna
+                                 delete the group"): adds the admin-only
+                                 delete policy on race_car_groups that 0021
+                                 didn't include — members cascade-delete
+                                 via the existing FK.
+  0023_race_links.sql              Task #20 — adds photos_link and
+                                 results_link (both nullable text) directly
+                                 to races. No new RLS: the existing
+                                 "admins can update races" policy from
+                                 0016_races.sql already covers any column
+                                 on the row, and any admin (not just the
+                                 one who created the race or added the
+                                 link) can edit or delete either.
+  0024_race_location_info.sql      Task #21 — adds info_description,
+                                 location_link, hotel_link (all nullable
+                                 text) directly to races. Same no-new-RLS
+                                 reasoning as 0023 — the existing admin
+                                 update policy already covers these
+                                 columns too. Closes out the last of
+                                 Race's 4 originally-placeholder sections.
 ```
 
 ## 5. Current status
@@ -372,12 +603,15 @@ supabase/migrations/
 | 15 | Weekly routines | ✅ Done, through several founder-driven scope changes (dated weeks not templates; exercise builder added then fully removed for simplicity; Run/Swim-only expanded to all 10 activity types; past days filtered out). Full narrative incl. an `Intl.toLocaleDateString` formatting bug: see task #15 in `docs/HISTORY.md`'s status table. |
 | 16 | Race sub-flow: "Races & Meets" section, request/approve membership, race chat | ✅ Done, from a hand-drawn founder wireframe (`Races & Meets` hub row → Upcoming/Finished list with an admin-only "Create Race Channel" → a race's own space with Chat/Location & Accommodation/Car Assignments & Groups/Photos/Result Link). **Deviation from the original plan** (see section 1): races are created standalone (name + date), not spawned from a calendar event. Access is always request-based, no "open" policy — a club member requests, any club admin approves/denies or adds directly; there's no separate "race admin" role, club admins already have full access to every race under their club. Migration `0016_races.sql` adds `races`/`race_members`/`race_join_requests` and, per an explicit founder ask ("mimic the same features of chat above"), generalizes the existing `is_channel_member`/`is_channel_admin` helpers to branch on a new nullable `channels.race_id` — this means race chat got pins/reactions/announcements/realtime/system-messages for free with **zero changes** to the messages/message_reactions RLS policies, exactly what task the original domain model note ("channels is deliberately generic... will grow a nullable race_id later") was written for. On the UI side, `chat.tsx`/`highlights.tsx` were extracted into shared `components/ChatScreen.tsx`/`components/HighlightsScreen.tsx` so race chat didn't fork a second ~250-line copy of the reaction/pin/highlights logic — club chat's screens are now thin wrappers passing `channelId`/`isAdmin`/etc. Location & Accommodation/Car Assignments & Groups/Photos/Result Link are placeholder screens for now, content to be scoped later per an explicit founder note. `race/[raceId]` was also converted from a `Tabs` layout (with only placeholder screens) to a `Stack` (matching every other club-scoped area since task #13). **Bug caught during this task's own Playwright verification pass**: the race layout's access guard called `fetchRace` (which reads the race's channel) in parallel with the membership check, but a non-member's `fetchRace` call gets blocked by RLS and throws — since that throw happened before the guard's "not authorized, redirect" branch ever ran, an unauthorized visitor hitting a race URL directly saw a permanent spinner instead of being bounced to the races list. Fixed by checking membership first and only calling `fetchRace` after confirming access. Verified live end-to-end with two accounts (admin + a second member joined by invite code): created a race, confirmed the admin was auto-added to its roster and a dedicated channel was auto-created; as the second member, saw "Request to join" on the race row, requested, and confirmed direct URL access to the race was correctly blocked (post-fix) while the request was still pending; approved the request as admin from the race's roster screen (reached by tapping the race name, same pattern as club-profile); confirmed the member then had full access — chat parity (message send, reactions, pin, admin-only announce toggle, Highlights screen, the "X was added by Y" system message) and a chevron instead of "Requested" on the races list. Separately verified the other half of the access-control mechanism — the admin-direct-add path, which the founder's own request explicitly called out ("or admin can directly add them") — with a third account: joined the club via invite code, then, without ever filing a request, was added straight into the race from the roster's "Add a member" search box (scoped to this club's own roster, not every profile in the system); confirmed immediate chat access with the correct "was added by Admin Ann" system message and no request/approval step in the path at all. Regression-checked club chat after the `ChatScreen`/`HighlightsScreen` extraction: sent a message, pinned it, confirmed the pinned strip + badge + Highlights screen + admin invite-code header all rendered identically to before, from both the admin's and a plain member's perspective. `npx tsc --noEmit` clean throughout. |
 
-**Immediate next step**: flesh out the 4 placeholder race sections
-(Location & Accommodation, Car Assignments & Groups, Photos, Result Link)
-once the founder scopes what belongs in each — the founder explicitly
-deferred these when task #16 shipped ("I'll let you know what comes
-under each feature"). After that, the last major MVP phase is
-polls/video messages.
+| 17 | Eboard & Council: private admin-only mini-club, one per club | ✅ Done — see task #17 in `docs/HISTORY.md` for the full access-model reasoning and two bugs caught live during its own verification pass. |
+| 18 | Eboard & Council: Meetings (date+time, title, description, link) | ✅ Done — see task #18 in `docs/HISTORY.md`. Any eboard member can create; only the creator can edit or delete (two founder follow-ups, migrations 0019/0020) — everyone else is view-only, detail view shows "Added by \<name\>". Plain-text date/time fields, same convention as calendar events, per an explicit founder note that the fancier calendar-grid/AM-PM-stepper widget he sketched can be built later as UI polish. |
+| 19 | Race: Car Assignments & Groups | ✅ Done — see task #19 in `docs/HISTORY.md`. Admin-only auto-numbered groups, membership scoped to race participants (roster + club admins) and capped at one group per person per race, one designated Incharge per group (visible to everyone with race access, not just admins), admin-only group delete (migration 0022, added right after initial ship). Caught and fixed a real infinite-render bug (unmemoized array in a `useEffect` dependency list) during its own Playwright pass. |
+| 20 | Race: Photos + Result Link | ✅ Done, then merged into task #22 — see below. Originally its own screen (each a single optional URL directly on `races`, "stay tuned" placeholder when empty); the screen itself no longer exists as of task #22, but the underlying columns/behavior live on inside "Meet Information." |
+| 21 | Race: Location & Accommodation | ✅ Done, then merged into task #22 — see below. Originally its own screen (description + 2 links, combined edit form, fields hidden entirely when empty); superseded by task #22's "Meet Information," which folded Photos/Result Link into this screen and renamed it. |
+| 22 | Race: consolidate Photos/Result Link into Location & Accommodation → "Meet Information" | ✅ Done — see task #22 in `docs/HISTORY.md`. Founder follow-up right after #20 and #21 both shipped: fewer hub rows (3 instead of 5), one combined 5-field edit form. No new migration needed — all 5 columns already existed on `races`. Kept a deliberate per-field empty-state split: description/location/hotel hidden entirely, photos/results keep their original "stay tuned" placeholder. `photos.tsx`/`results.tsx` deleted along with their now-dead lib functions. **This was the last of Race's 4 originally-placeholder sections (task #16) — all 3 rows on the race hub are now fully built.** |
+
+**Immediate next step**: the last major MVP phase is polls/video
+messages.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

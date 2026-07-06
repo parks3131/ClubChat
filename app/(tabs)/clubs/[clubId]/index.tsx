@@ -10,6 +10,10 @@ const SECTIONS: { key: "chat" | "calendar" | "routines" | "races"; label: string
   { key: "races", label: "Races & Meets" },
 ];
 
+// Admin-only row — regular members never see it exists at all, per the
+// founder's wireframe for Eboard & Council (SPEC.md task #17).
+const ADMIN_SECTIONS: { key: "eboard"; label: string }[] = [{ key: "eboard", label: "Eboard & Council" }];
+
 export default function ClubHubScreen() {
   const club = useClub();
   const router = useRouter();
@@ -60,6 +64,17 @@ export default function ClubHubScreen() {
           <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
       ))}
+      {club.role === "admin" &&
+        ADMIN_SECTIONS.map((section) => (
+          <TouchableOpacity
+            key={section.key}
+            style={styles.row}
+            onPress={() => router.push(`/clubs/${club.clubId}/${section.key}`)}
+          >
+            <Text style={styles.rowLabel}>{section.label}</Text>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+        ))}
     </View>
   );
 }

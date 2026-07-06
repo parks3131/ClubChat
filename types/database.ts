@@ -97,6 +97,7 @@ export interface Database {
           id: string;
           club_id: string;
           race_id: string | null;
+          eboard_channel_id: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["channels"]["Row"]> & { club_id: string };
@@ -159,6 +160,11 @@ export interface Database {
           club_id: string;
           name: string;
           event_date: string;
+          photos_link: string | null;
+          results_link: string | null;
+          info_description: string | null;
+          location_link: string | null;
+          hotel_link: string | null;
           created_by: string;
           created_at: string;
         };
@@ -199,6 +205,107 @@ export interface Database {
           user_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["race_join_requests"]["Row"]>;
+        Relationships: [];
+      };
+      eboard_channels: {
+        Row: {
+          id: string;
+          club_id: string;
+          name: string;
+          description: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["eboard_channels"]["Row"]> & {
+          club_id: string;
+          name: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["eboard_channels"]["Row"]>;
+        Relationships: [];
+      };
+      eboard_channel_members: {
+        Row: {
+          eboard_channel_id: string;
+          user_id: string;
+          joined_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["eboard_channel_members"]["Row"]> & {
+          eboard_channel_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["eboard_channel_members"]["Row"]>;
+        Relationships: [];
+      };
+      eboard_channel_join_requests: {
+        Row: {
+          id: string;
+          eboard_channel_id: string;
+          user_id: string;
+          status: JoinRequestStatus;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["eboard_channel_join_requests"]["Row"]> & {
+          eboard_channel_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["eboard_channel_join_requests"]["Row"]>;
+        Relationships: [];
+      };
+      eboard_meetings: {
+        Row: {
+          id: string;
+          eboard_channel_id: string;
+          title: string;
+          description: string | null;
+          meeting_link: string | null;
+          meeting_at: string;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["eboard_meetings"]["Row"]> & {
+          eboard_channel_id: string;
+          title: string;
+          meeting_at: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["eboard_meetings"]["Row"]>;
+        Relationships: [];
+      };
+      race_car_groups: {
+        Row: {
+          id: string;
+          race_id: string;
+          name: string;
+          incharge_user_id: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["race_car_groups"]["Row"]> & {
+          race_id: string;
+          name: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["race_car_groups"]["Row"]>;
+        Relationships: [];
+      };
+      race_car_group_members: {
+        Row: {
+          car_group_id: string;
+          race_id: string;
+          user_id: string;
+          added_by: string;
+          added_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["race_car_group_members"]["Row"]> & {
+          car_group_id: string;
+          race_id: string;
+          user_id: string;
+          added_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["race_car_group_members"]["Row"]>;
         Relationships: [];
       };
       routine_workouts: {
@@ -255,6 +362,18 @@ export interface Database {
       };
       decide_race_join_request: {
         Args: { request_id: string; approve: boolean };
+        Returns: undefined;
+      };
+      request_join_eboard_channel: {
+        Args: { target_eboard_channel_id: string };
+        Returns: "joined" | "requested";
+      };
+      decide_eboard_join_request: {
+        Args: { request_id: string; approve: boolean };
+        Returns: undefined;
+      };
+      set_car_group_incharge: {
+        Args: { p_group_id: string; p_user_id: string | null };
         Returns: undefined;
       };
     };
