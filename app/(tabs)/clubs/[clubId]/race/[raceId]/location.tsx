@@ -1,25 +1,10 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../../components/LoadError";
 import { fetchRaceLocationInfo, updateRaceLocationInfo, type RaceLocationInfo } from "../../../../../../lib/races";
+import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
-
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
 
 const EMPTY: RaceLocationInfo = {
   description: null,
@@ -41,6 +26,7 @@ export default function RaceLocationScreen() {
   const race = useRace();
   const [info, setInfo] = useState<RaceLocationInfo>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<RaceLocationInfo>(EMPTY);
   const [saving, setSaving] = useState(false);
@@ -51,9 +37,16 @@ export default function RaceLocationScreen() {
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      reload().finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      reload()
+        .then(() => {
+          if (!cancelled) setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       return () => {
         cancelled = true;
       };
@@ -84,6 +77,10 @@ export default function RaceLocationScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load meet information." onRetry={reload} />;
+  }
 
   if (loading) {
     return (

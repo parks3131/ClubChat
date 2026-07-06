@@ -1,13 +1,10 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
+import { toDateKey } from "../../../../../lib/dates";
 import { fetchRaces, requestJoinRace, type RaceListItem } from "../../../../../lib/races";
 import { useClub } from "../_layout";
-
-function toDateKey(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 // event_date comes back as a plain "YYYY-MM-DD" string — format from its
 // own y/m/d components rather than `new Date(iso)`, which parses as UTC
@@ -28,12 +25,17 @@ export default function RacesListScreen() {
   const router = useRouter();
   const [races, setRaces] = useState<RaceListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [requesting, setRequesting] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     fetchRaces(club.clubId, club.role === "admin")
-      .then(setRaces)
+      .then((data) => {
+        setRaces(data);
+        setLoadError(false);
+      })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [club.clubId, club.role]);
 
@@ -55,6 +57,10 @@ export default function RacesListScreen() {
         <ActivityIndicator />
       </View>
     );
+  }
+
+  if (loadError) {
+    return <LoadError message="Couldn't load races & meets." onRetry={load} />;
   }
 
   const todayKey = toDateKey(new Date());

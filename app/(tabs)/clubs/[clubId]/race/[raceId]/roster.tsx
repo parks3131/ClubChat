@@ -1,17 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   addRaceMember,
   decideRaceJoinRequest,
@@ -22,13 +11,9 @@ import {
   type RaceMemberRow,
   type SearchedClubMember,
 } from "../../../../../../lib/races";
+import { reportError } from "../../../../../../lib/reportError";
+import { LoadError } from "../../../../../../components/LoadError";
 import { useRace } from "./_layout";
-
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
 
 // Mirrors club-profile/index.tsx's roster + pending-requests + add-member
 // sections, scoped to a race instead of the whole club — reached by
@@ -41,6 +26,7 @@ export default function RaceRosterScreen() {
   const [members, setMembers] = useState<RaceMemberRow[]>([]);
   const [requests, setRequests] = useState<RaceJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const [addQuery, setAddQuery] = useState("");
@@ -59,9 +45,16 @@ export default function RaceRosterScreen() {
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      reload().finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      reload()
+        .then(() => {
+          if (!cancelled) setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       return () => {
         cancelled = true;
       };
@@ -114,6 +107,10 @@ export default function RaceRosterScreen() {
       setBusyUserId(null);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load the roster." onRetry={reload} />;
+  }
 
   if (loading) {
     return (

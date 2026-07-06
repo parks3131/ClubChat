@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { deleteEvent, fetchEvent, type DisplayCalendarEvent } from "../../../../../lib/calendar";
 import { useClub } from "../_layout";
 
@@ -30,6 +31,8 @@ export default function EventDetailScreen() {
   const router = useRouter();
   const [event, setEvent] = useState<DisplayCalendarEvent | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,7 +40,13 @@ export default function EventDetailScreen() {
       setLoading(true);
       fetchEvent(eventId)
         .then((data) => {
-          if (!cancelled) setEvent(data);
+          if (!cancelled) {
+            setEvent(data);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -45,7 +54,7 @@ export default function EventDetailScreen() {
       return () => {
         cancelled = true;
       };
-    }, [eventId])
+    }, [eventId, retryToken])
   );
 
   const goBackToCalendar = () => {
@@ -77,6 +86,10 @@ export default function EventDetailScreen() {
       },
     ]);
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this event." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading || !event) {
     return (

@@ -1,6 +1,7 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../../components/LoadError";
 import {
   ACTIVITY_LABELS,
   deleteWorkout,
@@ -24,6 +25,8 @@ export default function WorkoutDetailScreen() {
   const router = useRouter();
   const [workout, setWorkout] = useState<DisplayRoutineWorkout | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -31,7 +34,13 @@ export default function WorkoutDetailScreen() {
       setLoading(true);
       fetchWorkout(workoutId)
         .then((data) => {
-          if (!cancelled) setWorkout(data);
+          if (!cancelled) {
+            setWorkout(data);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -39,7 +48,7 @@ export default function WorkoutDetailScreen() {
       return () => {
         cancelled = true;
       };
-    }, [workoutId])
+    }, [workoutId, retryToken])
   );
 
   const goBackToRoutines = () => {
@@ -70,6 +79,10 @@ export default function WorkoutDetailScreen() {
       },
     ]);
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this workout." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading || !workout) {
     return (

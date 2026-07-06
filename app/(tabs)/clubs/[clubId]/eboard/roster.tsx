@@ -1,17 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import {
   addEboardMember,
   decideEboardJoinRequest,
@@ -22,13 +11,9 @@ import {
   type EboardMemberRow,
   type SearchedClubAdmin,
 } from "../../../../../lib/eboard";
+import { reportError } from "../../../../../lib/reportError";
+import { LoadError } from "../../../../../components/LoadError";
 import { useEboard } from "./_layout";
-
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
 
 // Mirrors race/[raceId]/roster.tsx, but add/decide rights belong to
 // existing members only (eboard.channel.isMember), not to every club
@@ -42,6 +27,7 @@ export default function EboardRosterScreen() {
   const [members, setMembers] = useState<EboardMemberRow[]>([]);
   const [requests, setRequests] = useState<EboardJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const [addQuery, setAddQuery] = useState("");
@@ -61,9 +47,16 @@ export default function EboardRosterScreen() {
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      reload().finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      reload()
+        .then(() => {
+          if (!cancelled) setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       return () => {
         cancelled = true;
       };
@@ -117,6 +110,10 @@ export default function EboardRosterScreen() {
       setBusyUserId(null);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load the roster." onRetry={reload} />;
+  }
 
   if (loading) {
     return (

@@ -2,6 +2,7 @@ import { Stack, useRouter } from "expo-router";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../components/BackHeaderButton";
+import { LoadError } from "../../../../../components/LoadError";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { fetchEboardChannel, type EboardChannel } from "../../../../../lib/eboard";
 import { useClub } from "../_layout";
@@ -34,12 +35,18 @@ export default function EboardLayout() {
   const router = useRouter();
   const [channel, setChannel] = useState<EboardChannel | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     if (!session) return;
-    const result = await fetchEboardChannel(club.clubId, session.user.id);
-    setChannel(result);
-    setLoaded(true);
+    try {
+      const result = await fetchEboardChannel(club.clubId, session.user.id);
+      setChannel(result);
+      setLoaded(true);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
   }, [club.clubId, session]);
 
   useEffect(() => {
@@ -53,6 +60,10 @@ export default function EboardLayout() {
       router.replace(`/clubs/${club.clubId}`);
     }
   }, [club.role, club.clubId, router]);
+
+  if (club.role === "admin" && loadFailed) {
+    return <LoadError message="Couldn't load Eboard & Council." onRetry={load} />;
+  }
 
   if (club.role !== "admin" || !loaded || !session) {
     return (

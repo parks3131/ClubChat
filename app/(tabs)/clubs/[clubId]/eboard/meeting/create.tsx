@@ -11,31 +11,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LoadError } from "../../../../../../components/LoadError";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
+import { combineToIso, splitIso } from "../../../../../../lib/dates";
 import { createMeeting, fetchMeeting, updateMeeting } from "../../../../../../lib/eboard";
 import { useEboard } from "../_layout";
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_RE = /^\d{2}:\d{2}$/;
-
-// Same plain YYYY-MM-DD + HH:MM convention as event/create.tsx — the
-// wireframe's calendar-grid/AM-PM-stepper widget was explicitly flagged
-// as UI polish that "can do later".
-function splitIso(iso: string): { date: string; time: string } {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  };
-}
-
-function combineToIso(date: string, time: string): string | null {
-  if (!DATE_RE.test(date) || !TIME_RE.test(time)) return null;
-  const parsed = new Date(`${date}T${time}:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
 
 export default function CreateOrEditMeetingScreen() {
   const { meetingId } = useLocalSearchParams<{ meetingId?: string }>();
@@ -56,6 +36,8 @@ export default function CreateOrEditMeetingScreen() {
   const [time, setTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEditing);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -66,6 +48,7 @@ export default function CreateOrEditMeetingScreen() {
 
   useEffect(() => {
     if (!isEditing) return;
+    setLoading(true);
     fetchMeeting(meetingId!)
       .then((existing) => {
         if (!existing) return;
@@ -84,9 +67,11 @@ export default function CreateOrEditMeetingScreen() {
         const split = splitIso(existing.meetingAt);
         setDate(split.date);
         setTime(split.time);
+        setLoadError(false);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [isEditing, meetingId, session, eboard.clubId, router]);
+  }, [isEditing, meetingId, session, eboard.clubId, router, retryToken]);
 
   const handleSave = async () => {
     if (!session || !eboard.channel) return;
@@ -129,6 +114,10 @@ export default function CreateOrEditMeetingScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this meeting." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading) {
     return (

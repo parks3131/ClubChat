@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
 import {
@@ -27,6 +28,7 @@ import {
   type JoinRequestRow,
   type SearchedUser,
 } from "../../../../../lib/members";
+import { reportError } from "../../../../../lib/reportError";
 import { useClub } from "../_layout";
 
 function confirmAction(title: string, message: string): Promise<boolean> {
@@ -39,12 +41,6 @@ function confirmAction(title: string, message: string): Promise<boolean> {
   });
 }
 
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
-
 export default function ClubProfileScreen() {
   const club = useClub();
   const router = useRouter();
@@ -55,6 +51,7 @@ export default function ClubProfileScreen() {
   const [members, setMembers] = useState<ClubMemberRow[]>([]);
   const [requests, setRequests] = useState<JoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
@@ -77,9 +74,16 @@ export default function ClubProfileScreen() {
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      reload().finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      reload()
+        .then(() => {
+          if (!cancelled) setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       return () => {
         cancelled = true;
       };
@@ -190,6 +194,10 @@ export default function ClubProfileScreen() {
       setBusyUserId(null);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this club's profile." onRetry={reload} />;
+  }
 
   if (loading || !profile) {
     return (

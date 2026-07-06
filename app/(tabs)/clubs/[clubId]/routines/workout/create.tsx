@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LoadError } from "../../../../../../components/LoadError";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { ACTIVITY_LABELS, createWorkout, fetchWorkout, updateWorkout } from "../../../../../../lib/routines";
 import type { RoutineActivityType } from "../../../../../../types/database";
@@ -49,10 +50,13 @@ export default function CreateOrEditWorkoutScreen() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEditing);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!isEditing) return;
+    setLoading(true);
     fetchWorkout(workoutId!)
       .then((existing) => {
         if (!existing) return;
@@ -60,9 +64,11 @@ export default function CreateOrEditWorkoutScreen() {
         setWorkoutDate(existing.workoutDate);
         setTitle(existing.title);
         setDescription(existing.description ?? "");
+        setLoadError(false);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [isEditing, workoutId]);
+  }, [isEditing, workoutId, retryToken]);
 
   const handleSave = async () => {
     if (!session) return;
@@ -98,6 +104,10 @@ export default function CreateOrEditWorkoutScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this workout." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading) {
     return (

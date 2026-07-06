@@ -2,6 +2,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../components/BackHeaderButton";
+import { LoadError } from "../../../../components/LoadError";
 import { useAuth } from "../../../../contexts/AuthProvider";
 import { supabase } from "../../../../lib/supabase";
 import type { ClubRole } from "../../../../types/database";
@@ -27,30 +28,44 @@ export default function ClubLayout() {
   const { session } = useAuth();
   const router = useRouter();
   const [club, setClub] = useState<ClubContextValue | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+    setLoadFailed(false);
 
     async function load() {
-      const [{ data: membership }, { data: clubRow }, { data: channelRow }] = await Promise.all([
-        supabase
-          .from("club_members")
-          .select("role")
-          .eq("club_id", clubId)
-          .eq("user_id", session!.user.id)
-          .single(),
-        supabase.from("clubs").select("name, invite_code").eq("id", clubId).single(),
-        supabase
-          .from("channels")
-          .select("id")
-          .eq("club_id", clubId)
-          .is("race_id", null)
-          .is("eboard_channel_id", null)
-          .single(),
-      ]);
+      try {
+        const [
+          { data: membership, error: membershipError },
+          { data: clubRow, error: clubError },
+          { data: channelRow, error: channelError },
+        ] = await Promise.all([
+          supabase
+            .from("club_members")
+            .select("role")
+            .eq("club_id", clubId)
+            .eq("user_id", session!.user.id)
+            .single(),
+          supabase.from("clubs").select("name, invite_code").eq("id", clubId).single(),
+          supabase
+            .from("channels")
+            .select("id")
+            .eq("club_id", clubId)
+            .is("race_id", null)
+            .is("eboard_channel_id", null)
+            .single(),
+        ]);
 
-      if (!cancelled && membership && clubRow && channelRow) {
+        if (cancelled) return;
+
+        if (membershipError || clubError || channelError || !membership || !clubRow || !channelRow) {
+          setLoadFailed(true);
+          return;
+        }
+
         setClub({
           clubId,
           channelId: channelRow.id,
@@ -58,6 +73,8 @@ export default function ClubLayout() {
           inviteCode: clubRow.invite_code,
           role: membership.role,
         });
+      } catch {
+        if (!cancelled) setLoadFailed(true);
       }
     }
 
@@ -65,7 +82,11 @@ export default function ClubLayout() {
     return () => {
       cancelled = true;
     };
-  }, [clubId, session]);
+  }, [clubId, session, retryToken]);
+
+  if (loadFailed) {
+    return <LoadError message="Couldn't load this club." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (!club) {
     return (

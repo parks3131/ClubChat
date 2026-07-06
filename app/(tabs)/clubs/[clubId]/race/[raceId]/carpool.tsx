@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LoadError } from "../../../../../../components/LoadError";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import {
   addCarGroupMember,
@@ -24,13 +25,8 @@ import {
   type CarGroup,
   type SearchedRaceParticipant,
 } from "../../../../../../lib/carGroups";
+import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
-
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
 
 // From a founder wireframe: admins create auto-numbered groups under a
 // race ("Group 1", "Group 2", ...), add members scoped to who already
@@ -45,6 +41,7 @@ export default function RaceCarpoolScreen() {
 
   const [groups, setGroups] = useState<CarGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -59,9 +56,16 @@ export default function RaceCarpoolScreen() {
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      reload().finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      reload()
+        .then(() => {
+          if (!cancelled) setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
       return () => {
         cancelled = true;
       };
@@ -177,6 +181,10 @@ export default function RaceCarpoolScreen() {
       { text: "Delete", style: "destructive", onPress: doDelete },
     ]);
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load car assignments." onRetry={reload} />;
+  }
 
   if (loading) {
     return (

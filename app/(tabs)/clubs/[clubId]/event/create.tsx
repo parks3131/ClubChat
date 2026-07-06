@@ -11,7 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { useAuth } from "../../../../../contexts/AuthProvider";
+import { combineToIso, splitIso } from "../../../../../lib/dates";
 import { createEvent, fetchEvent, updateEvent } from "../../../../../lib/calendar";
 import type { CalendarEventType } from "../../../../../types/database";
 import { useClub } from "../_layout";
@@ -23,25 +25,6 @@ const EVENT_TYPES: { value: CalendarEventType; label: string }[] = [
   { value: "volunteer", label: "Volunteer" },
   { value: "other", label: "Other" },
 ];
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_RE = /^\d{2}:\d{2}$/;
-
-function splitIso(iso: string): { date: string; time: string } {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  };
-}
-
-function combineToIso(date: string, time: string): string | null {
-  if (!DATE_RE.test(date) || !TIME_RE.test(time)) return null;
-  const parsed = new Date(`${date}T${time}:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
 
 export default function CreateOrEditEventScreen() {
   const { clubId, eventId } = useLocalSearchParams<{ clubId: string; eventId?: string }>();
@@ -65,6 +48,8 @@ export default function CreateOrEditEventScreen() {
   const [endTime, setEndTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEditing);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -79,6 +64,7 @@ export default function CreateOrEditEventScreen() {
 
   useEffect(() => {
     if (!isEditing) return;
+    setLoading(true);
     fetchEvent(eventId!)
       .then((existing) => {
         if (!existing) return;
@@ -94,9 +80,11 @@ export default function CreateOrEditEventScreen() {
           setEndDate(end.date);
           setEndTime(end.time);
         }
+        setLoadError(false);
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [isEditing, eventId]);
+  }, [isEditing, eventId, retryToken]);
 
   const handleSave = async () => {
     if (!session) return;
@@ -152,6 +140,10 @@ export default function CreateOrEditEventScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this event." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading) {
     return (

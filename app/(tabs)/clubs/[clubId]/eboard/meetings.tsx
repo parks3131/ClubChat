@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { fetchMeetings, type EboardMeeting } from "../../../../../lib/eboard";
 import { useEboard } from "./_layout";
 
@@ -21,6 +22,8 @@ export default function EboardMeetingsScreen() {
   const router = useRouter();
   const [meetings, setMeetings] = useState<EboardMeeting[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!eboard.channel?.isMember) {
@@ -35,7 +38,13 @@ export default function EboardMeetingsScreen() {
       setLoading(true);
       fetchMeetings(eboard.channel.id)
         .then((data) => {
-          if (!cancelled) setMeetings(data);
+          if (!cancelled) {
+            setMeetings(data);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -43,7 +52,7 @@ export default function EboardMeetingsScreen() {
       return () => {
         cancelled = true;
       };
-    }, [eboard.channel])
+    }, [eboard.channel, retryToken])
   );
 
   if (!eboard.channel?.isMember || loading) {
@@ -52,6 +61,10 @@ export default function EboardMeetingsScreen() {
         <ActivityIndicator />
       </View>
     );
+  }
+
+  if (loadError) {
+    return <LoadError message="Couldn't load meetings." onRetry={() => setRetryToken((t) => t + 1)} />;
   }
 
   const now = Date.now();

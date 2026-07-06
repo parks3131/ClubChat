@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
 } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { fetchClubProfile, updateClubProfile } from "../../../../../lib/clubs";
 import { useClub } from "../_layout";
 
@@ -18,6 +19,8 @@ export default function EditClubProfileScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +40,10 @@ export default function EditClubProfileScreen() {
           if (cancelled) return;
           setName(p.name);
           setDescription(p.description ?? "");
+          setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -44,7 +51,7 @@ export default function EditClubProfileScreen() {
       return () => {
         cancelled = true;
       };
-    }, [club.clubId])
+    }, [club.clubId, retryToken])
   );
 
   const handleSave = async () => {
@@ -60,6 +67,10 @@ export default function EditClubProfileScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this club's profile." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading || club.role !== "admin") {
     return <ActivityIndicator style={styles.centered} />;

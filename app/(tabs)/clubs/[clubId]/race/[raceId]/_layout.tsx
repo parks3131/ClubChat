@@ -2,6 +2,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../../components/BackHeaderButton";
+import { LoadError } from "../../../../../../components/LoadError";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { fetchRace } from "../../../../../../lib/races";
 import { supabase } from "../../../../../../lib/supabase";
@@ -37,60 +38,76 @@ export default function RaceLayout() {
   const router = useRouter();
   const [race, setRace] = useState<RaceContextValue | null>(null);
   const [denied, setDenied] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+    setLoadFailed(false);
 
     async function load() {
-      const isClubAdmin = club.role === "admin";
+      try {
+        const isClubAdmin = club.role === "admin";
 
-      // Check membership *before* fetchRace, not alongside it — fetchRace
-      // reads the race's channel, which RLS blocks for a non-member/non-
-      // admin (is_channel_member fails), throwing rather than returning
-      // an empty result. Calling it in parallel with the membership check
-      // meant that throw happened before this function ever got to the
-      // "not authorized, redirect" branch, so an unauthorized visitor just
-      // saw a permanent spinner instead of being bounced to the races list.
-      if (!isClubAdmin) {
-        const membership = await supabase
-          .from("race_members")
-          .select("user_id")
-          .eq("race_id", raceId)
-          .eq("user_id", session!.user.id)
-          .maybeSingle();
+        // Check membership *before* fetchRace, not alongside it — fetchRace
+        // reads the race's channel, which RLS blocks for a non-member/non-
+        // admin (is_channel_member fails), throwing rather than returning
+        // an empty result. Calling it in parallel with the membership check
+        // meant that throw happened before this function ever got to the
+        // "not authorized, redirect" branch, so an unauthorized visitor just
+        // saw a permanent spinner instead of being bounced to the races list.
+        if (!isClubAdmin) {
+          const membership = await supabase
+            .from("race_members")
+            .select("user_id")
+            .eq("race_id", raceId)
+            .eq("user_id", session!.user.id)
+            .maybeSingle();
 
+          if (cancelled) return;
+
+          if (membership.error) {
+            setLoadFailed(true);
+            return;
+          }
+
+          if (!membership.data) {
+            setDenied(true);
+            return;
+          }
+        }
+
+        const raceDetail = await fetchRace(raceId);
         if (cancelled) return;
 
-        if (!membership.data) {
-          setDenied(true);
-          return;
-        }
+        setRace({
+          raceId,
+          clubId: raceDetail.clubId,
+          name: raceDetail.name,
+          eventDate: raceDetail.eventDate,
+          channelId: raceDetail.channelId,
+          isAdmin: isClubAdmin,
+        });
+      } catch {
+        if (!cancelled) setLoadFailed(true);
       }
-
-      const raceDetail = await fetchRace(raceId);
-      if (cancelled) return;
-
-      setRace({
-        raceId,
-        clubId: raceDetail.clubId,
-        name: raceDetail.name,
-        eventDate: raceDetail.eventDate,
-        channelId: raceDetail.channelId,
-        isAdmin: isClubAdmin,
-      });
     }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [raceId, club.role, session]);
+  }, [raceId, club.role, session, retryToken]);
 
   useEffect(() => {
     if (!denied) return;
     router.replace(`/clubs/${club.clubId}/races`);
   }, [denied, club.clubId, router]);
+
+  if (loadFailed) {
+    return <LoadError message="Couldn't load this race." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (!race) {
     return (

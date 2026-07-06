@@ -1,14 +1,11 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../components/LoadError";
 import { useAuth } from "../../../../contexts/AuthProvider";
 import { fetchCalendarFeed, type CalendarFeedItem } from "../../../../lib/calendarFeed";
+import { toDateKey } from "../../../../lib/dates";
 import { useClub } from "./_layout";
-
-function toDateKey(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 function formatItemDate(item: CalendarFeedItem) {
   if (item.hasTime) {
@@ -45,6 +42,8 @@ export default function ClubCalendarScreen() {
   const router = useRouter();
   const [items, setItems] = useState<CalendarFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -53,7 +52,13 @@ export default function ClubCalendarScreen() {
       setLoading(true);
       fetchCalendarFeed(club.clubId, session.user.id, club.role === "admin")
         .then((data) => {
-          if (!cancelled) setItems(data);
+          if (!cancelled) {
+            setItems(data);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -61,7 +66,7 @@ export default function ClubCalendarScreen() {
       return () => {
         cancelled = true;
       };
-    }, [club.clubId, club.role, session])
+    }, [club.clubId, club.role, session, retryToken])
   );
 
   const now = Date.now();
@@ -78,6 +83,10 @@ export default function ClubCalendarScreen() {
         <ActivityIndicator />
       </View>
     );
+  }
+
+  if (loadError) {
+    return <LoadError message="Couldn't load the calendar." onRetry={() => setRetryToken((t) => t + 1)} />;
   }
 
   const sections = [

@@ -1,12 +1,15 @@
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
 import { fetchProfile, formatDateOfBirth, type Profile } from "../../../../../lib/profile";
 
 export default function MemberProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -14,7 +17,13 @@ export default function MemberProfileScreen() {
       setLoading(true);
       fetchProfile(userId)
         .then((p) => {
-          if (!cancelled) setProfile(p);
+          if (!cancelled) {
+            setProfile(p);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -22,8 +31,12 @@ export default function MemberProfileScreen() {
       return () => {
         cancelled = true;
       };
-    }, [userId])
+    }, [userId, retryToken])
   );
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this member's profile." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading || !profile) {
     return (

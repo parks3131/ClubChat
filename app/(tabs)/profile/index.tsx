@@ -1,26 +1,12 @@
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../components/LoadError";
 import { useAuth } from "../../../contexts/AuthProvider";
 import { fetchMyClubs, type ClubWithRole } from "../../../lib/clubs";
 import { fetchProfile, formatDateOfBirth, uploadAvatar, type Profile } from "../../../lib/profile";
-
-function reportError(err: unknown) {
-  const message = err instanceof Error ? err.message : "Something went wrong";
-  if (Platform.OS === "web") window.alert(message);
-  else Alert.alert("Error", message);
-}
+import { reportError } from "../../../lib/reportError";
 
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
@@ -28,6 +14,8 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [clubs, setClubs] = useState<ClubWithRole[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useFocusEffect(
@@ -40,15 +28,18 @@ export default function ProfileScreen() {
           if (cancelled) return;
           setProfile(p);
           setClubs(c);
+          setLoadError(false);
         })
-        .catch(reportError)
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        })
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
       return () => {
         cancelled = true;
       };
-    }, [session])
+    }, [session, retryToken])
   );
 
   const handleEditPic = async () => {
@@ -86,6 +77,10 @@ export default function ProfileScreen() {
       setUploadingAvatar(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load your profile." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading || !profile) {
     return (

@@ -10,6 +10,7 @@ import {
   TextInput,
   TouchableOpacity,
 } from "react-native";
+import { LoadError } from "../../../components/LoadError";
 import { useAuth } from "../../../contexts/AuthProvider";
 import { fetchProfile, updateProfile } from "../../../lib/profile";
 
@@ -24,6 +25,8 @@ export default function EditProfileScreen() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [school, setSchool] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +43,10 @@ export default function EditProfileScreen() {
           setCity(p.city);
           setDateOfBirth(p.dateOfBirth ?? "");
           setSchool(p.school);
+          setLoadError(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -47,7 +54,7 @@ export default function EditProfileScreen() {
       return () => {
         cancelled = true;
       };
-    }, [session])
+    }, [session, retryToken])
   );
 
   const handleSave = async () => {
@@ -77,6 +84,10 @@ export default function EditProfileScreen() {
       setSaving(false);
     }
   };
+
+  if (loadError) {
+    return <LoadError message="Couldn't load your profile." onRetry={() => setRetryToken((t) => t + 1)} />;
+  }
 
   if (loading) {
     return <ActivityIndicator style={styles.centered} />;

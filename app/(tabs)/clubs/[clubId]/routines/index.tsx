@@ -1,6 +1,8 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
+import { addDays, getMonday, toDateKey } from "../../../../../lib/dates";
 import {
   ACTIVITY_ICONS,
   ACTIVITY_LABELS,
@@ -10,26 +12,6 @@ import {
 import { useClub } from "../_layout";
 
 const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-function toDateKey(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function getMonday(d: Date): Date {
-  const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return date;
-}
-
-function addDays(d: Date, n: number): Date {
-  const date = new Date(d);
-  date.setDate(date.getDate() + n);
-  return date;
-}
 
 function formatDay(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -47,6 +29,8 @@ export default function RoutinesWeekScreen() {
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [workouts, setWorkouts] = useState<DisplayRoutineWorkout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   const weekStartKey = toDateKey(weekStart);
   const weekEnd = addDays(weekStart, 6);
@@ -61,7 +45,13 @@ export default function RoutinesWeekScreen() {
       setLoading(true);
       fetchWeekWorkouts(club.clubId, weekStartKey, weekEndKey)
         .then((data) => {
-          if (!cancelled) setWorkouts(data);
+          if (!cancelled) {
+            setWorkouts(data);
+            setLoadError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -69,7 +59,7 @@ export default function RoutinesWeekScreen() {
       return () => {
         cancelled = true;
       };
-    }, [club.clubId, weekStartKey, weekEndKey])
+    }, [club.clubId, weekStartKey, weekEndKey, retryToken])
   );
 
   if (loading) {
@@ -78,6 +68,10 @@ export default function RoutinesWeekScreen() {
         <ActivityIndicator />
       </View>
     );
+  }
+
+  if (loadError) {
+    return <LoadError message="Couldn't load this week's routines." onRetry={() => setRetryToken((t) => t + 1)} />;
   }
 
   return (
