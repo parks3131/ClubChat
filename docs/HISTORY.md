@@ -1888,3 +1888,143 @@ and this task's `lib/dates.ts` extraction were left bundled into the
 the interleaved hunks weren't cleanly separable without much riskier
 manual surgery.
 
+## Task 27: DB indexes + chat pagination cap
+
+Picked by the founder, over accessibility labels, as the next item from
+task #25's code-quality audit. Two independent pieces: closing the
+remaining genuine gaps in FK indexing, and stopping `ChatScreen.tsx`
+from re-fetching a channel's entire message history on every load and
+every realtime event.
+
+### Part 1: indexes
+
+Rather than trust the audit's original rough "15+ tables missing
+indexes" estimate, went through every `references public.` FK
+definition and every `primary key`/`unique (` constraint across all 25
+existing migrations by hand, cross-referencing which leading column
+each already-covers. Most turned out already fine: `club_members`,
+`calendar_events`, `messages`, `routine_workouts` have explicit indexes
+from 0001/0015; `channels`' three partial unique indexes (0016/0017)
+exactly match this app's three lookup patterns (club-scoped, race-
+scoped, eboard-scoped); and `race_members`, `race_join_requests`,
+`eboard_channels`, `eboard_channel_members`,
+`eboard_channel_join_requests`, `race_car_group_members` all have their
+own composite PK/unique constraints leading with the filtered column.
+
+That left exactly six genuine gaps — columns filtered on directly via
+`.eq(...)` with zero supporting index: `races.club_id` (`fetchRaces`),
+`eboard_meetings.eboard_channel_id` (`fetchMeetings`),
+`race_car_groups.race_id` (`fetchCarGroups`), `polls.club_id`
+(`fetchPolls`), `poll_options.poll_id` (`fetchPoll`/`fetchPolls`), and
+`poll_votes.poll_id` — added as a `(poll_id, user_id)` composite rather
+than a single-column index, since every actual query (`fetchPoll`'s
+own-vote lookup, `cast_vote`'s internal delete) filters both columns
+together. New migration `0026_indexes.sql`, six plain `create index`
+statements, no RLS or table changes. Before writing the migration, read
+each table's actual `create table` definition in its origin migration
+(0016/0018/0021/0025) to confirm exact column names rather than
+assuming from the audit notes.
+
+### Part 2: chat pagination — scope decision
+
+The original plan (written in Plan Mode, before implementation) called
+for full cursor-based pagination: `fetchMessages(channelId, options?: {
+limit?: number; before?: string })`, a "Load earlier messages" UI
+action, and — the genuinely tricky part — merging each realtime-
+triggered reload into existing state by message `id` (instead of
+replacing) so a user who'd scrolled up and loaded older history
+wouldn't lose it every time someone sent a new message elsewhere.
+
+Before implementing, ran this plan past the advisor tool. The advisor's
+read: the merge design is not incorrect, but it's solving a problem
+this app's current traffic doesn't have yet — chat channels in this app
+currently hold a handful of messages, not thousands — and the session
+had already established a "build what the problem needs, not more"
+precedent with tests+CI (deliberately scoped to a few high-value tests
+rather than full coverage). It suggested surfacing the scope choice to
+the founder explicitly rather than defaulting to the more sophisticated
+design, the same way every other real fork this session (creator-vs-
+admin on polls, commit-splitting strategy, etc.) had been surfaced.
+
+Put to the founder via AskUserQuestion as a straight fork — "simple cap
++ replace" vs. "full cursor pagination + merge" — with cap+replace
+recommended. The founder picked cap+replace. The plan file was edited
+in place (Part 2 rewritten, Verification section's step 4 simplified)
+before `ExitPlanMode`, so the approved plan the founder saw matches
+what was actually built.
+
+### Part 2: what was built
+
+`lib/messages.ts`'s `fetchMessages` gained an additive
+`options?: { limit?: number }` parameter. Called with no options (as
+`components/HighlightsScreen.tsx` does — it genuinely needs the entire
+history, since a months-old pinned message or announcement must still
+surface), it behaves exactly as before: full ascending-order fetch, no
+limit. Called with a limit, it does a descending-order fetch capped to
+that limit, then reverses the result back to ascending for display —
+this is the only way to get "the newest N" instead of "the oldest N"
+without a two-query round trip.
+
+`ChatScreen.tsx`'s two `fetchMessages` call sites — the initial mount
+load and the `reload()` callback fired on every realtime `postgres_changes`
+event (any insert/update/delete on `messages` or, project-wide,
+`message_reactions`) — both now pass `{ limit: 50 }` and replace state
+outright, same replace semantics as before, just capped. No new
+`hasMoreOlder`/cursor/merge-by-id state was added, matching the
+approved scope. Accepted, disclosed tradeoff: a user scrolled up into
+messages older than the latest 50 gets their view reset if a realtime
+event fires while they're up there — rare at this app's current
+traffic, and the fix if it ever becomes a real complaint is exactly the
+cursor+merge design that was scoped out here.
+
+### Verification
+
+`npx tsc --noEmit` clean. `supabase db reset` applied all 26 migrations
+cleanly (had to `supabase start` first — some auxiliary containers
+(imgproxy/edge-runtime/pooler) were stopped from a previous session,
+though Postgres itself was up and that's all `db reset` needs).
+
+Confirmed the six new indexes exist via `supabase db query` against
+`pg_indexes` (the CLI's `db execute --sql` doesn't exist — `db query`
+is the actual subcommand). Then ran `EXPLAIN` directly against three of
+the newly-indexed queries (`polls` by `club_id`, `poll_votes` by
+`(poll_id, user_id)`, `race_car_groups` by `race_id`) and confirmed the
+planner picked an Index/Bitmap Index Scan using the new index each
+time, rather than just trusting the DDL had run.
+
+Live pagination test: local `psql` isn't installed on this machine, so
+wrote a throwaway Node script (`@supabase/supabase-js` against the
+local API) to sign up a fresh test user, create a club via the same
+`created_by`-inclusive insert shape as `lib/clubs.ts`'s `createClub`
+(the first attempt omitted `created_by` and hit the clubs SELECT-policy
+RLS block from section 6 immediately — a live, if small, reminder of
+that exact gotcha), fetch its auto-created main channel, and insert 60
+messages ("Message 1".."Message 60"). Signed into that account via
+Playwright (had to clear a stale `localStorage` session first — the
+browser still held a token from before this session's `db reset`,
+which surfaced as profile-load failing via the new task #25 LoadError
+UI rather than hanging, confirming that error path still works too),
+navigated to the club's chat, and confirmed exactly "Message 11"
+through "Message 60" rendered — 50 messages, oldest 10 correctly
+excluded.
+
+Sent a new message ("Message 61 live test") through the real UI and
+re-checked the rendered set: still exactly 50, now "Message 12" through
+"Message 61 live test" — the window correctly slid forward, oldest
+dropped, newest appended, live via the realtime-triggered reload.
+Clicked "Pin" on the visible "Message 60" and confirmed the pinned
+strip updated immediately to show it (proving pin/reaction live-updates
+on currently-visible messages still work under the capped fetch).
+
+Regression-checked Highlights two ways: first that it correctly showed
+the just-pinned "Message 60" (unsurprising, since it's within the
+50-window); then, to actually test the disclosed tradeoff's boundary,
+pinned "Message 3" directly via `supabase db query` (no UI path exists
+to pin it anymore, since ChatScreen no longer renders anything before
+"Message 11") and confirmed Highlights' unbounded `fetchMessages(channelId)`
+call still surfaced it alongside "Message 60" — proving Highlights'
+no-args behavior is genuinely untouched by this change, not just
+untouched in the common case.
+
+Cleaned up afterward: deleted the throwaway seed script, ran
+`supabase db reset` again to return the local DB to a clean state.

@@ -440,8 +440,15 @@ lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
                                  searchClubs / joinOrRequestClub /
                                  fetchClubProfile / updateClubProfile /
                                  uploadClubAvatar
-lib/messages.ts                 fetchMessages / sendMessage / reactions /
-                                 realtime subscription — chat backend,
+lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
+                                 number}) — no-args call (used by
+                                 HighlightsScreen) fetches full history
+                                 unchanged; a limit fetches only the
+                                 newest N (task #27, used by ChatScreen to
+                                 cap+replace instead of loading a
+                                 channel's entire history every load) /
+                                 sendMessage / reactions / realtime
+                                 subscription — chat backend,
                                  channel-agnostic (works for a club's main
                                  channel or a race's channel unchanged)
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
@@ -636,6 +643,17 @@ supabase/migrations/
                                  section 6's chicken-and-egg gotcha).
                                  Close/reopen/delete are creator-only,
                                  unlike races'/routines' any-admin pattern.
+  0026_indexes.sql                 Task #27 — six `create index`
+                                 statements for FK columns filtered on
+                                 directly (`.eq(...)`) with no existing
+                                 PK/unique-constraint coverage:
+                                 races.club_id, eboard_meetings
+                                 .eboard_channel_id, race_car_groups
+                                 .race_id, polls.club_id, poll_options
+                                 .poll_id, and a (poll_id, user_id)
+                                 composite on poll_votes. No RLS/table
+                                 changes. Confirmed via EXPLAIN that the
+                                 planner actually picks each one up.
 ```
 
 ## 5. Current status
@@ -670,15 +688,16 @@ supabase/migrations/
 | 24 | Polls: admin-created, single/multi-select voting, public/private voter visibility | ✅ Done — see task #24 in `docs/HISTORY.md`. New standalone "Polls" hub row (`polls`/`poll_options`/`poll_votes`, migration `0025_polls.sql`), structurally mirroring `races/`. Per-poll toggles for allow-multiple and private voting; vote counts are always public via a denormalized `poll_options.vote_count` trigger, while voter identity is RLS-gated to the creator (private polls) or everyone (public polls) — a voter always sees their own vote either way. Close/reopen/delete are **creator-only** (mirrors `eboard_meetings`, not the races/routines "any admin" pattern) — verified live that this holds at the RLS layer itself (a raw PATCH by a non-creator admin returned 0 rows updated), not just via hidden buttons. |
 | 25 | Code-quality audit + standardized error handling on data loads | ✅ Done — see task #25 in `docs/HISTORY.md`. A whole-codebase audit (no automated tests/CI/lint, missing FK indexes, no pagination, inconsistent error UX, zero accessibility labels, hand-written DB types) found that most screens' initial data fetch had no failure handling at all — worst case, the 3 club-scoped context layouts (`clubs/[clubId]`, `race/[raceId]`, `eboard`) could hang on a permanent spinner forever if their load query failed, with no escape. Fixed across ~24 files: a new shared `lib/reportError.ts` (deduped from 6 copies) and `components/LoadError.tsx` (message + retry), applied consistently — context layouts get a full-screen retry, list/detail screens get a real error state instead of silently rendering as if empty, edit-form prefill fetches no longer risk saving blank data over a real record, and transient actions (vote/close/delete) surface failures via alert. Verified live: a deliberately-broken load (nonexistent club UUID) now shows "Couldn't load this club." with a working retry instead of hanging. |
 | 26 | Add automated tests + CI | ✅ Done — see task #26 in `docs/HISTORY.md`. `jest-expo` + a first real (not token) test suite: `lib/dates.ts` — extracted from 2-3 duplicated per-screen copies of `toDateKey`/`getMonday`/`addDays`/`splitIso`/`combineToIso` (mirroring the `reportError` dedup from task #25) — plus `formatDateOfBirth` (locks in the task #11 UTC-off-by-one fix as a real regression test) and `fetchCalendarFeed` (mocked dependencies, covers task #23's access-filtering/sort-order rules that were previously only verified live by hand). `.github/workflows/ci.yml` runs `tsc --noEmit` + `npm test` on every push/PR. |
+| 27 | DB indexes + chat pagination cap | ✅ Done — see task #27 in `docs/HISTORY.md`. Migration `0026_indexes.sql` adds 6 indexes for genuinely-missing FK lookups found by cross-referencing every `.eq(...)` filter in `lib/*.ts` against existing PK/unique-constraint coverage (most tables turned out already covered): `races.club_id`, `eboard_meetings.eboard_channel_id`, `race_car_groups.race_id`, `polls.club_id`, `poll_options.poll_id`, and a `(poll_id, user_id)` composite on `poll_votes`. Verified via `EXPLAIN` that the planner actually picks up each new index, not just that the DDL ran. `lib/messages.ts`'s `fetchMessages` gained an additive `options?: { limit?: number }` (no-args behavior, used by `components/HighlightsScreen.tsx`, is untouched — it still needs full history for pinned/announcement lookups); `components/ChatScreen.tsx`'s initial load and every realtime-triggered reload now cap to the latest 50 and replace state, instead of fetching a channel's entire history on every load/reaction/pin. Deliberately **not** cursor-based "Load earlier" pagination — the founder explicitly chose the simpler cap-and-replace scope over a fuller merge-by-id + "Load earlier" design (which the advisor had flagged as solving a problem this app's current traffic doesn't have yet); the accepted tradeoff is that a user scrolled up into older messages gets their view reset to the latest 50 if a realtime event fires while they're up there. Verified live: seeded 60 messages via script, confirmed only the latest 50 (`Message 11`-`Message 60`) rendered initially, sending a new message correctly slid the window (oldest dropped, newest appended) without losing realtime pin/reaction updates on visible messages, and Highlights still surfaced pins on messages well outside the 50-window (`Message 3`, `Message 60`) via its untouched unbounded fetch. |
 
 **Immediate next step**: video messages are no longer planned (dropped
-from scope). Tests + CI (task #26) and error-handling standardization
-(task #25) are both done. The remaining gaps from the code-quality
-audit, roughly in priority order: missing DB indexes on most foreign
-keys, no pagination on chat/lists, zero accessibility labels, hand-
-written `types/database.ts` (regenerate once a real hosted Supabase
-project exists), and no error monitoring (e.g. Sentry). Photo
-attachments in chat (task #5's note) is the one still-open MVP item.
+from scope). Tests + CI (task #26), error-handling standardization
+(task #25), and DB indexes + chat pagination cap (task #27) are all
+done. The remaining gaps from the code-quality audit, roughly in
+priority order: zero accessibility labels, hand-written
+`types/database.ts` (regenerate once a real hosted Supabase project
+exists), and no error monitoring (e.g. Sentry). Photo attachments in
+chat (task #5's note) is the one still-open MVP item.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
