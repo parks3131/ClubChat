@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
 import { colors, radii, spacing, typography } from "../constants/theme";
 import { useAuth } from "../contexts/AuthProvider";
+import { useNotifications } from "../contexts/NotificationsProvider";
 import {
   deleteMessage,
   fetchMessages,
@@ -34,6 +35,7 @@ import {
   togglePinned,
   type DisplayMessage,
 } from "../lib/messages";
+import { markChannelRead } from "../lib/notifications";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
 import { fetchProfile } from "../lib/profile";
 import { reportError } from "../lib/reportError";
@@ -99,6 +101,7 @@ export default function ChatScreen({
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const { refetch: refetchNotifications } = useNotifications();
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
@@ -169,6 +172,16 @@ export default function ChatScreen({
     const unsubscribe = subscribeToNewMessages(channelId, reload);
     return unsubscribe;
   }, [channelId, reload]);
+
+  // Opening a chat is what actually clears its "N unread" row in the
+  // Notifications feed (see lib/notifications.ts) — merely viewing the
+  // Notifications tab deliberately does not.
+  useEffect(() => {
+    if (!session) return;
+    markChannelRead(channelId, session.user.id)
+      .then(refetchNotifications)
+      .catch(() => {});
+  }, [channelId, session, refetchNotifications]);
 
   const handleLoadEarlier = async () => {
     if (!hasMoreOlder || loadingOlder || messages.length === 0) return;

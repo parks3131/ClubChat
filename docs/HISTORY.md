@@ -2679,3 +2679,222 @@ the input. Zero console errors across every screen touched. `npx tsc
 --noEmit` clean throughout (two rounds of RN-vs-react-native-web type
 gaps hit and worked around: `Switch`'s `activeThumbColor`/
 `ios_backgroundColor`, `Pressable`'s `hovered`).
+
+## Task 35: Notifications — Strava-style cross-club inbox
+
+A brand-new, from-scratch feature request (not from a wireframe this
+time — the founder described the desired behavior directly, referencing
+Strava's own bell/badge notification screen as the model), planned
+["iron clad"] via `EnterPlanMode` with two full rounds of
+`AskUserQuestion` before any code was written, since almost every part
+of the design space was a genuine open question: where does a
+cross-club notification center even live in a 2-tab app, what does the
+badge number mean, which pending-approval inboxes fan out to which
+audience, which membership events get a personal notification, which
+creation events fan out to whom, and — the trickiest one — how "N
+unread messages in Club X chat" interacts with "opening the
+Notifications tab marks things read" without one silently invalidating
+the other.
+
+**Confirmed design** (all via `AskUserQuestion`, see the approved plan
+at the time — since revised twice post-ship, below):
+new 3rd bottom tab named exactly "Notifications"; badge = count of
+unread *items* (a whole unread chat channel counts as 1, never a raw
+message sum); admin/Eboard-member inbox covers club + race join
+requests (fan out to every club admin — races have no separate admin
+role) and Eboard join requests (fan out only to *current* Eboard
+members, mirroring the existing approval-rights asymmetry from task
+#17); personal notifications get full parity with what already
+triggers an in-chat system message (added/removed/promoted/demoted)
+plus request-approved/denied, which didn't have one; creation fan-out
+for polls/calendar events/races/Eboard meetings/announcements, always
+excluding the actor; a plain **pin** must never notify, only an
+**announcement** — which falls out for free since `messages.message_type
+= 'announcement'` is only ever set at `INSERT` time, structurally
+separate from the `pinned` boolean's later `UPDATE`; tapping a
+join-request notification navigates to the existing roster screen
+rather than duplicating approve/deny UI inline; and — the one requiring
+real design work — chat-unread rows are **not** stored notification
+rows at all, since **no read/unread concept existed anywhere in the
+schema** (confirmed via a repo-wide grep before writing a single
+migration). A new `channel_reads` table (per user, per channel,
+`last_read_at`) backs a `fetch_unread_channel_summaries()` security-
+definer SQL function that computes live unread counts per channel in
+one round trip (no N+1 loop over every club/race/Eboard channel the
+caller belongs to), reusing the existing `is_channel_member` helper so
+channel-access logic isn't duplicated a third time. Opening the
+Notifications tab bulk-marks discrete `notifications` rows read, but
+**never** touches `channel_reads` — a chat's unread count only clears
+by actually opening that chat, exactly as before this feature existed,
+confirmed live as its own explicit test case.
+
+### Schema: 4 new migrations (`0031`-`0034`), all built on primary-source reads
+
+Every trigger this migration set touches or extends was read verbatim
+from its actual `.sql` file before being modified — `0006`, `0016`,
+`0017` — rather than reconstructed from the SPEC.md summary above,
+specifically to avoid silently changing existing behavior while
+extending it.
+
+- **`0031_notifications_core.sql`**: `notification_type` enum,
+  `notifications` table (`recipient_id`, `actor_id`, `club_id`, `type`,
+  `body`, a literal `target_path` route string rather than ~7 nullable
+  per-type foreign keys — navigation is just `router.push(path)`,
+  everything else would exist only to be flattened back into a string
+  by the client), RLS (`recipient_id = auth.uid()` for select/update,
+  deliberately no insert policy since every row is written by
+  `security definer` trigger functions, same pattern as system chat
+  messages), added to the `supabase_realtime` publication.
+  `channel_reads` + `fetch_unread_channel_summaries()` as described
+  above.
+- **`0032_notification_triggers_membership.sql`**: extends
+  `log_member_added`/`log_member_removed`/`log_member_role_changed`/
+  `log_race_member_added`/`log_eboard_member_added` (`create or
+  replace`, same technique 0016/0017 already used twice on these exact
+  functions) to also insert a `notifications` row using the actor/target
+  split every one of them already computes for picking chat-message
+  wording. Also extends `decide_join_request`/`decide_race_join_request`/
+  `decide_eboard_join_request` to explicitly insert
+  `request_approved`/`request_denied` notifications. The tricky part:
+  an approval's membership insert (`club_members` etc.) also fires
+  `log_member_added`, which would otherwise *also* fire a redundant
+  "you were added" notification for the same action — solved with a
+  transaction-local Postgres setting
+  (`set_config('clubchat.skip_add_notify', 'true', true)`, `is_local =
+  true` so it can never leak across a pooled connection's later,
+  unrelated transaction) set right before the approval branch's insert,
+  checked by the trigger before it inserts its own notification.
+- **`0033_notification_triggers_requests.sql`**: 3 new triggers (not
+  modifying anything existing) on `club_join_requests`/
+  `race_join_requests`/`eboard_channel_join_requests`, firing on
+  `insert or update of status ... when (new.status = 'pending')` so a
+  re-request after a prior denial (an `UPDATE` via the existing `on
+  conflict do update` path) notifies the inbox exactly like a fresh
+  request does, without ever firing on the *decide* transition away
+  from pending (that's already covered by 0032's explicit inserts).
+- **`0034_notification_triggers_creation.sql`**: new `after insert`
+  triggers on `polls`/`calendar_events`/`races`/`eboard_meetings`
+  (separate from the existing `on_race_created`, which stays focused on
+  its own job) and on `messages` filtered to `message_type =
+  'announcement'`, each excluding the creator/sender from its own
+  fan-out.
+
+### Client layer
+
+`lib/notifications.ts` (new) follows the existing `lib/clubs.ts`/
+`lib/calendarFeed.ts` conventions — `fetchNotificationFeed` merges the
+`notifications` table with `fetch_unread_channel_summaries()` into one
+reverse-chronological array, the same "merge heterogeneous sources"
+technique `calendarFeed.ts` already established for the unified
+calendar (task #23) — plus `fetchUnreadBadgeCount`,
+`markAllNotificationsRead`, `markChannelRead`, and
+`subscribeToNotifications` (mirrors `lib/messages.ts`'s
+`subscribeToNewMessages` realtime pattern exactly).
+`contexts/NotificationsProvider.tsx` (new) is shaped like
+`AuthProvider.tsx` — wraps the whole app (nested inside `AuthProvider`
+in `app/_layout.tsx`, since it needs the session's `userId`) so the
+tab-bar badge has a live count from anywhere, exposing
+`{ unreadCount, refetch, markAllRead }`. `app/(tabs)/_layout.tsx` gained
+a 3rd `Tabs.Screen` using React Navigation's native `tabBarBadge`
+option. `app/(tabs)/notifications.tsx` (new) is the feed screen;
+`components/ChatScreen.tsx` gained a one-effect hook calling
+`markChannelRead` + a provider `refetch()` on mount.
+
+### Verification — 3 real bugs found and fixed live, all before initial ship
+
+A first full live pass (via a forked sub-agent driving Playwright across
+3 test accounts) found and fixed 3 real bugs, each requiring a `supabase
+db reset` to pick up and a fresh re-verification pass afterward:
+
+1. **Realtime channel-topic collision.** `NotificationsProvider`'s badge
+   subscription and the Notifications screen's own feed subscription
+   both called `subscribeToNotifications` for the same `userId`
+   simultaneously, producing the identical Supabase Realtime channel
+   topic name (`notifications:{userId}`) — supabase-js throws
+   `cannot add postgres_changes callbacks ... after subscribe()` the
+   second time `.on()` is called on an already-subscribed channel
+   object. Fixed by adding a `tag` parameter (default `"default"`) so
+   independent subscribers to the same `userId` get distinct topic names
+   (`notifications:{userId}:badge` vs. `...:screen`).
+2. **Decided requests never left the admin inbox.** The first cut of
+   `decide_*_join_request` didn't remove the now-stale "X wants to join"
+   notification once decided — confirmed live it stayed forever.
+   Originally fixed with a `delete from public.notifications` scoped by
+   `type` + `target_path` + `actor_id` (no direct `request_id` column to
+   key on, per `target_path`'s design above) — later revised, see below.
+3. **Ambiguous column reference.** That same `DELETE`'s `actor_id`
+   collided with the PL/pgSQL local variable `actor_id` (the approver),
+   causing a silent 400 on `rpc/decide_join_request` and an in-app
+   "Something went wrong" alert on every approve/deny. Fixed by
+   qualifying the column as `public.notifications.actor_id`.
+
+### Founder follow-ups, post-verification (3 more asked live, mid-pass)
+
+Sent directly to the verifying sub-agent while it was running, then
+triaged with 3 more `AskUserQuestion` rounds before implementing:
+
+1. **Decided requests should persist as history, not disappear** —
+   directly reversing bug-fix #2 above, right after it shipped. Added
+   `notifications.resolved_outcome` (`'approved' | 'denied'`,
+   `0035_notifications_persistent_requests.sql`) and changed all 3
+   `decide_*_join_request` functions from `DELETE` to `UPDATE` (tag the
+   outcome, mark read since it's no longer actionable). The Notifications
+   screen renders a small "Approved"/"Denied" pill next to a resolved
+   request instead of it vanishing. Verified live end-to-end, including
+   the accidental-but-useful case of clicking Deny during testing and
+   watching the item correctly stay visible tagged "Denied" instead of
+   disappearing — then re-requesting (status flips back to `pending` via
+   the existing `on conflict` path, correctly re-firing the admin-inbox
+   notification) and approving on the second pass, confirming the
+   "approved by X" wording is distinct from "added by X" with no
+   duplicate notification (the `clubchat.skip_add_notify` guard from bug
+   fix work above holds).
+2. **Notifications feed pagination**, mirroring task #28's chat
+   "load earlier" pattern: `fetchNotificationFeed` gained the same
+   `limit`/`before` cursor shape as `lib/messages.ts`'s `fetchMessages`,
+   with a twist — `fetch_unread_channel_summaries()` (the chat-unread
+   rows) is only ever fetched on the *first* page (`before` undefined),
+   since it's bounded by channel count, not something that grows page
+   over page. `app/(tabs)/notifications.tsx` merges pages by id (same
+   technique as `ChatScreen.tsx`'s `mergeMessages`, sorted newest-first
+   instead of oldest-first) and triggers `FlatList`'s `onEndReached` —
+   simpler than chat's own pagination, since appending older items at
+   the *bottom* of a newest-first list never requires the
+   scroll-position-preservation `requestAnimationFrame` dance task #28
+   needed for prepending at the top. Verified live by seeding 30 test
+   notifications directly via `docker exec psql` for a real signed-up
+   test user (fast, avoids 30 rounds of UI-driven club-profile approve
+   clicks): confirmed exactly 20 notification-kind items load initially
+   (page-size cap holding, mixed correctly with the 2 real request-
+   decision notifications from the account's actual history), and that
+   scrolling to the bottom loads the next page with no duplicates and no
+   console errors.
+3. **Roster "Joined Nm ago" removed.** `club-profile/index.tsx`'s member
+   row used to show "Joined {time}" (or "You" for the caller's own row)
+   under every member's name — the app has no actual presence/activity
+   tracking, so "Joined" was the only truthful label available, and per
+   founder direction it's better removed entirely for now than
+   generalized into a misleading "active" label. Changed to only render
+   the "You" tag (self only), nothing for other members — a placeholder
+   for real presence tracking to fill in later.
+
+### Final verification pass
+
+`npx tsc --noEmit` clean after every round (initial build, the 3
+bugfixes, and the 3 follow-ups). Live pass covering: club creation with
+`request` join policy, a member's request → admin's badge/inbox update →
+tap-to-roster navigation → deny (confirms persistent-history) → re-
+request → approve (confirms distinct "approved by X" wording + no
+duplicate notification) → the requester's own Notifications feed showing
+both the historical "denied by" entry and the new "approved by" entry
+side by side, plus a live "1 unread messages in ... chat" row for the
+system "joined the club" message posted by the same approval — cross-
+checked against a stale/ghost browser session left over from a DB reset
+(confirmed it fails closed, not silently, forcing a clean re-sign-in
+rather than operating on a since-deleted user). Console-error check
+distinguished genuine current-page state (zero errors) from stale
+history predating the mid-session `supabase db reset` + dev-server
+restart (`browser_console_messages`'s `all: true` mode surfaces
+everything since the Playwright session began, not since the last
+navigation — worth remembering next time a console check looks alarming
+right after a backend reset).

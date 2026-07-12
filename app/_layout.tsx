@@ -12,6 +12,7 @@ import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors } from "../constants/theme";
 import { AuthProvider, useAuth } from "../contexts/AuthProvider";
+import { NotificationsProvider } from "../contexts/NotificationsProvider";
 
 function RootNavigator() {
   const { session, initializing } = useAuth();
@@ -68,7 +69,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <StatusBar style="auto" />
       <AuthProvider>
-        <RootNavigator />
+        <NotificationsProvider>
+          <RootNavigator />
+        </NotificationsProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

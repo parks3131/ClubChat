@@ -160,6 +160,31 @@ this — it's a private, always-instant-join side channel regardless of
 `join_policy`, and is the intended base for a future shareable join-link
 (deliberately deferred, not built yet).
 
+**Notification** (task #35 — a `User`-scoped row, not nested under
+`Club` in the tree above since one user's notifications span every club
+they belong to) — `recipient_id`, `actor_id`, `club_id`, `type` (13
+values: the 3 admin/Eboard-member join-request-pending types, request
+approved/denied, member added/removed/role-changed, poll/event/race/
+meeting created, announcement), `body`, a literal `target_path` route
+string (not a pile of nullable per-type foreign keys — every consumer
+just does `router.push(target_path)`), `resolved_outcome` (nullable,
+`approved | denied` — only ever set on the 3 admin-inbox request types,
+once decided; the notification stays visible as history, tagged with
+the outcome, rather than being deleted), `read_at`. Written exclusively
+by `security definer` trigger functions extending the same triggers
+that already post in-chat system messages for these exact events (join/
+leave/add/remove/promote/demote), plus new triggers on the 3
+`*_join_requests` tables and on `polls`/`calendar_events`/`races`/
+`eboard_meetings`/`messages` (the last filtered to
+`message_type = 'announcement'` — a plain pin, a later `UPDATE` of the
+separate `pinned` boolean, never touches this trigger at all). A
+sibling **ChannelRead** table (`channel_id`, `user_id`, `last_read_at`)
+is deliberately *not* part of `notifications` — a channel's "N unread
+messages" is computed live via `fetch_unread_channel_summaries()`
+rather than stored as discrete rows, so it can never drift out of sync
+with `messages`, and it only ever advances when the user actually opens
+that channel (opening the Notifications tab itself never touches it).
+
 ## 3. Tech stack
 
 - **Mobile app**: React Native + Expo (Expo Router for file-based
@@ -194,7 +219,35 @@ app/                          Expo Router file-based routes
                                single route can't serve both a
                                signed-out and signed-in visitor without
                                getting bounced.
-  (tabs)/_layout.tsx           Bottom tabs: Clubs, Profile
+  (tabs)/_layout.tsx           Bottom tabs: Clubs, Notifications, Profile
+                                 (task #35 added the Notifications tab —
+                                 bell icon + a native `tabBarBadge`
+                                 sourced from `useNotifications()`)
+  (tabs)/notifications.tsx      Task #35 — the Notifications feed, a
+                                 single top-level screen (no nested
+                                 stack — every row just `router.push`es
+                                 elsewhere). Merges `notifications` rows
+                                 with live per-channel unread-chat
+                                 summaries into one reverse-chronological
+                                 list (`lib/notifications.ts`'s
+                                 `fetchNotificationFeed`, mirroring
+                                 `lib/calendarFeed.ts`'s "merge
+                                 heterogeneous sources" pattern from task
+                                 #23), paginated 20-at-a-time via
+                                 `FlatList`'s `onEndReached` (mirrors
+                                 task #28's chat "load earlier", simpler
+                                 here since appending older items at the
+                                 *bottom* of a newest-first list needs no
+                                 scroll-position-preservation dance). On
+                                 focus, marks every visible discrete
+                                 notification read (badge clears) but
+                                 never touches chat-unread rows — those
+                                 only clear by actually opening that
+                                 chat. A resolved join-request shows a
+                                 small "Approved"/"Denied" pill instead
+                                 of disappearing (a founder follow-up
+                                 right after initial ship — see task #35
+                                 in `docs/HISTORY.md`).
   (tabs)/profile/_layout.tsx    Stack: profile view + edit modal +
                                  (task #32) privacy-policy/terms.
                                  `‹` headerLeft, fallback -> /clubs
@@ -512,6 +565,16 @@ components/ThemedSwitch.tsx      Task #34 — wraps RN's `Switch` with
                                  supports them at runtime, hence the
                                  `Switch as ComponentType<any>` cast.
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
+contexts/NotificationsProvider.tsx  Task #35 — same shape as
+                                 AuthProvider, nested inside it in
+                                 app/_layout.tsx since it needs the
+                                 session's userId. Holds a live
+                                 `unreadCount`, subscribed via realtime,
+                                 exposed app-wide via `useNotifications()`
+                                 so the tab-bar badge and ChatScreen's
+                                 post-markChannelRead refetch both work
+                                 from outside the Notifications screen
+                                 itself.
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
                                  searchClubs / joinOrRequestClub /
@@ -637,6 +700,23 @@ lib/carGroups.ts                 Task #19 — fetchCarGroups (groups with
                                  setCarGroupIncharge / searchRaceParticipantsToAdd
                                  (race roster ∪ club admins, excluding
                                  anyone already in any group for the race)
+lib/notifications.ts             Task #35 — fetchNotificationFeed
+                                 (merges `notifications` rows with
+                                 `fetch_unread_channel_summaries()` RPC
+                                 results, paginated via `limit`/`before`
+                                 mirroring fetchMessages) /
+                                 fetchUnreadBadgeCount / markAllNotificationsRead
+                                 (bulk-marks discrete notifications read,
+                                 never touches channel_reads) /
+                                 markChannelRead (upserts channel_reads,
+                                 called from ChatScreen on mount) /
+                                 subscribeToNotifications (mirrors
+                                 subscribeToNewMessages; takes a `tag`
+                                 param so independent subscribers — the
+                                 badge provider and the Notifications
+                                 screen — don't collide on the same
+                                 realtime channel topic, a real bug hit
+                                 live during verification)
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
 constants/theme.ts               Task #34 — "Kinetic Performance System"
@@ -824,6 +904,61 @@ supabase/migrations/
                                  silently vanishing from other members'
                                  chat history. The DELETE policy is left
                                  in place, unused.
+  0031_notifications_core.sql      Task #35 — notification_type enum,
+                                 notifications table + RLS (recipient-
+                                 only select/update, no insert policy —
+                                 every row comes from a security-definer
+                                 trigger) + added to supabase_realtime;
+                                 channel_reads table + RLS; the
+                                 fetch_unread_channel_summaries() RPC
+                                 (one round trip per caller, reuses
+                                 is_channel_member so channel-access
+                                 logic isn't duplicated a third time).
+  0032_notification_triggers_membership.sql
+                                 Task #35 — re-creates (create or
+                                 replace, same technique 0016/0017 used
+                                 twice already) log_member_added/
+                                 log_member_removed/log_member_role_changed/
+                                 log_race_member_added/log_eboard_member_added
+                                 to also insert a notifications row;
+                                 extends decide_join_request/
+                                 decide_race_join_request/
+                                 decide_eboard_join_request to explicitly
+                                 insert request_approved/request_denied
+                                 notifications, guarded by a transaction-
+                                 local clubchat.skip_add_notify Postgres
+                                 setting so an approval's membership
+                                 insert doesn't also fire a redundant
+                                 "added by" notification from the
+                                 log_*_member_added triggers above.
+  0033_notification_triggers_requests.sql
+                                 Task #35 — 3 new triggers (club/race/
+                                 eboard_channel join_requests, on insert
+                                 or update of status ... when pending)
+                                 fanning out admin/eboard-member-inbox
+                                 notifications; eboard requests go only
+                                 to current eboard members, not every
+                                 club admin, matching 0017's existing
+                                 approval-rights asymmetry.
+  0034_notification_triggers_creation.sql
+                                 Task #35 — new after-insert triggers on
+                                 polls/calendar_events/races/
+                                 eboard_meetings (creator excluded from
+                                 the fan-out) and on messages filtered to
+                                 message_type = 'announcement' (a plain
+                                 pin — a later update of the separate
+                                 pinned boolean — never fires this).
+  0035_notifications_persistent_requests.sql
+                                 Task #35 founder follow-up, right after
+                                 initial ship: adds
+                                 notifications.resolved_outcome
+                                 ('approved' | 'denied') and changes the
+                                 3 decide_*_join_request functions from
+                                 DELETEing a decided admin-inbox
+                                 notification to UPDATEing it in place —
+                                 decided requests now stay visible as
+                                 history (tagged with the outcome) rather
+                                 than disappearing.
 ```
 
 ## 5. Current status
@@ -866,6 +1001,7 @@ supabase/migrations/
 | 32 | Privacy Policy + Terms of Service (in-app) | ✅ Done — see task #32 in `docs/HISTORY.md`. Fourth of the six tasks. Content drafted from SPEC.md's actual data model (not boilerplate) into `lib/legalContent.ts`, rendered by a shared `components/LegalDocument.tsx`. Needed two separate route trees — `app/(auth)/privacy-policy.tsx`+`terms.tsx` (signed-out, linked from sign-up) and `app/(tabs)/profile/privacy-policy.tsx`+`terms.tsx` (signed-in, linked from Profile) — since `app/_layout.tsx`'s auth guard redirects based on top-level route group and a single shared route would get bounced in one direction or the other. **Not a substitute for real legal review** before a genuine public launch — flagged in-file and to the founder. |
 | 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — see task #33 in `docs/HISTORY.md`. Fifth of the six tasks. `app.json` now has `ios.bundleIdentifier`/`android.package` = `com.parkstechusa.clubchat` (founder-chosen, via `AskUserQuestion` — effectively permanent once published) and a hand-written `eas.json` with development/preview/production build profiles. **Still needs**: `eas login` + `eas init` (interactive, requires the founder's own Expo account) to get full EAS project linkage — not attempted autonomously. |
 | 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see task #34 in `docs/HISTORY.md`. A same-day founder session had already implemented a full Stitch-based redesign (new `constants/theme.ts` tokens, Anton/Archivo Narrow/Inter fonts) inside an isolated `.claude/worktrees/` git worktree, but it never made it back into `main` — recovered and merged in (confirmed a clean superset, zero conflicts) rather than rebuilt from scratch. On top of the recovery: a from-scratch chat redesign (custom glass-blur header via `expo-blur`, gradient sent-bubble via `expo-linear-gradient`, floating pinned notice, editorial announcement card) from a second, same-day Stitch export; the same visual language then extended to Highlights, and to every Races/Eboard screen (hubs, lists, forms, rosters) to match the already-redesigned club hub. Global `primary` color overridden to a brighter `#ff4d00` per explicit founder preference (SPEC's own DESIGN.md tokens said `#aa3000`). Two real, independently-shippable bugs surfaced and fixed along the way: `expo-image-picker`'s web shim opens its file input via `dispatchEvent(new MouseEvent("click"))` instead of `.click()`, which silently no-ops in some real (non-automated) browser configurations — worked around with `lib/pickImageOnWeb.ts`, applied at all 3 photo-picker call sites; and react-native-web's `Switch` defaults its "on" thumb to teal (`#009688`) unless `activeThumbColor` is set explicitly — fixed app-wide via a new shared `components/ThemedSwitch.tsx`. Also: every "search-result-row + separate Add button" (carpool/roster/club-profile add-member flows) converted to a single `Pressable` row with an orange hover highlight; chat header's title made tappable again (club-profile / race roster / eboard roster) and swapped to show the actual name instead of the literal "ClubChat" brand text; a real scroll-to-bottom regression (new messages landing ~44% short of the true bottom) fixed by wrapping `scrollToEnd` in `requestAnimationFrame`; and the "Send as announcement" full-width banner (was blocking the message list) replaced with a compact megaphone toggle icon in the input row. |
+| 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see task #35 in `docs/HISTORY.md`. A from-scratch founder request (not a wireframe this time), planned via `EnterPlanMode` + two rounds of `AskUserQuestion` before any code, since almost every design axis was a genuine open question. New 3rd bottom tab with a bell + native `tabBarBadge`; a flat reverse-chronological feed merging discrete `notifications` rows (join requests, membership changes, poll/event/race/meeting creation, announcements) with live-computed "N unread messages in Club X chat" rows (`fetch_unread_channel_summaries()` RPC, backed by a new `channel_reads` table — no read/unread concept existed anywhere in the schema before this). Admin/Eboard-member inbox for pending join requests (Eboard requests fan out only to current Eboard members, not all club admins, matching task #17's existing approval-rights asymmetry); personal notifications for added/removed/promoted/demoted/approved/denied; creation fan-out excluding the actor; announcements notify, a plain pin never does (falls out for free — `message_type = 'announcement'` is an `INSERT`-time value, structurally separate from the `pinned` boolean's later `UPDATE`). Opening the tab clears discrete-item unread state but never a chat's unread count — that only clears by actually opening the chat. 3 real bugs found and fixed during initial live verification (a realtime channel-topic collision between the badge provider and the feed screen; decided requests never leaving the admin inbox; an ambiguous PL/pgSQL column reference causing a silent 400 on approve/deny). 3 more founder follow-ups shipped right after, triaged via a third `AskUserQuestion` round: decided requests now persist as tagged history ("Approved"/"Denied") instead of disappearing — deliberately reversing one of the 3 bug fixes above, per explicit founder direction; scroll-to-load-more pagination on the feed (mirrors task #28's chat pattern, simpler here since a newest-first list appends older pages at the bottom, no scroll-position-preservation needed); and the club roster's "Joined Nm ago" text removed (no real presence tracking exists yet to back an "active" label). |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 identified in a founder-requested audit, four are done (photo
@@ -885,6 +1021,10 @@ chat app more than for store approval itself. Task #34 also leaves one
 open thread: the Highlights/Races/Eboard visual rollout has no source
 mockup of its own (extrapolated from the club hub's established pattern)
 — worth a founder look to confirm it reads as intended everywhere.
+Task #35's Notifications feature is now the natural place push
+notifications (still unbuilt) would plug into — every fan-out already
+computes a `body`/`target_path`, which is exactly what an
+`expo-notifications` payload would need.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

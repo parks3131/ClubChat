@@ -1,8 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { colors, typography } from "../../constants/theme";
+import { useNotifications } from "../../contexts/NotificationsProvider";
 
 export default function TabsLayout() {
+  const { unreadCount } = useNotifications();
+
   return (
     <Tabs
       screenOptions={{
@@ -18,6 +21,15 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="clubs"
         options={{ title: "Clubs", tabBarIcon: ({ color, size }) => <MaterialIcons name="groups" size={size} color={color} /> }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: "Notifications",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="notifications" size={size} color={color} />,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.error },
+        }}
       />
       <Tabs.Screen
         name="profile"

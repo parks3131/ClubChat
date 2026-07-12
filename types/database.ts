@@ -18,6 +18,20 @@ export type RoutineActivityType =
   | "bouldering"
   | "xc_ski"
   | "other";
+export type NotificationType =
+  | "club_join_request"
+  | "race_join_request"
+  | "eboard_join_request"
+  | "request_approved"
+  | "request_denied"
+  | "member_added"
+  | "member_removed"
+  | "role_changed"
+  | "poll_created"
+  | "event_created"
+  | "race_created"
+  | "meeting_created"
+  | "announcement";
 
 export interface Database {
   public: {
@@ -397,9 +411,57 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["poll_votes"]["Row"]>;
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          id: string;
+          recipient_id: string;
+          actor_id: string | null;
+          club_id: string;
+          type: NotificationType;
+          body: string;
+          target_path: string;
+          resolved_outcome: "approved" | "denied" | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["notifications"]["Row"]> & {
+          recipient_id: string;
+          club_id: string;
+          type: NotificationType;
+          body: string;
+          target_path: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notifications"]["Row"]>;
+        Relationships: [];
+      };
+      channel_reads: {
+        Row: {
+          channel_id: string;
+          user_id: string;
+          last_read_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["channel_reads"]["Row"]> & {
+          channel_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["channel_reads"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: {};
     Functions: {
+      fetch_unread_channel_summaries: {
+        Args: Record<string, never>;
+        Returns: {
+          channel_id: string;
+          club_id: string;
+          race_id: string | null;
+          eboard_channel_id: string | null;
+          channel_name: string | null;
+          unread_count: number;
+          last_message_at: string | null;
+        }[];
+      };
       join_club_by_code: {
         Args: { code: string };
         Returns: Database["public"]["Tables"]["clubs"]["Row"];

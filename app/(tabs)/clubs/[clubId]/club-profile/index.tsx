@@ -359,7 +359,7 @@ export default function ClubProfileScreen() {
                     {item.role === "admin" ? "ADMIN" : "MEMBER"}
                   </Text>
                 </View>
-                <Text style={styles.joinedMeta}>{isSelf ? "You" : `Joined ${timeAgo(item.joinedAt)}`}</Text>
+                {isSelf && <Text style={styles.joinedMeta}>You</Text>}
               </View>
             </TouchableOpacity>
             {isAdmin && !isSelf ? (
