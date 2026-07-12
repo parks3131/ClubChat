@@ -7,9 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.parkstechusa.clubchat"
     },
     "android": {
+      "package": "com.parkstechusa.clubchat",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -29,7 +31,8 @@
         {
           "photosPermission": "ClubChat uses your photo library to set your profile picture."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }

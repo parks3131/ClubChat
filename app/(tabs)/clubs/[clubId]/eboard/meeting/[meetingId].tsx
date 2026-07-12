@@ -2,6 +2,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { deleteMeeting, fetchMeeting, type EboardMeeting } from "../../../../../../lib/eboard";
 import { useEboard } from "../_layout";
@@ -94,7 +95,7 @@ export default function MeetingDetailScreen() {
   if (!eboard.channel?.isMember || loading || !meeting) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -144,20 +145,20 @@ export default function MeetingDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, gap: 4 },
-  title: { fontSize: 24, fontWeight: "700", color: "#0f172a", marginBottom: 16 },
-  infoRow: { marginBottom: 12 },
-  infoLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", textTransform: "uppercase" },
-  infoValue: { fontSize: 16, color: "#0f172a", marginTop: 2 },
-  link: { fontSize: 16, color: "#2563eb", marginTop: 2, textDecorationLine: "underline" },
-  descriptionBlock: { marginTop: 4, marginBottom: 12 },
-  description: { fontSize: 15, color: "#334155", marginTop: 4, lineHeight: 21 },
-  creator: { fontSize: 13, color: "#94a3b8", marginTop: 12 },
-  actions: { flexDirection: "row", gap: 12, marginTop: 24 },
-  editButton: { flex: 1, backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center" },
-  editButtonText: { color: "#fff", fontWeight: "600" },
-  deleteButton: { flex: 1, backgroundColor: "#fee2e2", borderRadius: 8, padding: 14, alignItems: "center" },
-  deleteButtonText: { color: "#dc2626", fontWeight: "600" },
+  content: { padding: spacing.marginMobile, gap: spacing.unit },
+  title: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, marginBottom: spacing.gutter },
+  infoRow: { marginBottom: spacing.stackSm },
+  infoLabel: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  infoValue: { ...typography.bodyMd, fontSize: 16, color: colors.onSurface, marginTop: 2 },
+  link: { ...typography.bodyMd, fontSize: 16, color: colors.primary, marginTop: 2, textDecorationLine: "underline" },
+  descriptionBlock: { marginTop: spacing.unit, marginBottom: spacing.stackSm },
+  description: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface, marginTop: spacing.unit, lineHeight: 21 },
+  creator: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.stackSm },
+  actions: { flexDirection: "row", gap: spacing.gutter, marginTop: spacing.stackMd },
+  editButton: { flex: 1, backgroundColor: colors.primary, borderRadius: radii.full, padding: spacing.stackSm + 6, alignItems: "center" },
+  editButtonText: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onPrimary },
+  deleteButton: { flex: 1, backgroundColor: colors.errorContainer, borderRadius: radii.full, padding: spacing.stackSm + 6, alignItems: "center" },
+  deleteButtonText: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onErrorContainer },
 });

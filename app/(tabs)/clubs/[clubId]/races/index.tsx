@@ -1,7 +1,9 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { toDateKey } from "../../../../../lib/dates";
 import { fetchRaces, requestJoinRace, type RaceListItem } from "../../../../../lib/races";
 import { useClub } from "../_layout";
@@ -18,6 +20,11 @@ function formatEventDate(dateKey: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function bibDay(dateKey: string) {
+  const [, month, day] = dateKey.split("-").map(Number);
+  return { day, month: new Date(2000, month - 1, 1).toLocaleDateString(undefined, { month: "short" }).toUpperCase() };
 }
 
 export default function RacesListScreen() {
@@ -54,7 +61,7 @@ export default function RacesListScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -68,8 +75,8 @@ export default function RacesListScreen() {
   const finished = races.filter((r) => r.eventDate < todayKey).reverse();
 
   const sections = [
-    { title: "Upcoming", data: upcoming },
-    { title: "Finished", data: finished },
+    { title: "Upcoming", data: upcoming, faded: false },
+    { title: "Finished", data: finished, faded: true },
   ].filter((s) => s.data.length > 0);
 
   return (
@@ -81,35 +88,41 @@ export default function RacesListScreen() {
         ListEmptyComponent={<Text style={styles.empty}>No races or meets yet.</Text>}
         renderItem={({ item: section }) => (
           <View>
-            <Text style={styles.sectionHeader}>{section.title}</Text>
+            <Text style={[styles.sectionHeader, section.faded && styles.sectionHeaderFaded]}>{section.title}</Text>
             {section.data.map((race) => {
               const canEnter = race.access !== "none";
+              const bib = bibDay(race.eventDate);
               return (
                 <TouchableOpacity
                   key={race.id}
-                  style={styles.row}
+                  style={[styles.row, section.faded && styles.rowFaded]}
                   disabled={!canEnter}
                   onPress={() => canEnter && router.push(`/clubs/${club.clubId}/race/${race.id}`)}
                 >
-                  <View style={styles.rowHeader}>
-                    <Text style={styles.rowTitle}>{race.name}</Text>
-                    {canEnter ? (
-                      <Text style={styles.chevron}>›</Text>
-                    ) : race.requestStatus === "pending" ? (
-                      <Text style={styles.requested}>Requested</Text>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.requestButton}
-                        disabled={requesting === race.id}
-                        onPress={() => handleRequest(race.id)}
-                      >
-                        <Text style={styles.requestButtonText}>
-                          {requesting === race.id ? "Requesting…" : "Request to join"}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                  <View style={styles.bibChip}>
+                    <Text style={styles.bibDay}>{bib.day}</Text>
+                    <Text style={styles.bibMonth}>{bib.month}</Text>
                   </View>
-                  <Text style={styles.rowDate}>{formatEventDate(race.eventDate)}</Text>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.badge}>RACE</Text>
+                    <Text style={styles.rowTitle}>{race.name}</Text>
+                    <Text style={styles.rowDate}>{formatEventDate(race.eventDate)}</Text>
+                  </View>
+                  {canEnter ? (
+                    <MaterialIcons name="chevron-right" size={22} color={colors.outline} />
+                  ) : race.requestStatus === "pending" ? (
+                    <Text style={styles.requested}>Requested</Text>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.requestButton}
+                      disabled={requesting === race.id}
+                      onPress={() => handleRequest(race.id)}
+                    >
+                      <Text style={styles.requestButtonText}>
+                        {requesting === race.id ? "Requesting…" : "Request"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -119,7 +132,7 @@ export default function RacesListScreen() {
 
       {club.role === "admin" && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${club.clubId}/races/create`)}>
-          <Text style={styles.fabText}>+ Create Race Channel</Text>
+          <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>
       )}
     </View>
@@ -127,34 +140,60 @@ export default function RacesListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: 12, paddingBottom: 80 },
-  empty: { textAlign: "center", marginTop: 40, color: "#888" },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#64748b",
-    marginTop: 12,
-    marginBottom: 6,
-    textTransform: "uppercase",
+  list: { padding: spacing.marginMobile, paddingBottom: 80 },
+  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
+  sectionHeader: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginTop: spacing.stackSm, marginBottom: spacing.stackSm },
+  sectionHeaderFaded: { opacity: 0.5 },
+  row: {
+    flexDirection: "row",
+    gap: spacing.gutter,
+    alignItems: "center",
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    marginBottom: spacing.stackSm,
   },
-  row: { backgroundColor: "#f1f5f9", borderRadius: 10, padding: 12, marginBottom: 8 },
-  rowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  rowTitle: { fontSize: 16, fontWeight: "700", color: "#0f172a", flexShrink: 1 },
-  rowDate: { fontSize: 13, color: "#334155", marginTop: 4 },
-  chevron: { fontSize: 20, color: "#94a3b8" },
-  requested: { fontSize: 13, color: "#94a3b8", fontStyle: "italic" },
-  requestButton: { backgroundColor: "#2563eb", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
-  requestButtonText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  rowFaded: { opacity: 0.6 },
+  bibChip: {
+    width: 52,
+    height: 60,
+    borderRadius: radii.DEFAULT,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  bibDay: { ...typography.statValue, fontSize: 22, lineHeight: 22, color: colors.onPrimary },
+  bibMonth: { ...typography.labelSm, fontSize: 10, marginTop: 2, color: colors.onPrimary },
+  rowBody: { flex: 1 },
+  badge: {
+    ...typography.labelSm,
+    fontSize: 10,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: 2,
+    overflow: "hidden",
+    backgroundColor: colors.primaryFixed,
+    color: colors.onPrimaryFixedVariant,
+    alignSelf: "flex-start",
+  },
+  rowTitle: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface, marginTop: spacing.stackSm, flexShrink: 1 },
+  rowDate: { ...typography.bodyMd, fontSize: 13, color: colors.secondary, marginTop: 2 },
+  requested: { ...typography.labelSm, fontSize: 11, color: colors.onSurfaceVariant, fontStyle: "italic", textTransform: "none" },
+  requestButton: { backgroundColor: colors.primary, borderRadius: radii.full, paddingHorizontal: spacing.stackSm + 4, paddingVertical: spacing.unit + 2 },
+  requestButtonText: { ...typography.labelSm, fontSize: 11, color: colors.onPrimary, textTransform: "none" },
   fab: {
     position: "absolute",
-    right: 16,
-    bottom: 16,
-    backgroundColor: "#2563eb",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    right: spacing.marginMobile,
+    bottom: spacing.marginMobile,
+    backgroundColor: colors.primaryContainer,
+    borderRadius: radii.full,
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  fabText: { color: "#fff", fontWeight: "700" },
 });

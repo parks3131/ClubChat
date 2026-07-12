@@ -2182,3 +2182,500 @@ Highlights, cross-checked against the database directly rather than
 trusting the UI alone, given the false-alarm scare earlier in this same
 task. Cleaned up: deleted the throwaway seed script, ran `supabase db
 reset` to return to a clean slate.
+
+## Task 29: Photo attachments in chat
+
+The last open item from task #5's original scope note. Founder asked
+"what else do we need to ship this as a real application," which led to
+a "senior-level work pending" audit (store-approval blockers, infra
+readiness, product gaps) — this was one of six resulting tasks, picked
+first since it had zero open product decisions.
+
+The schema had already anticipated this: `messages.media_url` and
+`message_type = 'photo'` existed since `0001_init.sql`/`0007_...sql`,
+unused until now. New migration `0027_message_photos_storage.sql` adds
+a **private** `message-photos` Storage bucket — deliberately not public
+like `avatars`/`club-avatars`, since a public bucket's URLs bypass
+Storage RLS entirely and this app has a genuinely private channel
+(Eboard chat, task #17) whose photos shouldn't be fetchable by anyone
+holding a guessed URL. RLS is scoped via `is_channel_member`/no extra
+grant, keyed off the first path segment (`${channelId}/${uuid}.${ext}`).
+Because the bucket is private, `lib/messages.ts` now resolves a
+short-lived (1hr) signed URL per photo message via
+`storage.createSignedUrls` (batched, not per-message) inside
+`attachSendersAndReactions`, rather than storing a public URL — same
+general shape as the avatar pattern but resolved at read time instead of
+write time.
+
+`lib/messages.ts` gained `sendPhotoMessage` (upload then insert,
+mirroring `uploadAvatar`'s upload-then-update-row shape) and
+`DisplayMessage.photoUrl`. `components/ChatScreen.tsx` got a 📷 picker
+button next to the send input (same `expo-image-picker` + web
+synchronous-call-before-any-`await` pattern as the profile avatar
+picker, see SPEC.md section 6), inline photo rendering, and a
+tap-to-fullscreen `Modal` viewer. `components/HighlightsScreen.tsx`
+(pinned messages) and the pinned-strip preview in `ChatScreen.tsx` both
+needed a `messageType === "photo"` branch too, since a pinned/highlighted
+photo message has a null `body`.
+
+Verified live via `CI=1 npx expo start --web` + Playwright: uploaded
+`assets/icon.png` through the real web file-input flow, confirmed the
+photo rendered via its signed URL, confirmed tap-to-fullscreen worked,
+pinned the photo message and confirmed both the pinned strip ("📷
+Photo" placeholder text) and the Highlights screen (thumbnail) rendered
+it correctly, and sent a plain text message afterward to confirm no
+regression to the existing text path. `npx tsc --noEmit` and the full
+jest suite clean throughout.
+
+## Task 30: Self-service account deletion
+
+Second of the six "ship as a real app" tasks — required by Apple
+Guideline 5.1.1(v) and Google Play for store approval.
+
+Advisor caught a real design fork before any migration was written:
+almost every foreign key pointing at `profiles(id)`
+(`messages.sender_id`, `clubs.created_by`, `polls.created_by`,
+`race_car_group_members.added_by`, ~15 columns total across the schema)
+has no `on delete` behavior at all, meaning a literal `DELETE FROM
+auth.users` cascade would fail outright the first time a deleted user
+turned out to have ever sent a message. Rather than pick a resolution
+(hard-delete-with-cascade-surgery on ~15 constraints, or something
+softer) unilaterally, asked the founder directly via `AskUserQuestion`.
+**Chosen: anonymize, not hard-delete.** Scrub PII from the `profiles`
+row, disable login, leave content in place attributed to a generic
+"Deleted user" — a normal `UPDATE` on a row the caller owns, zero schema
+surgery.
+
+Migration `0028_account_deletion.sql` adds a `security definer`
+`delete_account()` Postgres function (same pattern as
+`join_or_request_club`/`decide_join_request` from `0006_...sql`) that
+(1) blanks `full_name`/`avatar_url`/`bio`/`city`/`date_of_birth`/`school`
+on the caller's own `profiles` row, and (2) sets
+`auth.users.banned_until` to 100 years out, permanently blocking future
+sign-in/token-refresh for that user. `auth.users` isn't writable by a
+normal authenticated client — the advisor specifically flagged not to
+implement this "security definer writes to auth.users" pattern from
+memory, since Supabase's auth-schema internals shift across versions —
+so before writing the migration, confirmed against the *actual running*
+local Postgres (not assumed) that `banned_until timestamptz` exists on
+`auth.users` and that `postgres`-owned functions (which is what this
+project's migrations create) already have `UPDATE` privilege on it.
+
+`lib/profile.ts` gained `deleteAccount()` (wraps the RPC); the caller is
+still responsible for calling `supabase.auth.signOut()` immediately
+after, since `banned_until` only blocks *future* auth, not an
+already-issued access token. `app/(tabs)/profile/index.tsx` got a
+"Delete account" button with the same web-`window.confirm`-vs-native-
+`Alert.alert` branch as `event/[eventId].tsx`'s delete flow (SPEC.md
+section 6's `Alert.alert`-is-a-no-op-on-web gotcha).
+
+Verified live end-to-end with two accounts: Alice created a club, sent
+a message, deleted her account — confirmed a subsequent sign-in attempt
+returned "User is banned" (Supabase's own GoTrue error text) — then, as
+Bob (a separate member of the same club), confirmed Alice's earlier
+message now displayed sender "Deleted user" with no avatar, message
+content untouched. `npx tsc --noEmit` and the jest suite clean.
+
+## Task 31: Chat moderation — message delete + report
+
+Third of the six tasks — required by Apple Guideline 1.2 (User-
+Generated Content): a way to report objectionable content, and a
+mechanism to act on reports.
+
+Message delete turned out to already be RLS-permitted
+(`0003_rls.sql`'s "sender or admin can delete a message" policy existed
+since `0016_races.sql`'s generation of `is_channel_admin`) — only the UI
+action was missing. Report is new: migration `0029_message_reports.sql`
+adds `message_reports` (message_id, channel_id, reporter_id,
+`unique(message_id, reporter_id)`), with `channel_id` deliberately
+denormalized onto the row (same reasoning as `race_car_group_members
+.race_id` in `0021_...sql`) so admin-facing "reports in this channel"
+queries and RLS don't need to join through `messages`.
+
+Founder call, asked directly via `AskUserQuestion` before building:
+whether "block a user" should also exist alongside report/delete.
+**Chosen: skip block, ship report + delete only** — block is ambiguous
+in a shared-membership club chat (you can't meaningfully block one
+member of a chat you both still belong to), and admin message-delete +
+existing member-removal already cover real abuse cases without a new
+primitive.
+
+UI: `ChatScreen.tsx` gained "Delete" (sender or channel admin, any
+message) and "Report" (anyone but the sender, disabled to "Reported"
+after tapping — a repeat report's `23505` unique-violation is treated as
+a no-op by `lib/messages.ts`'s `reportMessage`, not surfaced as an
+error). `HighlightsScreen.tsx` gained an admin-only third tab ("Reports
+(N)") listing reported messages with report counts, a "Delete message"
+action, and a "Dismiss" action (clears the report rows once resolved).
+
+**A real bug caught during this task's own live verification, not by
+`tsc` or the test suite**: the original `deleteMessage` did a literal
+SQL `DELETE`. `ChatScreen.tsx`'s `reload()` — since task #28 — merges
+fetched messages into state by id and never drops an id that's absent
+from a fresh fetch (that merge semantics was deliberately designed in
+task #28 so an already-loaded older page survives unrelated realtime
+activity). A hard-deleted message's id simply stopped appearing in
+`reload()`'s fetch, but the merge never noticed it was gone — the
+message stayed visible in the sender's own UI indefinitely after
+clicking Delete, only clearing on a full remount. First fix attempt was
+a `mergeLatestWindow` reconciliation function (drop any id inside the
+freshly-fetched latest-window range that's no longer present). Then the
+founder flagged something more fundamental via live testing: a message
+that just vanishes with zero trace is bad UX in a group chat — other
+members mid-conversation lose context, and there's no record anything
+was moderated. **Switched to soft-delete instead**: migration
+`0030_message_soft_delete.sql` adds `messages.deleted_at`; `deleteMessage`
+now `UPDATE`s (`deleted_at = now()`, `body`/`media_url` cleared) through
+the existing sender-or-admin `UPDATE` policy rather than the `DELETE`
+policy (left in place, unused). This made the `mergeLatestWindow` fix
+moot — a soft-deleted row still comes back from a normal fetch, so a
+plain upsert-by-id merge already picks up the tombstone correctly — so
+that function was reverted rather than kept as unneeded defensive code.
+`ChatScreen.tsx`/`HighlightsScreen.tsx` both render a "This message was
+deleted" placeholder in place of body/photo and hide reaction/pin/
+delete/report actions once `deletedAt` is set; a pinned+deleted message
+still shows its 📌 badge and appears (as a tombstone) in the pinned
+strip, since scope discipline favored leaving pin state alone over
+auto-unpinning.
+
+Verified live with two accounts (Carol admin, Dave member) end-to-end:
+Dave saw "Report" (not "Delete"/"Pin") on Carol's message and no
+actions at all were mistakenly available on it beyond that; reporting
+showed "Reported" and a repeat click was a silent no-op; Dave's own
+message showed "Delete" (not "Report"); deleting it correctly produced
+a live tombstone in the same session (proving the soft-delete fix, not
+just a fresh-mount coincidence); pinning then deleting a message showed
+the tombstone in both the bubble and the pinned strip simultaneously.
+`npx tsc --noEmit` and the jest suite clean throughout.
+
+## Task 32: Privacy Policy + Terms of Service (in-app)
+
+Fourth of the six tasks. Both app stores require a reachable Privacy
+Policy URL and, in practice, in-app Terms at submission — not really a
+coding task so much as a content-drafting + wiring one, so scoped down
+to what's actually actionable without founder-supplied legal text:
+draft honest, feature-grounded (not boilerplate/lorem-ipsum) content
+from SPEC.md's actual data model, and wire it up reachably both pre- and
+post-auth. Explicitly **not** a substitute for real legal review before
+a genuine public launch — flagged as such in a comment at the top of
+`lib/legalContent.ts` and to the founder directly, not silently baked in
+as if it were legally sufficient.
+
+`lib/legalContent.ts` holds the actual section text (`PRIVACY_POLICY
+_SECTIONS`/`TERMS_SECTIONS`, each an array of `{heading, body}`) as data,
+separate from a new shared `components/LegalDocument.tsx` presentational
+renderer — same "content separate from a thin reusable component" shape
+as `ChatScreen`/`HighlightsScreen`'s original task #16 extraction, so
+the pre-auth and post-auth screens don't fork two copies of the same
+text.
+
+Reachability needed two separate route trees, not one, because of how
+`app/_layout.tsx`'s auth guard works: it redirects based on which
+top-level group (`(auth)` vs `(tabs)`) the current route belongs to, so
+a single shared route can't serve both a signed-out visitor (sign-up
+flow) and a signed-in one (Profile) without getting bounced by the
+guard the instant the "wrong" group's condition doesn't match. Added
+`app/(auth)/privacy-policy.tsx` + `app/(auth)/terms.tsx` (reachable
+signed-out, linked from a new consent line under `sign-up.tsx`'s
+password field: "By signing up, you agree to our Privacy Policy and
+Terms of Service") and `app/(tabs)/profile/privacy-policy.tsx` +
+`.../terms.tsx` (reachable signed-in, linked from two new rows on the
+Profile screen, above Sign out) — both pairs are thin wrappers around
+the same `LegalDocument` + content data, both registered in their
+respective Stack layouts with the existing `makeBackHeaderLeft` pattern
+(`(auth)/_layout.tsx` previously had `headerShown: false` for its whole
+Stack with no per-screen header at all — these two screens are the
+first `(auth)`-group screens to need one, so they override
+`headerShown: true` individually rather than flipping it repo-wide for
+sign-in/sign-up too).
+
+Verified live via `CI=1 npx expo start --web` + Playwright: as a signed-
+in user, tapped Privacy Policy from Profile and confirmed it rendered
+under the `(tabs)` group with a working back button (no auth-guard
+bounce); separately, with `localStorage` cleared (fully signed out),
+loaded `/sign-up`, confirmed both links render in the consent line, and
+tapped through to `/terms` — confirmed it rendered pre-auth with no
+redirect to sign-in, and that the back button correctly returned to
+`/sign-up`. `npx tsc --noEmit` and the jest suite clean.
+
+## Task 33 (in progress): Bundle identifiers + `eas.json` build config
+
+Fifth of the six "ship as a real app" tasks — prerequisite for any store
+binary, since `app.json` had no `ios.bundleIdentifier`/`android.package`
+and there was no `eas.json` at all. Bundle identifiers are effectively
+permanent once published, so asked the founder rather than guessing
+(`AskUserQuestion` → "use my own domain" → `parkstechusa.com`). Set
+`com.parkstechusa.clubchat` as both `ios.bundleIdentifier` and
+`android.package` in `app.json`. Hand-wrote `eas.json` with standard
+`development`/`preview`/`production` build profiles (no login required
+to author the file itself). **Not fully done**: full EAS project
+linkage (`extra.eas.projectId` in `app.json`) requires `eas login` +
+`eas init`, both interactive and requiring the founder's own Expo
+account — flagged as a manual follow-up rather than attempted
+autonomously.
+
+## Task 34: Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide
+
+### How this started: a bug report that turned out to be a lost redesign
+
+The founder reported that clicking the pencil overlay on the profile
+avatar didn't open a file picker. Early investigation (reading
+`app/(tabs)/profile/index.tsx`) found the fix from task #10 (skip the
+permission check on web) was still correctly in place, and a Playwright
+click on the pencil icon *did* trigger a `filechooser` event — so by
+that evidence the picker "worked." But the founder had also asked, in
+the same conversation, why the *previous day's* UI changes weren't
+showing up in the running app, and separately shared a screenshot of a
+polished redesign (rust/orange "Kinetic Performance System" theme,
+Anton display font, card-row hub layout) that looked nothing like the
+plain blue-accent UI actually running.
+
+Both threads turned out to be the same root cause. `git worktree list`
+showed a second worktree at `.claude/worktrees/agent-ad77747cd330b64f9`,
+on a branch sitting at the *exact same commit* as `main`
+(`1839226`) — meaning a prior session had done real implementation work
+(not just design mockups) inside an isolated fork, including a
+`constants/theme.ts` that didn't even exist in `main`, but the working
+tree's changes were never copied back. Verified every file the worktree
+had modified was a strict superset of what `main` already had
+uncommitted (tasks #29-#33's work) with zero conflicting edits, then
+copied all 45 changed/new files over and `npm install`ed the new
+dependencies (`@expo-google-fonts/anton`, `@expo-google-fonts/archivo-
+narrow`, `@expo-google-fonts/inter`, `@expo/vector-icons`,
+`expo-font`). This recovered the redesign for auth, clubs list/create/
+join, the club hub, calendar, and profile screens — all in one shot,
+matching the founder's screenshot pixel-for-pixel once restarted.
+
+**The profile-picker "bug" was real, just not what it first looked
+like.** Playwright's automated click can't actually verify whether a
+real end-user's browser shows the native file dialog — a follow-up test
+(`browser_evaluate` calling `input.dispatchEvent(new
+MouseEvent("click"))` completely outside any user gesture) still made
+Playwright report a file chooser as available, proving Chromium under
+CDP automation bypasses the real "was this a genuine user gesture"
+gating that a normal interactive tab enforces. Reading
+`node_modules/expo-image-picker/src/ExponentImagePicker.web.ts` found
+the actual issue: its web shim opens the hidden file input via
+`input.dispatchEvent(new MouseEvent("click"))` rather than
+`input.click()`. Per the DOM spec both are supposed to invoke the same
+activation behavior, but in practice this is a known footgun — some
+real browser configurations (confirmed live: a Chrome profile not
+signed into a Google account) don't treat the dispatched event as
+sufficient activation and silently no-op, while `.click()` reliably
+works. Fixed by bypassing the shim entirely with a new
+`lib/pickImageOnWeb.ts` (`document.createElement("input")` + real
+`.click()`), applied at all 3 photo-picker call sites (profile avatar,
+club avatar, chat photo) — native platforms untouched since they use a
+real native module, not this web DOM shim. Verified live in both Arc
+(worked immediately) and the founder's own Chrome profile (root-caused
+via a joint debugging session: ruled out extensions via Incognito,
+ruled out stale cache via a bare `data:text/html,<input type=file>`
+test page also failing, ruled out Chrome Enterprise policy via
+`chrome://policy` showing nothing — the actual cause was that Chrome
+profile specifically not being signed into a Google account, a local
+environment quirk unrelated to any code in this repo).
+
+### A second, fresh Stitch export: redesigning chat from scratch
+
+The founder had a second Stitch export ready in Downloads
+("Stitch Clubchat chat design" — a screenshot, `code.html`, and
+`DESIGN.md`) for a full chat-screen redesign, dated the same day as the
+session but distinct from (and more elaborate than) whatever chat
+styling had come over in the worktree recovery above. `ChatScreen.tsx`
+was rewritten to match it:
+
+- **Custom glass header** replacing the native Stack header entirely
+  (`navigation.setOptions({ headerShown: false })` + a hand-rolled
+  `BlurView` header) — back button, tappable title (see below),
+  Highlights pill, current-user avatar (fetched via a new
+  `fetchProfile` call keyed on `session.user.id`). A `backFallback` prop
+  reimplements the native header's per-screen fallback route
+  (`components/BackHeaderButton.tsx`'s pattern) since that's no longer
+  available from the parent Stack.Screen options.
+- **Floating pinned notice** replacing the old horizontal strip —
+  overlaps the top of the message list, blurred glass card per pinned
+  message, with a local-only dismiss (`Set` of dismissed ids in
+  component state) that does *not* unpin — unpinning still only happens
+  via the existing admin-gated action in the bubble's footer or
+  Highlights.
+- **Gradient sent-message bubbles** via a new `expo-linear-gradient`
+  dependency (`colors.primary → "#aa3000"` diagonal), asymmetric corner
+  radii per side (`4/16/16/16` for others' messages, `16/16/4/16` for
+  mine) matching the export's CSS exactly.
+- **Editorial announcement card** — left accent bar, faint giant "INFO"
+  watermark text bleeding into the corner, sender attribution below the
+  headline. Adapted rather than copied verbatim: the mockup showed a
+  separate headline + body + "Read Full Brief" link, but this app's
+  data model only has one `body` field per announcement (no separate
+  title), so the existing `body` is styled as the headline and the
+  "Read Full Brief" affordance was dropped (nothing to link to).
+- **Floating pill input bar** — rounded add/send buttons, no visible
+  border on the row itself.
+
+New dependencies added mid-session with the founder's explicit
+awareness (flagged as part of the header-approach question below, not
+silently installed): `expo-blur`, `expo-linear-gradient`.
+
+Before implementing, four judgment calls were surfaced via
+`AskUserQuestion` rather than decided silently: (1) full custom glass
+header (chosen) vs. keeping the native header and only restyling
+message content — the custom-header choice is what required
+`expo-blur` and reimplementing `backFallback`/tappable-title behavior
+that the native Stack header had provided for free; (2) whether to
+extend the same treatment to the Highlights screen at the same time
+(deferred, then done in a same-session follow-up once asked — see
+below); (3) the color discrepancy between the Stitch chat export's
+hardcoded `#ff4d00` and the DESIGN.md frontmatter's `#aa3000` for
+`primary` — founder chose `#ff4d00`, applied app-wide (not just chat) in
+`constants/theme.ts`, superseding the value the worktree recovery had
+brought over.
+
+### The Switch "turning green" bug
+
+While testing the new announcement toggle, the founder flagged that its
+"on" state showed a jarring teal/green thumb instead of anything
+orange. Root cause, found by reading
+`node_modules/react-native-web/src/exports/Switch/index.js`: react-
+native-web's `Switch` defaults its "on" thumb to
+`defaultActiveThumbColor = '#009688'` unless the caller passes
+`activeThumbColor` explicitly — the existing code only set `trackColor`.
+Fixed with a new shared `components/ThemedSwitch.tsx` wrapping `Switch`
+with theme-derived `trackColor`/`thumbColor`/`activeThumbColor`/
+`ios_backgroundColor` defaults, applied to the chat announcement toggle
+and both switches on the Polls create screen (same underlying bug,
+never previously noticed there since that screen wasn't being actively
+tested at the time). `activeThumbColor`/`ios_backgroundColor` aren't
+part of RN's own bundled TypeScript declarations even though react-
+native-web supports them at runtime, so `ThemedSwitch` casts
+`Switch as ComponentType<any>` rather than sprinkling `@ts-expect-error`
+comments at every call site.
+
+### Extending the redesign: Highlights, then Races & Eboard
+
+Once chat's redesign was verified live (glass header, gradient bubble,
+floating pinned notice, announcement card all confirmed matching the
+mockup), the founder asked to extend the same header treatment to
+Highlights (deferred at first, all three of club/race/eboard
+Highlights share one component). Same pattern as chat: native header
+hidden, custom `BlurView` header added (back button, "ClubChat"
+wordmark + "Highlights" subtitle — no tappable title needed here), a
+`backFallback` prop threaded through all three wrapper screens. The
+existing Pinned/Announcements/Reports segmented tab control and card
+rows were left untouched — they'd already been Stitch-styled by the
+earlier worktree recovery and didn't need changes.
+
+The founder then asked for the same treatment on Eboard and Races,
+pointing at the (already-redesigned) club hub screenshot as the
+reference: title header + rows with a colored icon badge, label,
+subtitle, and chevron. Rebuilt to match that exact pattern:
+
+- `race/[raceId]/index.tsx` and `eboard/index.tsx` hubs — verbatim copy
+  of the club hub's card-row structure (icon badge + label + subtitle +
+  chevron), including Eboard's non-member/no-channel-yet empty states
+  (shield icon badge, restyled pill buttons).
+- `races/index.tsx` and `eboard/meetings.tsx` lists — restyled to match
+  `calendar.tsx`'s date-bib-chip + badge row pattern (already
+  established there), rather than inventing a new list style.
+- Create forms (`races/create.tsx`, `eboard/create.tsx`,
+  `eboard/meeting/create.tsx`) — restyled to match the club create
+  form's bordered-input + pill-button pattern.
+- Roster screens (race + eboard) — restyled to match
+  `club-profile/index.tsx`'s member-row pattern (avatar, name, icon-
+  button approve/deny).
+- Remaining detail screens (race Meet Information/location, race
+  carpool, eboard meeting detail) — token-level restyle only (colors,
+  radii, spacing, typography swapped for theme values), all business
+  logic untouched.
+
+No mockup existed for any of these Races/Eboard screens specifically —
+they were extrapolated from the club hub's already-established pattern,
+which the founder explicitly endorsed as the reference rather than
+asking for new mockups first.
+
+### Clickable rows instead of "row + separate Add button"
+
+Reviewing a carpool add-member screenshot, the founder asked to replace
+every "search result row with a separate colored Add button" pattern
+with a single clickable row that highlights orange on hover, no visible
+button at all. Converted 4 call sites — `race/[raceId]/carpool.tsx`,
+`race/[raceId]/roster.tsx`, `eboard/roster.tsx`,
+`club-profile/index.tsx` — from `View` + `TouchableOpacity` pairs to a
+single `Pressable` per row, using react-native-web's `hovered` render-
+prop state (confirmed present in
+`node_modules/react-native-web/src/exports/Pressable/index.js` before
+committing to the approach) to swap in a light peach background
+(`colors.primaryFixed`) on hover. `hovered` isn't in RN's own bundled
+`PressableStateCallbackType` type despite react-native-web supporting it
+at runtime — same class of gap as `ThemedSwitch`'s `activeThumbColor` —
+worked around with an inline `(state as { hovered?: boolean })` cast at
+each call site rather than a shared wrapper component (only 4 call
+sites, less reusable surface than the Switch case). Dead
+`actionButton`/`addButton`/`addText` styles removed from all 4 files
+once their only usage disappeared. A `+ Add Workout` button elsewhere
+(`routines/index.tsx`) was confirmed to be a different, unrelated
+pattern (a persistent primary action, not a search-result row) and left
+alone.
+
+### Chat header follow-ups: tappable title, actual name, scroll fix, announcement toggle
+
+Four more founder-driven fixes on the same `ChatScreen.tsx`, in one
+session:
+
+1. **Tappable header title restored.** The custom glass header (above)
+   had dropped the "tap the club/race/eboard name to reach its
+   member-management screen" behavior every other screen in the app
+   still has, since the Stitch mockup didn't show it as an obvious
+   affordance and it was deliberately deferred pending a decision. Once
+   asked for, added a `titlePath` prop to `ChatScreen` (required, no
+   default) wired from all 3 chat wrapper screens: club chat →
+   `club-profile`, race chat → race `roster`, eboard chat → eboard
+   `roster`. Verified live for both club and race chat.
+2. **Header title swapped: actual name, not the literal brand text.**
+   The header initially showed a fixed "ClubChat" wordmark as the big
+   headline with the actual club/race/eboard name as a small subtitle —
+   matching the Stitch mockup's own layout, which was designed around a
+   single fictional team. The founder wanted the reverse: the real name
+   prominent, "not the name clubchat" as the big text. Swapped which
+   text uses `styles.logoText` (the large Anton headline) vs.
+   `styles.subtitleText` (small, with the pulsing dot) — name is now
+   the headline, "ClubChat" the small subtitle. `headerLeftRow` and a
+   new `titleTextWrap` style were given `flex: 1`/`minWidth: 0` so long
+   names truncate instead of overflowing past the header's right-side
+   buttons.
+3. **Real scroll-to-bottom regression, found and fixed.** The founder
+   reported new messages no longer auto-scrolled into view like they
+   used to. Confirmed via direct DOM inspection
+   (`browser_evaluate` reading the FlatList's scroll container
+   `scrollTop`/`scrollHeight`/`clientHeight`) that after sending a
+   message, `scrollTop` (221.5) was sitting well short of the true max
+   (393) — roughly one message-row's height short, not a rounding
+   error. Root cause: `flatListRef.current?.scrollToEnd({ animated:
+   true })` was being called synchronously inside `onContentSizeChange`,
+   before the just-appended message's layout had fully committed —
+   the same class of timing issue task #28's older-message-prepend
+   scroll already had to work around with a `requestAnimationFrame`
+   wrapper. Applied the identical fix to the scroll-to-bottom branch.
+   Verified via the same DOM-inspection technique post-fix: `scrollTop`
+   landed within single-digit pixels of the true max.
+4. **"Send as announcement" banner redesigned.** The full-width peach
+   banner sat permanently between the message list and the input,
+   permanently eating into the chat's visible area — flagged as
+   "blocking the view." Founder asked for "half, or any other idea";
+   proposed and built a compact megaphone icon toggle inside the input
+   row itself instead (matching the existing photo-picker icon
+   button's shape/size), filled solid orange when armed, taking zero
+   persistent space otherwise. `styles.announceRow`/`announceLabel`
+   removed; `ThemedSwitch` import removed from `ChatScreen.tsx` (no
+   longer used there, still used by Polls create).
+
+Verified live throughout via `CI=1 npx expo start --web` + Playwright:
+created a fresh club, race, and Eboard channel from scratch; created a
+car group and a meeting; sent plain/announcement/photo messages; pinned
+and dismissed a floating notice; hovered and clicked a carpool add-
+member row; tapped the chat header title from both club and race chat
+and confirmed correct navigation; sent 5 messages in a deliberately
+shrunk viewport and confirmed the newest one lands fully visible above
+the input. Zero console errors across every screen touched. `npx tsc
+--noEmit` clean throughout (two rounds of RN-vs-react-native-web type
+gaps hit and worked around: `Switch`'s `activeThumbColor`/
+`ios_backgroundColor`, `Pressable`'s `hovered`).

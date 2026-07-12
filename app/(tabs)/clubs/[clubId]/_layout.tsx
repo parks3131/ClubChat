@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../components/LoadError";
+import { colors, typography } from "../../../../constants/theme";
 import { useAuth } from "../../../../contexts/AuthProvider";
 import { supabase } from "../../../../lib/supabase";
 import type { ClubRole } from "../../../../types/database";
@@ -90,22 +91,23 @@ export default function ClubLayout() {
 
   if (!club) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }}>
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   const clubScreenOptions = {
     headerShown: true,
+    headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
       <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}>
-        <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{club.name}</Text>
+        <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{club.name}</Text>
       </TouchableOpacity>
     ),
     headerRight: () =>
       club.role === "admin" ? (
-        <Text style={{ marginRight: 16, color: "#2563eb", fontWeight: "600" as const }}>
+        <Text style={{ ...typography.labelSm, marginRight: 16, color: colors.primary, textTransform: "uppercase" as const }}>
           Invite: {club.inviteCode}
         </Text>
       ) : null,

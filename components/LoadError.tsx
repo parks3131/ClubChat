@@ -1,4 +1,5 @@
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { colors, radii, spacing, typography } from "../constants/theme";
 
 export function LoadError({ message, onRetry }: { message?: string; onRetry: () => void }) {
   return (
@@ -12,8 +13,8 @@ export function LoadError({ message, onRetry }: { message?: string; onRetry: () 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 16 },
-  message: { color: "#dc2626", fontSize: 15, textAlign: "center" },
-  retryButton: { backgroundColor: "#2563eb", borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
-  retryButtonText: { color: "#fff", fontWeight: "600" },
+  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.gutter, gap: spacing.gutter, backgroundColor: colors.surface },
+  message: { color: colors.error, ...typography.bodyMd, textAlign: "center" },
+  retryButton: { backgroundColor: colors.primary, borderRadius: radii.full, paddingHorizontal: spacing.gutter + 4, paddingVertical: spacing.stackSm + 2 },
+  retryButtonText: { color: colors.onPrimary, fontWeight: "600" },
 });

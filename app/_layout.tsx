@@ -1,8 +1,16 @@
+import { Anton_400Regular, useFonts as useAnton } from "@expo-google-fonts/anton";
+import {
+  ArchivoNarrow_400Regular,
+  ArchivoNarrow_700Bold,
+  useFonts as useArchivoNarrow,
+} from "@expo-google-fonts/archivo-narrow";
+import { Inter_400Regular, Inter_600SemiBold, useFonts as useInter } from "@expo-google-fonts/inter";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { colors } from "../constants/theme";
 import { AuthProvider, useAuth } from "../contexts/AuthProvider";
 
 function RootNavigator() {
@@ -25,8 +33,8 @@ function RootNavigator() {
 
   if (initializing) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }}>
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -40,6 +48,22 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [antonLoaded] = useAnton({ Anton_400Regular });
+  const [archivoLoaded] = useArchivoNarrow({ ArchivoNarrow_400Regular, ArchivoNarrow_700Bold });
+  const [interLoaded] = useInter({ Inter_400Regular, Inter_600SemiBold });
+  const fontsLoaded = antonLoaded && archivoLoaded && interLoaded;
+
+  // Gate the whole tree on fonts the same way auth's `initializing` gates
+  // navigation — every restyled screen assumes these families are already
+  // registered, so rendering before they're ready would flash system fonts.
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />

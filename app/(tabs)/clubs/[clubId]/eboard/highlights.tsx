@@ -9,6 +9,8 @@ export default function EboardHighlightsScreen() {
     <HighlightsScreen
       channelId={eboard.channel.channelId}
       memberPath={(userId) => `/clubs/${eboard.clubId}/member/${userId}`}
+      isAdmin
+      backFallback={`/clubs/${eboard.clubId}/eboard/chat`}
     />
   );
 }

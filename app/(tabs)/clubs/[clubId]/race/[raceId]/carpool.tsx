@@ -6,6 +6,7 @@ import {
   FlatList,
   Image,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import {
   addCarGroupMember,
@@ -189,7 +191,7 @@ export default function RaceCarpoolScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -267,18 +269,16 @@ export default function RaceCarpoolScreen() {
                       value={addQuery}
                       onChangeText={setAddQuery}
                     />
-                    {addSearching && <ActivityIndicator style={{ marginTop: 6 }} />}
+                    {addSearching && <ActivityIndicator style={{ marginTop: spacing.stackSm }} color={colors.primary} />}
                     {addResults.map((user) => (
-                      <View key={user.id} style={styles.addResultRow}>
+                      <Pressable
+                        key={user.id}
+                        style={(state) => [styles.addResultRow, (state as { hovered?: boolean }).hovered && styles.addResultRowHovered]}
+                        disabled={busyKey === `add:${user.id}`}
+                        onPress={() => handleAddMember(group.id, user)}
+                      >
                         <Text style={styles.memberName}>{user.fullName}</Text>
-                        <TouchableOpacity
-                          style={[styles.smallButton, styles.addButton]}
-                          disabled={busyKey === `add:${user.id}`}
-                          onPress={() => handleAddMember(group.id, user)}
-                        >
-                          <Text style={styles.addButtonText}>Add</Text>
-                        </TouchableOpacity>
-                      </View>
+                      </Pressable>
                     ))}
                   </View>
                 )}
@@ -290,7 +290,7 @@ export default function RaceCarpoolScreen() {
 
       {race.isAdmin && (
         <TouchableOpacity style={styles.fab} disabled={creatingGroup} onPress={handleCreateGroup}>
-          <Text style={styles.fabText}>{creatingGroup ? "Creating…" : "+ Add Group"}</Text>
+          {creatingGroup ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.fabText}>+ Add Group</Text>}
         </TouchableOpacity>
       )}
     </View>
@@ -298,65 +298,82 @@ export default function RaceCarpoolScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: 12, paddingBottom: 80, gap: 10 },
-  empty: { textAlign: "center", marginTop: 40, color: "#888" },
-  groupCard: { backgroundColor: "#f8fafc", borderRadius: 12, padding: 14, marginBottom: 10 },
+  list: { padding: spacing.marginMobile, paddingBottom: 80, gap: spacing.stackSm },
+  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
+  groupCard: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    marginBottom: spacing.stackSm,
+  },
   groupHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: spacing.stackSm,
   },
-  groupName: { fontSize: 17, fontWeight: "700", color: "#0f172a" },
-  deleteGroupText: { fontSize: 13, fontWeight: "600", color: "#dc2626" },
-  memberRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  groupName: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
+  deleteGroupText: { fontSize: 13, fontWeight: "600", color: colors.error },
+  memberRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm, paddingVertical: spacing.unit + 2 },
   memberAvatar: { width: 32, height: 32, borderRadius: 16 },
-  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  memberAvatarInitial: { fontSize: 13, fontWeight: "700", color: "#475569" },
+  avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
+  memberAvatarInitial: { ...typography.labelSm, fontSize: 13, color: colors.primary },
   memberInfo: { flex: 1 },
-  memberName: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  memberName: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
   inchargeBadge: {
+    ...typography.labelSm,
     fontSize: 11,
-    fontWeight: "700",
-    color: "#2563eb",
-    backgroundColor: "#dbeafe",
-    borderRadius: 6,
-    paddingHorizontal: 6,
+    color: colors.onPrimaryFixedVariant,
+    backgroundColor: colors.primaryFixed,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.stackSm - 2,
     paddingVertical: 1,
     alignSelf: "flex-start",
     marginTop: 2,
     overflow: "hidden",
   },
-  memberActions: { flexDirection: "row", gap: 6 },
-  noMembers: { fontSize: 13, color: "#94a3b8", fontStyle: "italic", marginVertical: 4 },
-  smallButton: { borderRadius: 6, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: "#e2e8f0" },
-  smallButtonText: { fontSize: 12, fontWeight: "600", color: "#334155" },
-  removeButton: { backgroundColor: "#fee2e2" },
-  removeButtonText: { fontSize: 12, fontWeight: "600", color: "#dc2626" },
-  addSection: { marginTop: 8, borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 8 },
-  addToggle: { fontSize: 13, fontWeight: "700", color: "#2563eb" },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, fontSize: 14, marginTop: 8 },
+  memberActions: { flexDirection: "row", gap: spacing.unit + 2 },
+  noMembers: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, fontStyle: "italic", marginVertical: spacing.unit },
+  smallButton: { borderRadius: radii.sm, paddingVertical: spacing.unit + 1, paddingHorizontal: spacing.stackSm, backgroundColor: colors.surfaceContainerHigh },
+  smallButtonText: { fontSize: 12, fontWeight: "600", color: colors.onSurfaceVariant },
+  removeButton: { backgroundColor: colors.errorContainer },
+  removeButtonText: { fontSize: 12, fontWeight: "600", color: colors.error },
+  addSection: { marginTop: spacing.stackSm, borderTopWidth: 1, borderTopColor: colors.outlineVariant, paddingTop: spacing.stackSm },
+  addToggle: { fontSize: 13, fontWeight: "700", color: colors.primary },
+  input: {
+    ...typography.bodyMd,
+    color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    padding: spacing.stackSm,
+    marginTop: spacing.stackSm,
+  },
   addResultRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f0fdf4",
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.stackSm,
+    marginTop: spacing.stackSm,
   },
-  addButton: { backgroundColor: "#16a34a" },
-  addButtonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
   fab: {
     position: "absolute",
-    right: 16,
-    bottom: 16,
-    backgroundColor: "#2563eb",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    right: spacing.marginMobile,
+    bottom: spacing.marginMobile,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.gutter + 2,
+    paddingVertical: spacing.stackSm + 4,
   },
-  fabText: { color: "#fff", fontWeight: "700" },
+  fabText: { ...typography.labelSm, fontSize: 13, color: colors.onPrimary, textTransform: "none" },
 });

@@ -7,6 +7,7 @@ export interface ClubWithRole {
   description: string | null;
   sport: string | null;
   invite_code: string;
+  avatarUrl: string | null;
   role: ClubRole;
 }
 
@@ -42,7 +43,15 @@ export async function fetchMyClubs(userId: string): Promise<ClubWithRole[]> {
   if (clubsError) throw clubsError;
 
   const roleByClubId = new Map(memberships.map((m) => [m.club_id, m.role]));
-  return (clubs ?? []).map((club) => ({ ...club, role: roleByClubId.get(club.id)! }));
+  return (clubs ?? []).map((club) => ({
+    id: club.id,
+    name: club.name,
+    description: club.description,
+    sport: club.sport,
+    invite_code: club.invite_code,
+    avatarUrl: club.avatar_url,
+    role: roleByClubId.get(club.id)!,
+  }));
 }
 
 export async function createClub(params: {

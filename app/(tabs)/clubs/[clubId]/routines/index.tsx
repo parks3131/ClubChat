@@ -1,7 +1,9 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { addDays, getMonday, toDateKey } from "../../../../../lib/dates";
 import {
   ACTIVITY_ICONS,
@@ -11,7 +13,8 @@ import {
 } from "../../../../../lib/routines";
 import { useClub } from "../_layout";
 
-const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const DAY_LABELS_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function formatDay(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -65,7 +68,7 @@ export default function RoutinesWeekScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -76,18 +79,33 @@ export default function RoutinesWeekScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.weekNav}>
+      <View style={styles.dateStrip}>
         <TouchableOpacity
           onPress={() => setWeekStart((w) => addDays(w, -7))}
           style={styles.weekNavButton}
           disabled={isEarliestWeek}
         >
-          <Text style={[styles.weekNavArrow, isEarliestWeek && styles.weekNavArrowDisabled]}>‹</Text>
+          <MaterialIcons name="chevron-left" size={26} color={isEarliestWeek ? colors.surfaceVariant : colors.primary} />
         </TouchableOpacity>
         <Text style={styles.weekLabel}>{formatWeekRange(weekStart, weekEnd)}</Text>
         <TouchableOpacity onPress={() => setWeekStart((w) => addDays(w, 7))} style={styles.weekNavButton}>
-          <Text style={styles.weekNavArrow}>›</Text>
+          <MaterialIcons name="chevron-right" size={26} color={colors.primary} />
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.dayChipRow}>
+        {DAY_LABELS.map((label, i) => {
+          const date = addDays(weekStart, i);
+          const dateKey = toDateKey(date);
+          const isToday = dateKey === todayKey;
+          const isPast = dateKey < todayKey;
+          return (
+            <View key={label} style={[styles.dayChip, isToday && styles.dayChipActive, isPast && styles.dayChipPast]}>
+              <Text style={[styles.dayChipLabel, isToday && styles.dayChipLabelActive]}>{label}</Text>
+              <Text style={[styles.dayChipNum, isToday && styles.dayChipNumActive]}>{date.getDate()}</Text>
+            </View>
+          );
+        })}
       </View>
 
       <ScrollView contentContainerStyle={styles.list}>
@@ -100,10 +118,21 @@ export default function RoutinesWeekScreen() {
           const isToday = dateKey === todayKey;
 
           return (
-            <View key={dateKey} style={[styles.daySection, isToday && styles.daySectionToday]}>
-              <Text style={styles.dayHeader}>
-                {DAY_LABELS[i]} · {formatDay(date)}
-              </Text>
+            <View key={dateKey} style={styles.daySection}>
+              <View style={styles.dayHeaderRow}>
+                <Text style={styles.dayHeader}>
+                  {DAY_LABELS_FULL[i]}, {formatDay(date)}
+                </Text>
+                {club.role === "admin" && (
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => router.push(`/clubs/${club.clubId}/routines/activity-type?date=${dateKey}`)}
+                  >
+                    <MaterialIcons name="add" size={14} color={colors.onPrimaryFixedVariant} />
+                    <Text style={styles.addButtonText}>Add Workout</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {dayWorkouts.map((workout) => (
                 <TouchableOpacity
@@ -111,24 +140,28 @@ export default function RoutinesWeekScreen() {
                   style={styles.workoutCard}
                   onPress={() => router.push(`/clubs/${club.clubId}/routines/workout/${workout.id}`)}
                 >
-                  <Text style={styles.workoutIcon}>{ACTIVITY_ICONS[workout.activityType]}</Text>
+                  <View style={styles.workoutIconWrap}>
+                    <Text style={styles.workoutIcon}>{ACTIVITY_ICONS[workout.activityType]}</Text>
+                  </View>
                   <View style={styles.workoutInfo}>
                     <Text style={styles.workoutTitle}>{workout.title}</Text>
                     <Text style={styles.workoutType}>{ACTIVITY_LABELS[workout.activityType]}</Text>
+                    {workout.description ? (
+                      <Text style={styles.workoutDescription} numberOfLines={2}>
+                        {workout.description}
+                      </Text>
+                    ) : null}
                   </View>
-                  <Text style={styles.chevron}>›</Text>
+                  <MaterialIcons name="chevron-right" size={20} color={colors.onSurfaceVariant} />
                 </TouchableOpacity>
               ))}
 
-              {dayWorkouts.length === 0 && club.role !== "admin" && <Text style={styles.restDay}>Rest day</Text>}
-
-              {club.role === "admin" && (
-                <TouchableOpacity
-                  style={styles.addButton}
-                  onPress={() => router.push(`/clubs/${club.clubId}/routines/activity-type?date=${dateKey}`)}
-                >
-                  <Text style={styles.addButtonText}>+ Add workout</Text>
-                </TouchableOpacity>
+              {dayWorkouts.length === 0 && (
+                <View style={[styles.restDay, isToday && styles.restDayToday]}>
+                  <MaterialIcons name="hotel" size={28} color={colors.onSurfaceVariant} />
+                  <Text style={styles.restDayTitle}>Rest Day</Text>
+                  <Text style={styles.restDayBody}>Nothing scheduled today.</Text>
+                </View>
               )}
             </View>
           );
@@ -139,39 +172,87 @@ export default function RoutinesWeekScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  weekNav: {
+  dateStrip: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
   },
-  weekNavButton: { padding: 8 },
-  weekNavArrow: { fontSize: 22, color: "#2563eb", fontWeight: "700" },
-  weekNavArrowDisabled: { color: "#cbd5e1" },
-  weekLabel: { fontSize: 15, fontWeight: "700", color: "#0f172a" },
-  list: { padding: 12, paddingBottom: 40 },
-  daySection: { backgroundColor: "#f8fafc", borderRadius: 10, padding: 12, marginBottom: 10 },
-  daySectionToday: { backgroundColor: "#eff6ff" },
-  dayHeader: { fontSize: 13, fontWeight: "700", color: "#64748b", textTransform: "uppercase", marginBottom: 8 },
+  weekNavButton: { padding: spacing.stackSm },
+  weekLabel: { ...typography.statValue, fontSize: 15, color: colors.onSurface },
+  dayChipRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.gutter,
+    paddingBottom: spacing.stackSm,
+    gap: spacing.unit,
+  },
+  dayChip: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.stackSm,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceContainer,
+    gap: 2,
+  },
+  dayChipActive: { backgroundColor: colors.primary },
+  dayChipPast: { opacity: 0.4 },
+  dayChipLabel: { ...typography.labelSm, fontSize: 10, color: colors.onSurfaceVariant },
+  dayChipLabelActive: { color: colors.onPrimary, opacity: 0.8 },
+  dayChipNum: { ...typography.statValue, fontSize: 16, color: colors.onSurface },
+  dayChipNumActive: { color: colors.onPrimary },
+  list: { padding: spacing.marginMobile, paddingTop: 0, paddingBottom: 40, gap: spacing.stackMd },
+  daySection: { gap: spacing.stackSm },
+  dayHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  dayHeader: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurfaceVariant },
+  addButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primaryFixed,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm + 2,
+    paddingVertical: spacing.unit + 2,
+  },
+  addButtonText: { ...typography.labelSm, color: colors.onPrimaryFixedVariant },
   workoutCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
+    gap: spacing.gutter,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
   },
-  workoutIcon: { fontSize: 20, marginRight: 10 },
+  workoutIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.md,
+    backgroundColor: colors.primaryFixed,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  workoutIcon: { fontSize: 22 },
   workoutInfo: { flex: 1 },
-  workoutTitle: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
-  workoutType: { fontSize: 12, color: "#64748b", marginTop: 1 },
-  chevron: { fontSize: 18, color: "#94a3b8" },
-  restDay: { fontSize: 13, color: "#94a3b8", fontStyle: "italic" },
-  addButton: { marginTop: 2, alignSelf: "flex-start" },
-  addButtonText: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
+  workoutTitle: { ...typography.statValue, fontSize: 16, color: colors.primary },
+  workoutType: { ...typography.bodyMd, fontSize: 12, color: colors.onSecondaryContainer, marginTop: 2 },
+  workoutDescription: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 4 },
+  restDay: {
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    borderStyle: "dashed",
+    borderRadius: radii.lg,
+    padding: spacing.gutter + 4,
+    alignItems: "center",
+    gap: spacing.unit,
+  },
+  restDayToday: { borderColor: colors.primary },
+  restDayTitle: { ...typography.statValue, fontSize: 15, color: colors.onSurface },
+  restDayBody: { ...typography.bodyMd, fontSize: 13, color: colors.onSecondaryContainer },
 });

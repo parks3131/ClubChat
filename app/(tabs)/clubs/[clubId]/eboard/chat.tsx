@@ -34,6 +34,8 @@ export default function EboardChatScreen() {
       placeholderName={eboard.channel.name}
       memberPath={(userId) => `/clubs/${eboard.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${eboard.clubId}/eboard/highlights`}
+      backFallback={`/clubs/${eboard.clubId}/eboard`}
+      titlePath={`/clubs/${eboard.clubId}/eboard/roster`}
     />
   );
 }

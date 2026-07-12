@@ -8,6 +8,8 @@ export default function ClubHighlightsScreen() {
     <HighlightsScreen
       channelId={club.channelId}
       memberPath={(userId) => `/clubs/${club.clubId}/member/${userId}`}
+      isAdmin={club.role === "admin"}
+      backFallback={`/clubs/${club.clubId}/chat`}
     />
   );
 }

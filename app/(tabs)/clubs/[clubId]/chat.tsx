@@ -1,4 +1,3 @@
-import { Text } from "react-native";
 import ChatScreen from "../../../../components/ChatScreen";
 import { useClub } from "./_layout";
 
@@ -12,9 +11,8 @@ export default function ClubChatScreen() {
       placeholderName={club.name}
       memberPath={(userId) => `/clubs/${club.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${club.clubId}/highlights`}
-      extraHeaderRight={
-        club.role === "admin" ? <Text style={{ color: "#2563eb", fontWeight: "600" }}>Invite: {club.inviteCode}</Text> : null
-      }
+      backFallback={`/clubs/${club.clubId}`}
+      titlePath={`/clubs/${club.clubId}/club-profile`}
     />
   );
 }

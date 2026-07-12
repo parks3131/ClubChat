@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -7,6 +8,7 @@ import {
   FlatList,
   Image,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -14,8 +16,11 @@ import {
   View,
 } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
+import { timeAgo } from "../../../../../lib/dates";
+import { pickImageOnWeb } from "../../../../../lib/pickImageOnWeb";
 import {
   addMember,
   decideJoinRequest,
@@ -54,6 +59,7 @@ export default function ClubProfileScreen() {
   const [loadError, setLoadError] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const [addQuery, setAddQuery] = useState("");
   const [addResults, setAddResults] = useState<SearchedUser[]>([]);
@@ -113,32 +119,45 @@ export default function ClubProfileScreen() {
   const handleEditPic = async () => {
     if (!isAdmin) return;
 
-    if (Platform.OS !== "web") {
+    let asset: { uri: string; mimeType: string } | null;
+    if (Platform.OS === "web") {
+      asset = await pickImageOnWeb();
+    } else {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         reportError(new Error("Photo library access is required to change the club picture."));
         return;
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      asset =
+        result.canceled || !result.assets?.[0]
+          ? null
+          : { uri: result.assets[0].uri, mimeType: result.assets[0].mimeType ?? "image/jpeg" };
     }
+    if (!asset) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-
-    const asset = result.assets[0];
     setUploadingAvatar(true);
     try {
-      const avatarUrl = await uploadClubAvatar(club.clubId, asset.uri, asset.mimeType ?? "image/jpeg");
+      const avatarUrl = await uploadClubAvatar(club.clubId, asset.uri, asset.mimeType);
       setProfile((p) => (p ? { ...p, avatarUrl } : p));
     } catch (err) {
       reportError(err);
     } finally {
       setUploadingAvatar(false);
     }
+  };
+
+  const handleCopyCode = () => {
+    if (Platform.OS === "web" && navigator.clipboard) {
+      navigator.clipboard.writeText(club.inviteCode).catch(() => {});
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handlePromote = async (member: ClubMemberRow) => {
@@ -202,7 +221,7 @@ export default function ClubProfileScreen() {
   if (loading || !profile) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -215,7 +234,7 @@ export default function ClubProfileScreen() {
       ListHeaderComponent={
         <View>
           <View style={styles.identitySection}>
-            <View style={styles.avatarWrap}>
+            <TouchableOpacity style={styles.avatarWrap} onPress={handleEditPic} disabled={!isAdmin || uploadingAvatar}>
               {profile.avatarUrl ? (
                 <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
               ) : (
@@ -224,24 +243,33 @@ export default function ClubProfileScreen() {
                 </View>
               )}
               {isAdmin && (
-                <TouchableOpacity style={styles.editPicButton} onPress={handleEditPic} disabled={uploadingAvatar}>
+                <View style={styles.editPicButton}>
                   {uploadingAvatar ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={colors.onPrimary} />
                   ) : (
-                    <Text style={styles.editPicIcon}>✎</Text>
+                    <MaterialIcons name="edit" size={16} color={colors.onPrimary} />
                   )}
+                </View>
+              )}
+            </TouchableOpacity>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{profile.name}</Text>
+              {isAdmin && (
+                <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile/edit`)}>
+                  <MaterialIcons name="edit-square" size={18} color={colors.onSurfaceVariant} />
                 </TouchableOpacity>
               )}
             </View>
-            <Text style={styles.name}>{profile.name}</Text>
             <Text style={styles.description}>{profile.description || "No description yet."}</Text>
+
             {isAdmin && (
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => router.push(`/clubs/${club.clubId}/club-profile/edit`)}
-              >
-                <Text style={styles.editButtonText}>Edit</Text>
-              </TouchableOpacity>
+              <View style={styles.inviteRow}>
+                <Text style={styles.inviteLabel}>INVITE CODE:</Text>
+                <Text style={styles.inviteCode}>{club.inviteCode}</Text>
+                <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode}>
+                  <MaterialIcons name={copied ? "check" : "content-copy"} size={16} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
 
@@ -251,46 +279,51 @@ export default function ClubProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Search by name"
+                placeholderTextColor={colors.onSurfaceVariant}
                 autoCapitalize="none"
                 value={addQuery}
                 onChangeText={setAddQuery}
               />
-              {addSearching && <ActivityIndicator style={{ marginTop: 6 }} />}
+              {addSearching && <ActivityIndicator style={{ marginTop: 6 }} color={colors.primary} />}
               {addResults.map((user) => (
-                <View key={user.id} style={styles.addResultRow}>
+                <Pressable
+                  key={user.id}
+                  style={(state) => [styles.addResultRow, (state as { hovered?: boolean }).hovered && styles.addResultRowHovered]}
+                  onPress={() => handleAdd(user)}
+                  disabled={busyUserId === user.id}
+                >
                   <Text style={styles.rowName}>{user.fullName}</Text>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.addButton]}
-                    onPress={() => handleAdd(user)}
-                    disabled={busyUserId === user.id}
-                  >
-                    <Text style={styles.addText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
+                </Pressable>
               ))}
             </View>
           )}
 
           {isAdmin && requests.length > 0 && (
             <View style={styles.requestsSection}>
-              <Text style={styles.sectionTitle}>Pending requests</Text>
+              <View style={styles.requestsHeader}>
+                <Text style={styles.sectionTitle}>Pending Requests</Text>
+                <Text style={styles.requestsCount}>{requests.length} NEW</Text>
+              </View>
               {requests.map((r) => (
                 <View key={r.id} style={styles.requestRow}>
-                  <Text style={styles.rowName}>{r.fullName}</Text>
+                  <View>
+                    <Text style={styles.rowName}>{r.fullName}</Text>
+                    <Text style={styles.requestMeta}>Requested {timeAgo(r.createdAt)}</Text>
+                  </View>
                   <View style={styles.requestActions}>
                     <TouchableOpacity
-                      style={[styles.actionButton, styles.approveButton]}
-                      onPress={() => handleDecide(r, true)}
-                      disabled={busyUserId === r.userId}
-                    >
-                      <Text style={styles.approveText}>Approve</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.denyButton]}
+                      style={[styles.iconActionButton, styles.denyIconButton]}
                       onPress={() => handleDecide(r, false)}
                       disabled={busyUserId === r.userId}
                     >
-                      <Text style={styles.denyText}>Deny</Text>
+                      <MaterialIcons name="close" size={18} color={colors.onErrorContainer} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconActionButton, styles.approveIconButton]}
+                      onPress={() => handleDecide(r, true)}
+                      disabled={busyUserId === r.userId}
+                    >
+                      <MaterialIcons name="check" size={18} color={colors.onPrimary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -298,7 +331,10 @@ export default function ClubProfileScreen() {
             </View>
           )}
 
-          <Text style={styles.sectionTitle}>Members</Text>
+          <View style={styles.membersHeader}>
+            <Text style={styles.sectionTitle}>Member Roster</Text>
+            <Text style={styles.membersCount}>{members.length} MEMBERS</Text>
+          </View>
         </View>
       }
       renderItem={({ item }) => {
@@ -317,30 +353,37 @@ export default function ClubProfileScreen() {
                 </View>
               )}
               <View>
-                <Text style={styles.rowName}>{item.fullName}</Text>
-                <Text style={styles.role}>{item.role === "admin" ? "Admin" : "Member"}</Text>
+                <View style={styles.memberNameRow}>
+                  <Text style={styles.rowName}>{item.fullName}</Text>
+                  <Text style={[styles.roleChip, item.role === "admin" ? styles.adminChip : styles.memberChip]}>
+                    {item.role === "admin" ? "ADMIN" : "MEMBER"}
+                  </Text>
+                </View>
+                <Text style={styles.joinedMeta}>{isSelf ? "You" : `Joined ${timeAgo(item.joinedAt)}`}</Text>
               </View>
             </TouchableOpacity>
-            {isAdmin && !isSelf && (
+            {isAdmin && !isSelf ? (
               <View style={styles.memberActions}>
                 {item.role !== "admin" && (
                   <TouchableOpacity
-                    style={styles.actionButton}
+                    style={styles.iconTextButton}
                     onPress={() => handlePromote(item)}
                     disabled={busyUserId === item.userId}
                   >
-                    <Text style={styles.promoteText}>Make admin</Text>
+                    <MaterialCommunityIcons name="shield-account" size={18} color={colors.tertiary} />
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
-                  style={styles.actionButton}
+                  style={styles.iconTextButton}
                   onPress={() => handleRemove(item)}
                   disabled={busyUserId === item.userId}
                 >
-                  <Text style={styles.removeText}>Remove</Text>
+                  <MaterialIcons name="person-remove" size={18} color={colors.error} />
                 </TouchableOpacity>
               </View>
-            )}
+            ) : isAdmin && isSelf ? (
+              <MaterialIcons name="lock" size={18} color={colors.onSurfaceVariant + "60"} />
+            ) : null}
           </View>
         );
       }}
@@ -349,16 +392,16 @@ export default function ClubProfileScreen() {
   );
 }
 
-const AVATAR_SIZE = 88;
+const AVATAR_SIZE = 96;
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: 16, gap: 8 },
-  identitySection: { alignItems: "center", marginBottom: 12 },
-  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE, marginBottom: 8 },
-  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2 },
-  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  avatarInitial: { fontSize: 32, fontWeight: "700", color: "#475569" },
+  list: { padding: spacing.marginMobile, gap: spacing.stackSm, backgroundColor: colors.surface },
+  identitySection: { alignItems: "center", marginBottom: spacing.stackSm, gap: spacing.stackSm },
+  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: radii.lg },
+  avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
+  avatarInitial: { ...typography.headlineLg, fontSize: 32, color: colors.primary },
   editPicButton: {
     position: "absolute",
     right: -4,
@@ -366,70 +409,108 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: "#2563eb",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: colors.surfaceContainerLowest,
   },
-  editPicIcon: { color: "#fff", fontSize: 13 },
-  name: { fontSize: 20, fontWeight: "700", color: "#0f172a" },
-  description: { fontSize: 14, color: "#475569", textAlign: "center", marginTop: 6, paddingHorizontal: 12 },
-  editButton: {
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  name: { ...typography.headlineLgMobile, fontSize: 22, color: colors.onSurface },
+  description: { ...typography.bodyMd, color: colors.onSurfaceVariant, textAlign: "center", paddingHorizontal: spacing.gutter },
+  inviteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.surfaceContainer,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
     borderWidth: 1,
-    borderColor: "#2563eb",
-    borderRadius: 20,
-    paddingVertical: 6,
-    paddingHorizontal: 18,
-    marginTop: 10,
+    borderColor: colors.outlineVariant,
   },
-  editButtonText: { color: "#2563eb", fontWeight: "600" },
-  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 12, marginBottom: 6 },
-  addSection: { marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, fontSize: 14 },
+  inviteLabel: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  inviteCode: { ...typography.statValue, color: colors.primary, letterSpacing: 1 },
+  copyButton: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.full,
+    padding: spacing.unit + 2,
+  },
+  sectionTitle: { ...typography.statValue, fontSize: 15, color: colors.onSurface },
+  addSection: { marginTop: spacing.stackMd, gap: spacing.stackSm },
+  input: {
+    ...typography.bodyMd,
+    borderWidth: 2,
+    borderColor: colors.surfaceContainerHigh,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+    color: colors.onSurface,
+  },
   addResultRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f0fdf4",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
   },
-  requestsSection: { marginBottom: 4 },
+  addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
+  requestsSection: { marginTop: spacing.stackMd, gap: spacing.stackSm },
+  requestsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  requestsCount: {
+    ...typography.labelSm,
+    color: colors.onPrimary,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: 2,
+  },
   requestRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#eff6ff",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.stackSm + 4,
   },
-  requestActions: { flexDirection: "row", gap: 8 },
+  requestMeta: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "none", marginTop: 2 },
+  requestActions: { flexDirection: "row", gap: spacing.stackSm },
+  iconActionButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  denyIconButton: { backgroundColor: colors.errorContainer },
+  approveIconButton: { backgroundColor: colors.primary },
+  membersHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: spacing.stackMd,
+    marginBottom: spacing.stackSm,
+  },
+  membersCount: { ...typography.labelSm, color: colors.onSurfaceVariant },
   memberRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 4,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    padding: spacing.stackSm + 4,
+    marginBottom: spacing.unit,
   },
-  memberInfo: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  memberActions: { flexDirection: "row", gap: 8 },
-  memberAvatar: { width: 36, height: 36, borderRadius: 18 },
-  memberAvatarInitial: { fontSize: 15, fontWeight: "700", color: "#475569" },
-  rowName: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
-  role: { fontSize: 12, color: "#64748b", marginTop: 2 },
-  actionButton: { borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
-  promoteText: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
-  removeText: { color: "#dc2626", fontWeight: "600", fontSize: 13 },
-  addButton: { backgroundColor: "#16a34a" },
-  addText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  approveButton: { backgroundColor: "#16a34a" },
-  approveText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  denyButton: { backgroundColor: "#dc2626" },
-  denyText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  empty: { textAlign: "center", marginTop: 40, color: "#888" },
+  memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm, flex: 1 },
+  memberNameRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  memberActions: { flexDirection: "row", gap: spacing.unit },
+  memberAvatar: { width: 44, height: 44, borderRadius: radii.md },
+  memberAvatarInitial: { ...typography.statValue, fontSize: 16, color: colors.primary },
+  rowName: { ...typography.bodyMd, fontWeight: "700", color: colors.onSurface, fontSize: 15 },
+  joinedMeta: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "none", marginTop: 2 },
+  roleChip: { ...typography.labelSm, fontSize: 10, borderRadius: radii.sm, paddingHorizontal: spacing.stackSm, paddingVertical: 2 },
+  adminChip: { backgroundColor: colors.primary + "1a", color: colors.primary },
+  memberChip: { backgroundColor: colors.surfaceContainerHigh, color: colors.onSecondaryContainer },
+  iconTextButton: { padding: spacing.stackSm },
+  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
 });

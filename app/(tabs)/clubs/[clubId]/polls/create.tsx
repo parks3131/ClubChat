@@ -5,12 +5,12 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { ThemedSwitch } from "../../../../../components/ThemedSwitch";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { createPoll } from "../../../../../lib/polls";
 import { useClub } from "../_layout";
@@ -124,12 +124,12 @@ export default function CreatePollScreen() {
 
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Allow selecting multiple options</Text>
-          <Switch value={allowMultiple} onValueChange={setAllowMultiple} />
+          <ThemedSwitch value={allowMultiple} onValueChange={setAllowMultiple} />
         </View>
 
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Private vote (only you can see who voted)</Text>
-          <Switch value={isPrivate} onValueChange={setIsPrivate} />
+          <ThemedSwitch value={isPrivate} onValueChange={setIsPrivate} />
         </View>
 
         {error && <Text style={styles.error}>{error}</Text>}

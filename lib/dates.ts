@@ -48,3 +48,18 @@ export function combineToIso(date: string, time: string): string | null {
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
 }
+
+// Coarse relative-time label (minutes/hours/days ago) for a real
+// timestamptz column — e.g. club_join_requests.created_at or
+// club_members.joined_at — never for a fabricated "last active" concept
+// this app doesn't track.
+export function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}

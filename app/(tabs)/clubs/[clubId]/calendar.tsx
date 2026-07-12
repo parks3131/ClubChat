@@ -1,11 +1,36 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../constants/theme";
 import { useAuth } from "../../../../contexts/AuthProvider";
 import { fetchCalendarFeed, type CalendarFeedItem } from "../../../../lib/calendarFeed";
 import { toDateKey } from "../../../../lib/dates";
 import { useClub } from "./_layout";
+
+// Background/text pair per badge label — covers all 7 feed item types
+// lib/calendarFeed.ts can surface (5 calendar_event types + "Race/Meet" +
+// "Eboard Meeting"), not just the 3 the Stitch mockup happened to show.
+const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
+  Race: { bg: colors.primaryFixed, fg: colors.onPrimaryFixedVariant },
+  Practice: { bg: colors.tertiaryFixed, fg: colors.onTertiaryFixedVariant },
+  "Team bonding": { bg: colors.secondaryFixed, fg: colors.onSecondaryFixedVariant },
+  Volunteer: { bg: colors.errorContainer, fg: colors.onErrorContainer },
+  Other: { bg: colors.surfaceContainerHigh, fg: colors.onSurfaceVariant },
+  "Race/Meet": { bg: colors.primary, fg: colors.onPrimary },
+  "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
+};
+
+const BIB_STYLE: Record<string, { bg: string; fg: string }> = {
+  Race: { bg: colors.primary, fg: colors.onPrimary },
+  Practice: { bg: colors.tertiary, fg: colors.onTertiary },
+  "Team bonding": { bg: colors.secondary, fg: colors.onSecondary },
+  Volunteer: { bg: colors.error, fg: colors.onError },
+  Other: { bg: colors.onSurfaceVariant, fg: colors.surface },
+  "Race/Meet": { bg: colors.primaryContainer, fg: colors.onPrimaryContainer },
+  "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
+};
 
 function formatItemDate(item: CalendarFeedItem) {
   if (item.hasTime) {
@@ -27,6 +52,11 @@ function formatItemDate(item: CalendarFeedItem) {
     month: "short",
     day: "numeric",
   });
+}
+
+function bibDay(item: CalendarFeedItem) {
+  const [, month, day] = item.atIso.slice(0, 10).split("-").map(Number);
+  return { day, month: new Date(2000, month - 1, 1).toLocaleDateString(undefined, { month: "short" }).toUpperCase() };
 }
 
 // Merges calendar_events, races you have access to, and Eboard meetings
@@ -80,7 +110,7 @@ export default function ClubCalendarScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -90,8 +120,8 @@ export default function ClubCalendarScreen() {
   }
 
   const sections = [
-    { title: "Upcoming", data: upcoming },
-    { title: "Past", data: past },
+    { title: "Upcoming Events", data: upcoming, faded: false },
+    { title: "Past Events", data: past, faded: true },
   ].filter((s) => s.data.length > 0);
 
   return (
@@ -103,24 +133,47 @@ export default function ClubCalendarScreen() {
         ListEmptyComponent={<Text style={styles.empty}>No events yet.</Text>}
         renderItem={({ item: section }) => (
           <View>
-            <Text style={styles.sectionHeader}>{section.title}</Text>
-            {section.data.map((item) => (
-              <TouchableOpacity key={item.id} style={styles.row} onPress={() => router.push(item.path)}>
-                <View style={styles.rowHeader}>
-                  <Text style={styles.rowTitle}>{item.title}</Text>
-                  <Text style={styles.typeBadge}>{item.badgeLabel}</Text>
-                </View>
-                <Text style={styles.rowDate}>{formatItemDate(item)}</Text>
-                {item.subtitle && <Text style={styles.rowLocation}>{item.subtitle}</Text>}
-              </TouchableOpacity>
-            ))}
+            <Text style={[styles.sectionHeader, section.faded && styles.sectionHeaderFaded]}>{section.title}</Text>
+            {section.data.map((item) => {
+              const bib = bibDay(item);
+              const bibStyle = BIB_STYLE[item.badgeLabel] ?? BIB_STYLE.Other;
+              const badgeStyle = BADGE_STYLE[item.badgeLabel] ?? BADGE_STYLE.Other;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.row, section.faded && styles.rowFaded]}
+                  onPress={() => router.push(item.path)}
+                >
+                  <View style={[styles.bibChip, { backgroundColor: bibStyle.bg }]}>
+                    <Text style={[styles.bibDay, { color: bibStyle.fg }]}>{bib.day}</Text>
+                    <Text style={[styles.bibMonth, { color: bibStyle.fg }]}>{bib.month}</Text>
+                  </View>
+                  <View style={styles.rowBody}>
+                    <View style={styles.rowHeader}>
+                      <Text style={[styles.badge, { backgroundColor: badgeStyle.bg, color: badgeStyle.fg }]}>
+                        {item.badgeLabel.toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.rowTitle}>{item.title}</Text>
+                    <Text style={styles.rowDate}>{formatItemDate(item)}</Text>
+                    {item.subtitle && (
+                      <View style={styles.rowLocationRow}>
+                        <MaterialIcons name="location-on" size={14} color={colors.onSecondaryContainer} />
+                        <Text style={styles.rowLocation}>{item.subtitle}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color={colors.outline} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
       />
 
       {club.role === "admin" && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${club.clubId}/event/create`)}>
-          <Text style={styles.fabText}>+ New Event</Text>
+          <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>
       )}
     </View>
@@ -128,25 +181,56 @@ export default function ClubCalendarScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: 12, paddingBottom: 80 },
-  empty: { textAlign: "center", marginTop: 40, color: "#888" },
-  sectionHeader: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 12, marginBottom: 6, textTransform: "uppercase" },
-  row: { backgroundColor: "#f1f5f9", borderRadius: 10, padding: 12, marginBottom: 8 },
-  rowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  rowTitle: { fontSize: 16, fontWeight: "700", color: "#0f172a", flexShrink: 1 },
-  typeBadge: { fontSize: 12, fontWeight: "600", color: "#2563eb", backgroundColor: "#dbeafe", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, overflow: "hidden" },
-  rowDate: { fontSize: 13, color: "#334155", marginTop: 4 },
-  rowLocation: { fontSize: 13, color: "#64748b", marginTop: 2 },
+  list: { padding: spacing.marginMobile, paddingBottom: 80 },
+  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
+  sectionHeader: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginTop: spacing.stackSm, marginBottom: spacing.stackSm },
+  sectionHeaderFaded: { opacity: 0.5 },
+  row: {
+    flexDirection: "row",
+    gap: spacing.gutter,
+    alignItems: "flex-start",
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    marginBottom: spacing.stackSm,
+  },
+  rowFaded: { opacity: 0.6 },
+  bibChip: {
+    width: 52,
+    height: 60,
+    borderRadius: radii.DEFAULT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bibDay: { ...typography.statValue, fontSize: 22, lineHeight: 22 },
+  bibMonth: { ...typography.labelSm, fontSize: 10, marginTop: 2 },
+  rowBody: { flex: 1 },
+  rowHeader: { flexDirection: "row" },
+  badge: {
+    ...typography.labelSm,
+    fontSize: 10,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: 2,
+    overflow: "hidden",
+  },
+  rowTitle: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface, marginTop: spacing.stackSm },
+  rowDate: { ...typography.bodyMd, fontSize: 13, color: colors.secondary, marginTop: 2 },
+  rowLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  rowLocation: { ...typography.bodyMd, fontSize: 13, color: colors.onSecondaryContainer },
   fab: {
     position: "absolute",
-    right: 16,
-    bottom: 16,
-    backgroundColor: "#2563eb",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    right: spacing.marginMobile,
+    bottom: spacing.marginMobile,
+    backgroundColor: colors.primaryContainer,
+    borderRadius: radii.full,
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  fabText: { color: "#fff", fontWeight: "700" },
 });

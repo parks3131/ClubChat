@@ -114,6 +114,7 @@ export interface Database {
           media_url: string | null;
           pinned: boolean;
           created_at: string;
+          deleted_at: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["messages"]["Row"]> & {
           channel_id: string;
@@ -135,6 +136,22 @@ export interface Database {
           emoji: string;
         };
         Update: Partial<Database["public"]["Tables"]["message_reactions"]["Row"]>;
+        Relationships: [];
+      };
+      message_reports: {
+        Row: {
+          id: string;
+          message_id: string;
+          channel_id: string;
+          reporter_id: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["message_reports"]["Row"]> & {
+          message_id: string;
+          channel_id: string;
+          reporter_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["message_reports"]["Row"]>;
         Relationships: [];
       };
       club_join_requests: {
@@ -429,6 +446,10 @@ export interface Database {
       };
       cast_vote: {
         Args: { p_option_id: string };
+        Returns: undefined;
+      };
+      delete_account: {
+        Args: Record<string, never>;
         Returns: undefined;
       };
     };

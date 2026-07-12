@@ -88,3 +88,13 @@ export async function uploadAvatar(userId: string, fileUri: string, contentType:
 
   return publicUrl;
 }
+
+// Anonymizes the caller's profile and disables their login (see
+// 0028_account_deletion.sql for why this is anonymize-not-hard-delete).
+// Does not sign the caller out — the RPC only blocks *future*
+// sign-in/token-refresh, so the caller must still call
+// supabase.auth.signOut() right after this resolves.
+export async function deleteAccount() {
+  const { error } = await supabase.rpc("delete_account");
+  if (error) throw error;
+}

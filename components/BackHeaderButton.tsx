@@ -1,5 +1,7 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import type { useRouter } from "expo-router";
-import { Text, TouchableOpacity } from "react-native";
+import { TouchableOpacity } from "react-native";
+import { colors } from "../constants/theme";
 
 type Router = ReturnType<typeof useRouter>;
 
@@ -16,7 +18,7 @@ export function makeBackHeaderLeft(router: Router, fallback: string) {
       }}
       style={{ marginLeft: 12, padding: 4 }}
     >
-      <Text style={{ fontSize: 24, color: "#2563eb" }}>‹</Text>
+      <MaterialIcons name="arrow-back" size={22} color={colors.primary} />
     </TouchableOpacity>
   );
 }

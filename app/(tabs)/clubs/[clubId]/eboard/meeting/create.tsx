@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { combineToIso, splitIso } from "../../../../../../lib/dates";
 import { createMeeting, fetchMeeting, updateMeeting } from "../../../../../../lib/eboard";
@@ -122,7 +123,7 @@ export default function CreateOrEditMeetingScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -132,10 +133,17 @@ export default function CreateOrEditMeetingScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>{isEditing ? "Edit meeting" : "New meeting"}</Text>
 
-        <TextInput style={styles.input} placeholder="Meeting title" value={title} onChangeText={setTitle} />
+        <TextInput
+          style={styles.input}
+          placeholder="Meeting title"
+          placeholderTextColor={colors.onSurfaceVariant}
+          value={title}
+          onChangeText={setTitle}
+        />
         <TextInput
           style={[styles.input, styles.multiline]}
           placeholder="Description (optional)"
+          placeholderTextColor={colors.onSurfaceVariant}
           value={description}
           onChangeText={setDescription}
           multiline
@@ -146,12 +154,14 @@ export default function CreateOrEditMeetingScreen() {
           <TextInput
             style={[styles.input, styles.dateInput]}
             placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.onSurfaceVariant}
             value={date}
             onChangeText={setDate}
           />
           <TextInput
             style={[styles.input, styles.timeInput]}
             placeholder="HH:MM"
+            placeholderTextColor={colors.onSurfaceVariant}
             value={time}
             onChangeText={setTime}
           />
@@ -160,6 +170,7 @@ export default function CreateOrEditMeetingScreen() {
         <TextInput
           style={styles.input}
           placeholder="Link (Zoom, Google Meet, etc. — optional)"
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
           value={meetingLink}
           onChangeText={setMeetingLink}
@@ -172,7 +183,7 @@ export default function CreateOrEditMeetingScreen() {
           onPress={handleSave}
           disabled={saving}
         >
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save meeting</Text>}
+          {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.saveButtonText}>Save meeting</Text>}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -180,32 +191,33 @@ export default function CreateOrEditMeetingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 16, gap: 8 },
-  title: { fontSize: 20, fontWeight: "700", color: "#0f172a", marginBottom: 8 },
-  label: { fontSize: 13, fontWeight: "600", color: "#64748b", marginTop: 8 },
-  sectionLabel: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 4 },
+  content: { padding: spacing.marginMobile, gap: spacing.stackSm },
+  title: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface },
+  sectionLabel: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "uppercase", marginTop: spacing.unit },
   input: {
+    ...typography.bodyMd,
+    color: colors.onSurface,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm + 4,
   },
   multiline: { minHeight: 80, textAlignVertical: "top" },
-  dateTimeRow: { flexDirection: "row", gap: 8 },
+  dateTimeRow: { flexDirection: "row", gap: spacing.stackSm },
   dateInput: { flex: 2 },
   timeInput: { flex: 1 },
-  error: { color: "#dc2626", marginTop: 8 },
+  error: { color: colors.error, marginTop: spacing.stackSm },
   saveButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingVertical: spacing.stackSm + 8,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: spacing.gutter,
   },
   saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  saveButtonText: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onPrimary },
 });

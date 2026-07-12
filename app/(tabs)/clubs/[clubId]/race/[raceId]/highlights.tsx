@@ -5,6 +5,11 @@ export default function RaceHighlightsScreen() {
   const race = useRace();
 
   return (
-    <HighlightsScreen channelId={race.channelId} memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`} />
+    <HighlightsScreen
+      channelId={race.channelId}
+      memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
+      isAdmin={race.isAdmin}
+      backFallback={`/clubs/${race.clubId}/race/${race.raceId}/chat`}
+    />
   );
 }

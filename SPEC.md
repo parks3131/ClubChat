@@ -181,15 +181,33 @@ app/                          Expo Router file-based routes
   _layout.tsx                 Root layout: auth-guard redirect logic
   (auth)/sign-in.tsx          Supabase Auth sign-in form
   (auth)/sign-up.tsx          Supabase Auth sign-up form (handles
-                               email-confirmation-required state)
+                               email-confirmation-required state). Task
+                               #32 — a consent line below the password
+                               field links to privacy-policy/terms.
+  (auth)/privacy-policy.tsx    Task #32 — signed-out-reachable Privacy
+  (auth)/terms.tsx              Policy/Terms, thin wrappers around the
+                               shared components/LegalDocument.tsx.
+                               Exist as their own pair (not shared with
+                               the (tabs)/profile/ versions below)
+                               because app/_layout.tsx's auth guard
+                               redirects by top-level route group — a
+                               single route can't serve both a
+                               signed-out and signed-in visitor without
+                               getting bounced.
   (tabs)/_layout.tsx           Bottom tabs: Clubs, Profile
-  (tabs)/profile/_layout.tsx    Stack: profile view + edit modal.
+  (tabs)/profile/_layout.tsx    Stack: profile view + edit modal +
+                                 (task #32) privacy-policy/terms.
                                  `‹` headerLeft, fallback -> /clubs
   (tabs)/profile/index.tsx      Profile view — avatar (tap pencil overlay
                                  to upload), name/email, bio, "Your clubs"
-                                 (tap -> club hub), sign out
+                                 (tap -> club hub), Privacy Policy/Terms
+                                 links (task #32), sign out, delete
+                                 account (task #30)
   (tabs)/profile/edit.tsx        Self-only edit form (name, bio, city,
                                  date of birth, school) — modal
+  (tabs)/profile/privacy-policy.tsx  Task #32 — signed-in-reachable
+  (tabs)/profile/terms.tsx            counterparts to the (auth)/ pair
+                                 above, same shared LegalDocument content.
   (tabs)/clubs/_layout.tsx      Stack: clubs list + club detail
   (tabs)/clubs/index.tsx        List of the user's clubs (role badge),
                                  tap -> club hub (`/clubs/${id}`)
@@ -431,9 +449,68 @@ components/ChatScreen.tsx       Task #16 — chat UI/logic (messages,
                                  `channelId`/`isAdmin`/`memberPath`/
                                  `highlightsPath`, plus an optional
                                  `extraHeaderRight` (club chat's admin
-                                 invite code — race chat has none).
+                                 invite code — race chat has none). Task
+                                 #29 added a 📷 picker button + inline
+                                 photo rendering + tap-to-fullscreen
+                                 Modal viewer. Task #31 added per-message
+                                 Delete (sender or channel admin) and
+                                 Report (anyone else) actions, and a
+                                 "This message was deleted" tombstone
+                                 render (body/photo/actions all replaced)
+                                 when `deletedAt` is set. Task #34 replaced
+                                 the native Stack header entirely with a
+                                 custom glass-blur header (`expo-blur`) —
+                                 tappable title (now the actual club/race/
+                                 eboard name, not literal "ClubChat") that
+                                 jumps to club-profile/race roster/eboard
+                                 roster (`titlePath` prop), Highlights
+                                 pill, current-user avatar, `backFallback`
+                                 prop replacing the old per-screen
+                                 `headerLeft`. Sent-message bubbles use an
+                                 `expo-linear-gradient` fill; the pinned
+                                 strip became a floating overlaid card
+                                 (locally dismissible, doesn't unpin); the
+                                 announcement card gained a left accent
+                                 bar + faint background watermark; the
+                                 old full-width "Send as announcement"
+                                 banner (blocked the message list) is now
+                                 a compact megaphone toggle in the input
+                                 row; `extraHeaderRight` was removed
+                                 (no longer has anywhere to render); a
+                                 real scroll-to-bottom regression (new
+                                 messages landing short of the true
+                                 bottom) was fixed by wrapping
+                                 `scrollToEnd` in `requestAnimationFrame`.
 components/HighlightsScreen.tsx  Task #16 — same extraction, for the
-                                 Pinned/Announcements screen.
+                                 Pinned/Announcements screen. Task #29
+                                 added photo-message rendering. Task #31
+                                 added a third, admin-only "Reports (N)"
+                                 tab (`isAdmin` prop, default false) —
+                                 report count, Delete message, Dismiss.
+                                 Task #34 added the same custom glass
+                                 header as ChatScreen (`backFallback` prop,
+                                 native header hidden); tab/row styling
+                                 was already Stitch-derived and untouched.
+components/LegalDocument.tsx     Task #32 — shared renderer for a
+                                 title + `{heading, body}[]` sections
+                                 array (see lib/legalContent.ts), used by
+                                 both the (auth)/ and (tabs)/profile/
+                                 privacy-policy.tsx/terms.tsx pairs.
+components/ThemedSwitch.tsx      Task #34 — wraps RN's `Switch` with
+                                 explicit `trackColor`/`thumbColor`/
+                                 `activeThumbColor`/`ios_backgroundColor`
+                                 defaults from the theme. Exists because
+                                 react-native-web's `Switch` silently
+                                 defaults its "on" thumb to teal
+                                 (`#009688`, `defaultActiveThumbColor` in
+                                 its source) unless `activeThumbColor` is
+                                 set explicitly — caught live when a
+                                 toggle "turned green" unexpectedly.
+                                 `activeThumbColor`/`ios_backgroundColor`
+                                 aren't in RN's own bundled type
+                                 declarations even though react-native-web
+                                 supports them at runtime, hence the
+                                 `Switch as ComponentType<any>` cast.
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
@@ -454,7 +531,21 @@ lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
                                  / sendMessage / reactions / realtime
                                  subscription — chat backend,
                                  channel-agnostic (works for a club's main
-                                 channel or a race's channel unchanged)
+                                 channel or a race's channel unchanged).
+                                 Task #29: sendPhotoMessage (upload to the
+                                 private message-photos bucket, then
+                                 insert) + DisplayMessage.photoUrl,
+                                 resolved as a batched short-lived signed
+                                 URL per fetch (not a stored public URL —
+                                 the bucket isn't public). Task #31:
+                                 deleteMessage (soft — see task #30's
+                                 anonymize-not-hard-delete precedent;
+                                 sets deleted_at + clears body/media_url
+                                 via the existing UPDATE RLS policy, not
+                                 a real DELETE) / reportMessage (silently
+                                 no-ops on a repeat report, its unique
+                                 constraint's 23505) / fetchReportedMessages
+                                 / dismissReports / DisplayMessage.deletedAt.
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent
 lib/calendarFeed.ts              Task #23 — fetchCalendarFeed(clubId,
@@ -469,7 +560,37 @@ lib/calendarFeed.ts              Task #23 — fetchCalendarFeed(clubId,
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest
 lib/profile.ts                   fetchProfile / updateProfile /
-                                 uploadAvatar / formatDateOfBirth
+                                 uploadAvatar / formatDateOfBirth /
+                                 deleteAccount (task #30 — wraps the
+                                 delete_account() RPC; caller must still
+                                 call supabase.auth.signOut() right after,
+                                 since the RPC only blocks *future* auth)
+lib/legalContent.ts              Task #32 — PRIVACY_POLICY_SECTIONS /
+                                 TERMS_SECTIONS content data (see
+                                 components/LegalDocument.tsx). Explicitly
+                                 flagged in-file as a first draft, not
+                                 legal advice — needs real review before
+                                 a genuine public launch.
+lib/pickImageOnWeb.ts             Task #34 — `pickImageOnWeb()`, a raw
+                                 `<input type=file>` + real `.click()`
+                                 helper that bypasses expo-image-picker's
+                                 web shim entirely for the 3 in-app
+                                 picker call sites (profile avatar, club
+                                 avatar, chat photo). Exists because that
+                                 shim (`ExponentImagePicker.web.ts`) opens
+                                 its hidden input via
+                                 `dispatchEvent(new MouseEvent("click"))`
+                                 rather than `.click()` — the DOM spec
+                                 treats these as equivalent for firing
+                                 listeners, but some real (non-automated)
+                                 browser configurations don't treat a
+                                 dispatched event as sufficient user
+                                 activation to actually show the native
+                                 file dialog, so the picker silently does
+                                 nothing. Native platforms are unaffected
+                                 (real native module, not this web DOM
+                                 shim) and still go through
+                                 expo-image-picker directly.
 lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
@@ -518,6 +639,21 @@ lib/carGroups.ts                 Task #19 — fetchCarGroups (groups with
                                  anyone already in any group for the race)
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
+constants/theme.ts               Task #34 — "Kinetic Performance System"
+                                 design tokens (colors/radii/spacing/
+                                 typography), recovered from a git
+                                 worktree that had already implemented a
+                                 same-day Stitch redesign but never made
+                                 it back into `main` (see task #34 in
+                                 docs/HISTORY.md for the recovery story).
+                                 `primary`/`surfaceTint` are overridden to
+                                 `#ff4d00` ("Energetic Orange") per
+                                 explicit founder preference over the
+                                 Stitch export's own `#aa3000` frontmatter
+                                 value, applied app-wide. Fonts (Anton,
+                                 Archivo Narrow, Inter) loaded via
+                                 `@expo-google-fonts/*` + `expo-font` in
+                                 `app/_layout.tsx`.
 
 supabase/migrations/
   0001_init.sql                 profiles, clubs, club_members,
@@ -658,6 +794,36 @@ supabase/migrations/
                                  composite on poll_votes. No RLS/table
                                  changes. Confirmed via EXPLAIN that the
                                  planner actually picks each one up.
+  0027_message_photos_storage.sql  Task #29 — private (not public,
+                                 unlike avatars/club-avatars) 'message-
+                                 photos' Storage bucket + RLS scoped via
+                                 is_channel_member on the object path's
+                                 first segment (${channelId}/${uuid}.ext).
+  0028_account_deletion.sql        Task #30 — security definer
+                                 delete_account() RPC: anonymizes the
+                                 caller's own profiles row and sets
+                                 auth.users.banned_until (+100 years) to
+                                 permanently block future sign-in. No
+                                 hard delete, no cascade surgery — see
+                                 task #30 in docs/HISTORY.md for why.
+  0029_message_reports.sql         Task #31 — message_reports (message_id,
+                                 channel_id [denormalized, same reasoning
+                                 as race_car_group_members.race_id in
+                                 0021], reporter_id,
+                                 unique(message_id, reporter_id)) + RLS:
+                                 any channel member can insert a report,
+                                 only a channel admin can read/delete
+                                 (dismiss) them.
+  0030_message_soft_delete.sql     Task #31 — adds messages.deleted_at.
+                                 deleteMessage now UPDATEs (clears body/
+                                 media_url, stamps deleted_at) through
+                                 the existing sender-or-admin UPDATE
+                                 policy instead of hard-DELETEing, so a
+                                 deleted message tombstones ("This
+                                 message was deleted") instead of
+                                 silently vanishing from other members'
+                                 chat history. The DELETE policy is left
+                                 in place, unused.
 ```
 
 ## 5. Current status
@@ -694,16 +860,31 @@ supabase/migrations/
 | 26 | Add automated tests + CI | ✅ Done — see task #26 in `docs/HISTORY.md`. `jest-expo` + a first real (not token) test suite: `lib/dates.ts` — extracted from 2-3 duplicated per-screen copies of `toDateKey`/`getMonday`/`addDays`/`splitIso`/`combineToIso` (mirroring the `reportError` dedup from task #25) — plus `formatDateOfBirth` (locks in the task #11 UTC-off-by-one fix as a real regression test) and `fetchCalendarFeed` (mocked dependencies, covers task #23's access-filtering/sort-order rules that were previously only verified live by hand). `.github/workflows/ci.yml` runs `tsc --noEmit` + `npm test` on every push/PR. |
 | 27 | DB indexes + chat pagination cap | ✅ Done — see task #27 in `docs/HISTORY.md`. Migration `0026_indexes.sql` adds 6 indexes for genuinely-missing FK lookups found by cross-referencing every `.eq(...)` filter in `lib/*.ts` against existing PK/unique-constraint coverage (most tables turned out already covered): `races.club_id`, `eboard_meetings.eboard_channel_id`, `race_car_groups.race_id`, `polls.club_id`, `poll_options.poll_id`, and a `(poll_id, user_id)` composite on `poll_votes`. Verified via `EXPLAIN` that the planner actually picks up each new index, not just that the DDL ran. `lib/messages.ts`'s `fetchMessages` gained an additive `options?: { limit?: number }` (no-args behavior, used by `components/HighlightsScreen.tsx`, is untouched — it still needs full history for pinned/announcement lookups); `components/ChatScreen.tsx`'s initial load and every realtime-triggered reload now cap to the latest 50 and replace state, instead of fetching a channel's entire history on every load/reaction/pin. Deliberately **not** cursor-based "Load earlier" pagination — the founder explicitly chose the simpler cap-and-replace scope over a fuller merge-by-id + "Load earlier" design (which the advisor had flagged as solving a problem this app's current traffic doesn't have yet); the accepted tradeoff is that a user scrolled up into older messages gets their view reset to the latest 50 if a realtime event fires while they're up there. Verified live: seeded 60 messages via script, confirmed only the latest 50 (`Message 11`-`Message 60`) rendered initially, sending a new message correctly slid the window (oldest dropped, newest appended) without losing realtime pin/reaction updates on visible messages, and Highlights still surfaced pins on messages well outside the 50-window (`Message 3`, `Message 60`) via its untouched unbounded fetch. |
 | 28 | Chat: scroll-triggered "Load earlier" pagination | ✅ Done — see task #28 in `docs/HISTORY.md`. Founder follow-up right after task #27 shipped: older messages (anything before the latest-50 cap) weren't reachable in the UI at all — asked for scroll-up-to-load-more instead. `fetchMessages` gained an additive `before?: string` cursor alongside `limit`; `ChatScreen.tsx`'s `reload()` (realtime-triggered) and a new `handleLoadEarlier()` both **merge** fetched pages into state by message id (`mergeMessages`) instead of replacing, so a loaded older page survives unrelated realtime activity. Uses `FlatList`'s `onStartReached` (confirmed supported in `react-native-web`'s vendored `VirtualizedList`, not just native) to trigger loading automatically as the user scrolls up — no tap-a-button UI, per explicit founder correction mid-build ("as i scroll up the old messages load"). Scroll position is preserved across a prepend via `scrollToIndex` wrapped in `requestAnimationFrame` (a first attempt without the `rAF` landed on the wrong message — traced to `VirtualizedList`'s frame-metrics cache needing a layout pass after the prepend before `scrollToIndex` can compute a correct offset; confirmed via advisor consultation this is a real cross-platform FlatList behavior, not web-specific). Hit one investigation dead-end worth recording: a live re-test appeared to show messages "disappearing" (100 → 10) after a pin action, which looked like real data loss; adding temporary debug logging around `mergeMessages`/`reload` proved the merge was correct every time (`resultLen` stayed 100), and the apparent loss was purely `VirtualizedList`'s windowed rendering (only the near-viewport range exists in the DOM at any moment) being misread by a DOM-leaf-scraping verification script as "how many messages are loaded" — a real limitation of that verification technique on a virtualized list, not a bug in the feature. Verified live: seeded 100 messages, confirmed the initial screen shows only the latest 50, confirmed scrolling to the top (via a raw `scrollTop = 0` + dispatched `scroll` event, simulating a real scroll) auto-fetched and prepended older pages with no button/tap involved, confirmed pinning both an in-window message and the true oldest message (`Message 1`) still updates the pinned strip live and shows correctly in Highlights (cross-checked against the DB directly, not just the UI, after the earlier false alarm). |
+| 29 | Photo attachments in chat | ✅ Done — see task #29 in `docs/HISTORY.md`. First of a "ship this as a real application" audit's six follow-up tasks. Private `message-photos` Storage bucket (unlike the public `avatars`/`club-avatars` buckets — Eboard chat's photos need to stay genuinely private), signed URLs resolved per-fetch since the bucket isn't public. Reused `messages.media_url`/`message_type = 'photo'`, both unused since task #7. Verified live: uploaded a real file through the web picker, pinned it, confirmed it renders in both the pinned strip and Highlights. |
+| 30 | Self-service account deletion | ✅ Done — see task #30 in `docs/HISTORY.md`. Second of the six tasks — required for app store approval. Advisor caught that a literal hard-delete would fail outright (~15 FKs into `profiles` have no `on delete` behavior) before any migration was written; founder chose **anonymize, not hard-delete** via `AskUserQuestion`. New `security definer` `delete_account()` RPC scrubs PII and sets `auth.users.banned_until` (confirmed against the actual running Postgres, not assumed, that this column/privilege exist). Verified live: deleted account correctly blocked with "User is banned" on re-sign-in; a second member saw the deleter's old message correctly reattributed to "Deleted user". |
+| 31 | Chat moderation — message delete + report | ✅ Done — see task #31 in `docs/HISTORY.md`. Third of the six tasks. Message delete was already RLS-permitted, just needed UI. New `message_reports` table + an admin-only "Reports" tab in Highlights. Founder explicitly chose **report + delete only, no "block a user"** via `AskUserQuestion` — block is ambiguous in a shared club chat. **Real bug caught during live verification**: a hard `DELETE` left task #28's merge-by-id `reload()` unable to ever notice the message was gone (it just kept showing, forever, until a full remount). Founder additionally flagged that a message silently vanishing is worse UX regardless — **switched to soft-delete** (`messages.deleted_at`, tombstoned as "This message was deleted") instead of patching the merge logic. |
+| 32 | Privacy Policy + Terms of Service (in-app) | ✅ Done — see task #32 in `docs/HISTORY.md`. Fourth of the six tasks. Content drafted from SPEC.md's actual data model (not boilerplate) into `lib/legalContent.ts`, rendered by a shared `components/LegalDocument.tsx`. Needed two separate route trees — `app/(auth)/privacy-policy.tsx`+`terms.tsx` (signed-out, linked from sign-up) and `app/(tabs)/profile/privacy-policy.tsx`+`terms.tsx` (signed-in, linked from Profile) — since `app/_layout.tsx`'s auth guard redirects based on top-level route group and a single shared route would get bounced in one direction or the other. **Not a substitute for real legal review** before a genuine public launch — flagged in-file and to the founder. |
+| 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — see task #33 in `docs/HISTORY.md`. Fifth of the six tasks. `app.json` now has `ios.bundleIdentifier`/`android.package` = `com.parkstechusa.clubchat` (founder-chosen, via `AskUserQuestion` — effectively permanent once published) and a hand-written `eas.json` with development/preview/production build profiles. **Still needs**: `eas login` + `eas init` (interactive, requires the founder's own Expo account) to get full EAS project linkage — not attempted autonomously. |
+| 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see task #34 in `docs/HISTORY.md`. A same-day founder session had already implemented a full Stitch-based redesign (new `constants/theme.ts` tokens, Anton/Archivo Narrow/Inter fonts) inside an isolated `.claude/worktrees/` git worktree, but it never made it back into `main` — recovered and merged in (confirmed a clean superset, zero conflicts) rather than rebuilt from scratch. On top of the recovery: a from-scratch chat redesign (custom glass-blur header via `expo-blur`, gradient sent-bubble via `expo-linear-gradient`, floating pinned notice, editorial announcement card) from a second, same-day Stitch export; the same visual language then extended to Highlights, and to every Races/Eboard screen (hubs, lists, forms, rosters) to match the already-redesigned club hub. Global `primary` color overridden to a brighter `#ff4d00` per explicit founder preference (SPEC's own DESIGN.md tokens said `#aa3000`). Two real, independently-shippable bugs surfaced and fixed along the way: `expo-image-picker`'s web shim opens its file input via `dispatchEvent(new MouseEvent("click"))` instead of `.click()`, which silently no-ops in some real (non-automated) browser configurations — worked around with `lib/pickImageOnWeb.ts`, applied at all 3 photo-picker call sites; and react-native-web's `Switch` defaults its "on" thumb to teal (`#009688`) unless `activeThumbColor` is set explicitly — fixed app-wide via a new shared `components/ThemedSwitch.tsx`. Also: every "search-result-row + separate Add button" (carpool/roster/club-profile add-member flows) converted to a single `Pressable` row with an orange hover highlight; chat header's title made tappable again (club-profile / race roster / eboard roster) and swapped to show the actual name instead of the literal "ClubChat" brand text; a real scroll-to-bottom regression (new messages landing ~44% short of the true bottom) fixed by wrapping `scrollToEnd` in `requestAnimationFrame`; and the "Send as announcement" full-width banner (was blocking the message list) replaced with a compact megaphone toggle icon in the input row. |
 
-**Immediate next step**: video messages are no longer planned (dropped
-from scope). Tests + CI (task #26), error-handling standardization
-(task #25), DB indexes + chat pagination cap (task #27), and scroll-
-triggered "Load earlier" pagination (task #28) are all done. The
-remaining gaps from the code-quality audit, roughly in priority order:
-zero accessibility labels, hand-written `types/database.ts` (regenerate
-once a real hosted Supabase project exists), and no error monitoring
-(e.g. Sentry). Photo attachments in chat (task #5's note) is the one
-still-open MVP item.
+**Immediate next step**: of the six "ship as a real application" tasks
+identified in a founder-requested audit, four are done (photo
+attachments #29, account deletion #30, chat moderation #31, Privacy
+Policy/Terms #32) and one is partially done (bundle ID + `eas.json` #33,
+blocked on the founder's own interactive `eas login`/`eas init`). The
+sixth — an App Store privacy nutrition label / Google Play Data Safety
+form — isn't a coding task; it has to be filled out at actual
+submission time, once the shipped build's behavior is final. Beyond
+those six: the code-quality-audit gaps from task #25 that are still
+open (zero accessibility labels, hand-written `types/database.ts` —
+regenerate once a real hosted Supabase project exists, no error
+monitoring e.g. Sentry), and — surfaced during task #29/#30's live
+testing but not yet its own task — push notifications and OTA updates
+(`expo-updates`) aren't wired up, which matters for real retention on a
+chat app more than for store approval itself. Task #34 also leaves one
+open thread: the Highlights/Races/Eboard visual rollout has no source
+mockup of its own (extrapolated from the club hub's established pattern)
+— worth a founder look to confirm it reads as intended everywhere.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   TextInput,
   TouchableOpacity,
 } from "react-native";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { createRace } from "../../../../../lib/races";
 import { useClub } from "../_layout";
@@ -67,23 +69,31 @@ export default function CreateRaceScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>New race channel</Text>
+        <Text style={styles.title}>New Race Channel</Text>
+        <Text style={styles.subtitle}>Standalone from the calendar — its own chat, roster, and meet info.</Text>
 
         <Text style={styles.label}>Name</Text>
         <TextInput
           style={styles.input}
           placeholder="Nittany Lion Invitational"
+          placeholderTextColor={colors.onSurfaceVariant}
           value={name}
           onChangeText={setName}
         />
 
         <Text style={styles.label}>Date</Text>
-        <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={eventDate} onChangeText={setEventDate} />
+        <TextInput
+          style={styles.input}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={colors.onSurfaceVariant}
+          value={eventDate}
+          onChangeText={setEventDate}
+        />
 
         {error && <Text style={styles.error}>{error}</Text>}
 
         <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-          <Text style={styles.saveButtonText}>{saving ? "Creating…" : "Create"}</Text>
+          {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.saveButtonText}>Create</Text>}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -91,26 +101,29 @@ export default function CreateRaceScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 16, gap: 8 },
-  title: { fontSize: 20, fontWeight: "700", color: "#0f172a", marginBottom: 8 },
-  label: { fontSize: 13, fontWeight: "600", color: "#64748b", marginTop: 8 },
+  container: { flex: 1, backgroundColor: colors.surface },
+  content: { padding: spacing.marginMobile, gap: spacing.stackSm },
+  title: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface },
+  subtitle: { ...typography.bodyMd, fontSize: 14, color: colors.onSurfaceVariant, marginTop: -spacing.unit },
+  label: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "uppercase", marginTop: spacing.stackSm },
   input: {
+    ...typography.bodyMd,
+    color: colors.onSurface,
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm + 6,
   },
-  error: { color: "#dc2626", marginTop: 8 },
+  error: { color: colors.error, marginTop: spacing.stackSm },
   saveButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 14,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingVertical: spacing.stackSm + 8,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: spacing.gutter,
   },
   saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  saveButtonText: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onPrimary },
 });

@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -11,13 +12,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { colors, radii, spacing, typography } from "../../../constants/theme";
 import { joinClubByCode, joinOrRequestClub, searchClubs, type SearchedClub } from "../../../lib/clubs";
-
-type Mode = "code" | "search";
 
 export default function JoinClubScreen() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("search");
 
   // Invite code state
   const [code, setCode] = useState("");
@@ -32,7 +31,6 @@ export default function JoinClubScreen() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mode !== "search") return;
     const trimmed = query.trim();
     if (trimmed.length < 2) {
       setResults([]);
@@ -46,7 +44,7 @@ export default function JoinClubScreen() {
         .finally(() => setSearching(false));
     }, 300);
     return () => clearTimeout(timeout);
-  }, [query, mode]);
+  }, [query]);
 
   const handleJoinByCode = async () => {
     setCodeError(null);
@@ -80,129 +78,157 @@ export default function JoinClubScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <Text style={styles.title}>Join a club</Text>
+      <Text style={styles.title}>FIND YOUR SQUAD</Text>
+      <Text style={styles.subtitle}>Join an existing team or discover new athletic communities.</Text>
 
-      <View style={styles.modeRow}>
-        <TouchableOpacity
-          style={[styles.modeOption, mode === "search" && styles.modeOptionActive]}
-          onPress={() => setMode("search")}
-        >
-          <Text style={[styles.modeText, mode === "search" && styles.modeTextActive]}>Find a club</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeOption, mode === "code" && styles.modeOptionActive]}
-          onPress={() => setMode("code")}
-        >
-          <Text style={[styles.modeText, mode === "code" && styles.modeTextActive]}>Invite code</Text>
-        </TouchableOpacity>
-      </View>
-
-      {mode === "code" ? (
-        <>
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <MaterialIcons name="confirmation-number" size={20} color={colors.primary} />
+          <Text style={styles.cardTitle}>HAVE AN INVITE?</Text>
+        </View>
+        <View style={styles.codeRow}>
           <TextInput
-            style={styles.input}
-            placeholder="Invite code"
+            style={[styles.input, styles.codeInput]}
+            placeholder="Enter invite code"
+            placeholderTextColor={colors.onSurfaceVariant}
             autoCapitalize="none"
             value={code}
             onChangeText={setCode}
           />
-
-          {codeError && <Text style={styles.error}>{codeError}</Text>}
-
           <TouchableOpacity
-            style={[styles.button, (!code || codeLoading) && styles.buttonDisabled]}
+            style={[styles.joinCodeButton, (!code || codeLoading) && styles.buttonDisabled]}
             onPress={handleJoinByCode}
             disabled={!code || codeLoading}
           >
-            {codeLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Join</Text>}
+            {codeLoading ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.joinCodeButtonText}>Join</Text>}
           </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Search clubs by name"
-            autoCapitalize="none"
-            value={query}
-            onChangeText={setQuery}
-          />
+        </View>
+        {codeError && <Text style={styles.error}>{codeError}</Text>}
+        <Text style={styles.hint}>Codes are provided by club admins.</Text>
+      </View>
 
-          {searchError && <Text style={styles.error}>{searchError}</Text>}
+      <View style={styles.searchWrap}>
+        <MaterialIcons name="search" size={20} color={colors.onSurfaceVariant} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by club name or sport..."
+          placeholderTextColor={colors.onSurfaceVariant}
+          autoCapitalize="none"
+          value={query}
+          onChangeText={setQuery}
+        />
+      </View>
 
-          {searching && <ActivityIndicator style={{ marginTop: 8 }} />}
+      {searchError && <Text style={styles.error}>{searchError}</Text>}
+      {searching && <ActivityIndicator style={{ marginTop: 8 }} color={colors.primary} />}
 
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.id}
-            style={styles.resultsList}
-            renderItem={({ item }) => {
-              const alreadyRequested = item.requestStatus === "pending";
-              return (
-                <View style={styles.resultRow}>
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultName}>{item.name}</Text>
-                    <Text style={styles.resultMeta}>
-                      {item.sport ? `${item.sport} · ` : ""}
-                      {item.memberCount} member{item.memberCount === 1 ? "" : "s"}
-                      {item.joinPolicy === "request" ? " · Requires approval" : ""}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.joinButton, alreadyRequested && styles.joinButtonDisabled]}
-                    onPress={() => handleJoinFromSearch(item)}
-                    disabled={joiningId === item.id || alreadyRequested}
-                  >
-                    {joiningId === item.id ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.joinButtonText}>
-                        {alreadyRequested ? "Requested" : item.joinPolicy === "open" ? "Join" : "Request"}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              );
-            }}
-            ListEmptyComponent={
-              query.trim().length >= 2 && !searching ? (
-                <Text style={styles.empty}>No clubs found.</Text>
-              ) : null
-            }
-          />
-        </>
-      )}
+      <FlatList
+        data={results}
+        keyExtractor={(item) => item.id}
+        style={styles.resultsList}
+        contentContainerStyle={{ gap: spacing.stackSm }}
+        renderItem={({ item }) => {
+          const alreadyRequested = item.requestStatus === "pending";
+          return (
+            <View style={styles.resultRow}>
+              <View style={styles.resultInfo}>
+                <Text style={styles.resultName}>{item.name}</Text>
+                <Text style={styles.resultMeta}>
+                  {item.sport ? `${item.sport} · ` : ""}
+                  {item.memberCount} member{item.memberCount === 1 ? "" : "s"}
+                  {item.joinPolicy === "request" ? " · Requires approval" : ""}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.joinButton, alreadyRequested && styles.joinButtonDisabled]}
+                onPress={() => handleJoinFromSearch(item)}
+                disabled={joiningId === item.id || alreadyRequested}
+              >
+                {joiningId === item.id ? (
+                  <ActivityIndicator color={colors.onPrimary} size="small" />
+                ) : (
+                  <Text style={styles.joinButtonText}>
+                    {alreadyRequested ? "Requested" : item.joinPolicy === "open" ? "Join" : "Request"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }}
+        ListEmptyComponent={
+          query.trim().length >= 2 && !searching ? <Text style={styles.empty}>No clubs found.</Text> : null
+        }
+      />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 12 },
-  title: { fontSize: 24, fontWeight: "700", textAlign: "center", marginBottom: 8 },
-  modeRow: { flexDirection: "row", gap: 10, marginBottom: 4 },
-  modeOption: { flex: 1, borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, alignItems: "center" },
-  modeOptionActive: { borderColor: "#2563eb", backgroundColor: "#eff6ff" },
-  modeText: { fontWeight: "600", color: "#334155" },
-  modeTextActive: { color: "#2563eb" },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 14, fontSize: 16 },
-  button: { backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
+  container: { flex: 1, padding: spacing.marginMobile, gap: spacing.gutter, backgroundColor: colors.surface },
+  title: { ...typography.displayXl, fontSize: 30, lineHeight: 34, color: colors.onBackground, textAlign: "center" },
+  subtitle: { ...typography.bodyMd, color: colors.onSurfaceVariant, textAlign: "center", marginTop: -spacing.stackSm },
+  card: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    gap: spacing.stackSm,
+  },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  cardTitle: { ...typography.statValue, fontSize: 16, color: colors.onSurface, textTransform: "uppercase" },
+  codeRow: { flexDirection: "row", gap: spacing.stackSm },
+  input: {
+    ...typography.bodyMd,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm + 4,
+    color: colors.onSurface,
+  },
+  codeInput: { flex: 1, textTransform: "uppercase" },
+  joinCodeButton: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.gutter + 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  joinCodeButtonText: { ...typography.statValue, fontSize: 15, color: colors.onPrimary, textTransform: "uppercase" },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  error: { color: "#dc2626", textAlign: "center" },
-  resultsList: { flexGrow: 0 },
+  hint: { ...typography.labelSm, color: colors.onSecondaryContainer, textTransform: "none" },
+  searchWrap: { position: "relative", justifyContent: "center" },
+  searchIcon: { position: "absolute", left: spacing.gutter, zIndex: 1 },
+  searchInput: {
+    ...typography.bodyMd,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.full,
+    paddingLeft: 44,
+    paddingRight: spacing.gutter,
+    paddingVertical: spacing.stackSm + 6,
+    color: colors.onSurface,
+  },
+  resultsList: { flex: 1 },
   resultRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
   },
-  resultInfo: { flex: 1, marginRight: 8 },
-  resultName: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
-  resultMeta: { fontSize: 12, color: "#64748b", marginTop: 2 },
-  joinButton: { backgroundColor: "#2563eb", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
-  joinButtonDisabled: { backgroundColor: "#94a3b8" },
-  joinButtonText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  empty: { textAlign: "center", marginTop: 24, color: "#888" },
+  resultInfo: { flex: 1, marginRight: spacing.stackSm },
+  resultName: { ...typography.statValue, fontSize: 16, color: colors.onSurface },
+  resultMeta: { ...typography.labelSm, color: colors.onSurfaceVariant, marginTop: 2, textTransform: "none" },
+  joinButton: { backgroundColor: colors.primary, borderRadius: radii.full, paddingVertical: spacing.stackSm, paddingHorizontal: spacing.gutter },
+  joinButtonDisabled: { backgroundColor: colors.secondary },
+  joinButtonText: { ...typography.labelSm, color: colors.onPrimary, textTransform: "uppercase" },
+  empty: { textAlign: "center", marginTop: 24, color: colors.onSurfaceVariant },
+  error: { color: colors.error, textAlign: "center" },
 });

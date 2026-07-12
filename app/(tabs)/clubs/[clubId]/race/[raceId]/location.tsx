@@ -2,6 +2,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { fetchRaceLocationInfo, updateRaceLocationInfo, type RaceLocationInfo } from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
@@ -85,7 +86,7 @@ export default function RaceLocationScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -97,6 +98,7 @@ export default function RaceLocationScreen() {
         <TextInput
           style={[styles.input, styles.multiline]}
           placeholder="Meet at the north entrance of the rec center at 7am. Bring your own water bottle..."
+          placeholderTextColor={colors.onSurfaceVariant}
           multiline
           value={draft.description ?? ""}
           onChangeText={(text) => setDraft((d) => ({ ...d, description: text }))}
@@ -106,6 +108,7 @@ export default function RaceLocationScreen() {
         <TextInput
           style={styles.input}
           placeholder="https://maps.google.com/..."
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
           value={draft.locationLink ?? ""}
           onChangeText={(text) => setDraft((d) => ({ ...d, locationLink: text }))}
@@ -115,6 +118,7 @@ export default function RaceLocationScreen() {
         <TextInput
           style={styles.input}
           placeholder="https://maps.google.com/... or a booking link"
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
           value={draft.hotelLink ?? ""}
           onChangeText={(text) => setDraft((d) => ({ ...d, hotelLink: text }))}
@@ -124,6 +128,7 @@ export default function RaceLocationScreen() {
         <TextInput
           style={styles.input}
           placeholder="https://photos.google.com/share/..."
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
           value={draft.photosLink ?? ""}
           onChangeText={(text) => setDraft((d) => ({ ...d, photosLink: text }))}
@@ -133,6 +138,7 @@ export default function RaceLocationScreen() {
         <TextInput
           style={styles.input}
           placeholder="https://..."
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
           value={draft.resultsLink ?? ""}
           onChangeText={(text) => setDraft((d) => ({ ...d, resultsLink: text }))}
@@ -143,7 +149,7 @@ export default function RaceLocationScreen() {
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
-            <Text style={styles.saveButtonText}>{saving ? "Saving…" : "Save"}</Text>
+            {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.saveButtonText}>Save</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -209,30 +215,45 @@ export default function RaceLocationScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, gap: 8 },
-  section: { marginBottom: 16 },
-  sectionLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", textTransform: "uppercase" },
-  description: { fontSize: 15, color: "#334155", marginTop: 4, lineHeight: 21 },
-  link: { fontSize: 16, color: "#2563eb", marginTop: 4, textDecorationLine: "underline" },
-  placeholder: { fontSize: 14, color: "#94a3b8", fontStyle: "italic", marginTop: 4 },
-  label: { fontSize: 13, fontWeight: "600", color: "#64748b", marginTop: 8 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 12, fontSize: 15 },
+  content: { padding: spacing.marginMobile, gap: spacing.stackSm },
+  section: { marginBottom: spacing.gutter },
+  sectionLabel: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  description: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface, marginTop: spacing.unit, lineHeight: 21 },
+  link: { ...typography.bodyMd, fontSize: 15, color: colors.primary, marginTop: spacing.unit, textDecorationLine: "underline" },
+  placeholder: { ...typography.bodyMd, fontSize: 14, color: colors.onSurfaceVariant, fontStyle: "italic", marginTop: spacing.unit },
+  label: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "uppercase", marginTop: spacing.stackSm },
+  input: {
+    ...typography.bodyMd,
+    color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm + 4,
+  },
   multiline: { minHeight: 100, textAlignVertical: "top" },
-  actions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancelButton: { flex: 1, backgroundColor: "#e2e8f0", borderRadius: 8, padding: 12, alignItems: "center" },
-  cancelButtonText: { color: "#334155", fontWeight: "600" },
-  saveButton: { flex: 1, backgroundColor: "#2563eb", borderRadius: 8, padding: 12, alignItems: "center" },
-  saveButtonText: { color: "#fff", fontWeight: "700" },
+  actions: { flexDirection: "row", gap: spacing.gutter, marginTop: spacing.gutter },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: radii.full,
+    padding: spacing.stackSm + 4,
+    alignItems: "center",
+  },
+  cancelButtonText: { ...typography.labelSm, fontSize: 14, color: colors.onSurface, textTransform: "none" },
+  saveButton: { flex: 1, backgroundColor: colors.primary, borderRadius: radii.full, padding: spacing.stackSm + 4, alignItems: "center" },
+  saveButtonText: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onPrimary },
   editButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingVertical: spacing.stackSm + 4,
+    paddingHorizontal: spacing.gutter,
     alignItems: "center",
     alignSelf: "center",
-    marginTop: 16,
+    marginTop: spacing.gutter,
   },
-  editButtonText: { color: "#fff", fontWeight: "700" },
+  editButtonText: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onPrimary },
 });

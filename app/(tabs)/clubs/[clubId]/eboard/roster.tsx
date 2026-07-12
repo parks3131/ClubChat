@@ -1,6 +1,9 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import {
   addEboardMember,
   decideEboardJoinRequest,
@@ -12,7 +15,6 @@ import {
   type SearchedClubAdmin,
 } from "../../../../../lib/eboard";
 import { reportError } from "../../../../../lib/reportError";
-import { LoadError } from "../../../../../components/LoadError";
 import { useEboard } from "./_layout";
 
 // Mirrors race/[raceId]/roster.tsx, but add/decide rights belong to
@@ -118,7 +120,7 @@ export default function EboardRosterScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -136,22 +138,21 @@ export default function EboardRosterScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Search club admins by name"
+                placeholderTextColor={colors.onSurfaceVariant}
                 autoCapitalize="none"
                 value={addQuery}
                 onChangeText={setAddQuery}
               />
-              {addSearching && <ActivityIndicator style={{ marginTop: 6 }} />}
+              {addSearching && <ActivityIndicator style={{ marginTop: spacing.stackSm }} color={colors.primary} />}
               {addResults.map((user) => (
-                <View key={user.id} style={styles.addResultRow}>
+                <Pressable
+                  key={user.id}
+                  style={(state) => [styles.addResultRow, (state as { hovered?: boolean }).hovered && styles.addResultRowHovered]}
+                  onPress={() => handleAdd(user)}
+                  disabled={busyUserId === user.id}
+                >
                   <Text style={styles.rowName}>{user.fullName}</Text>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.addButton]}
-                    onPress={() => handleAdd(user)}
-                    disabled={busyUserId === user.id}
-                  >
-                    <Text style={styles.addText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
+                </Pressable>
               ))}
             </View>
           )}
@@ -164,18 +165,18 @@ export default function EboardRosterScreen() {
                   <Text style={styles.rowName}>{r.fullName}</Text>
                   <View style={styles.requestActions}>
                     <TouchableOpacity
-                      style={[styles.actionButton, styles.approveButton]}
-                      onPress={() => handleDecide(r, true)}
-                      disabled={busyUserId === r.userId}
-                    >
-                      <Text style={styles.approveText}>Approve</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.denyButton]}
+                      style={[styles.iconActionButton, styles.denyIconButton]}
                       onPress={() => handleDecide(r, false)}
                       disabled={busyUserId === r.userId}
                     >
-                      <Text style={styles.denyText}>Deny</Text>
+                      <MaterialIcons name="close" size={18} color={colors.onErrorContainer} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconActionButton, styles.approveIconButton]}
+                      onPress={() => handleDecide(r, true)}
+                      disabled={busyUserId === r.userId}
+                    >
+                      <MaterialIcons name="check" size={18} color={colors.onPrimary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -205,49 +206,60 @@ export default function EboardRosterScreen() {
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: 16, gap: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 12, marginBottom: 6 },
-  addSection: { marginBottom: 4 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 10, fontSize: 14 },
+  list: { padding: spacing.marginMobile, gap: spacing.stackSm, backgroundColor: colors.surface },
+  sectionTitle: { ...typography.statValue, fontSize: 15, color: colors.onSurface, marginTop: spacing.stackMd, marginBottom: spacing.stackSm },
+  addSection: { marginBottom: spacing.unit },
+  input: {
+    ...typography.bodyMd,
+    borderWidth: 2,
+    borderColor: colors.surfaceContainerHigh,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+    color: colors.onSurface,
+  },
   addResultRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f0fdf4",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    marginTop: spacing.stackSm,
   },
-  requestsSection: { marginBottom: 4 },
+  addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
+  requestsSection: { marginBottom: spacing.unit },
   requestRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#eff6ff",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.stackSm + 4,
+    marginBottom: spacing.stackSm,
   },
-  requestActions: { flexDirection: "row", gap: 8 },
+  requestActions: { flexDirection: "row", gap: spacing.stackSm },
+  iconActionButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  denyIconButton: { backgroundColor: colors.errorContainer },
+  approveIconButton: { backgroundColor: colors.primary },
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 4,
+    gap: spacing.stackSm + 2,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.stackSm + 4,
   },
   memberAvatar: { width: 36, height: 36, borderRadius: 18 },
-  avatarPlaceholder: { backgroundColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  memberAvatarInitial: { fontSize: 15, fontWeight: "700", color: "#475569" },
-  rowName: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
-  actionButton: { borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
-  addButton: { backgroundColor: "#16a34a" },
-  addText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  approveButton: { backgroundColor: "#16a34a" },
-  approveText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  denyButton: { backgroundColor: "#dc2626" },
-  denyText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  empty: { textAlign: "center", marginTop: 40, color: "#888" },
+  avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
+  memberAvatarInitial: { ...typography.labelSm, fontSize: 15, color: colors.primary },
+  rowName: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
+  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
 });

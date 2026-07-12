@@ -1,19 +1,29 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useLayoutEffect } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { colors, radii, spacing, typography, type MaterialIconName } from "../../../../constants/theme";
 import { useClub } from "./_layout";
 
-const SECTIONS: { key: "chat" | "calendar" | "routines" | "polls" | "races"; label: string }[] = [
-  { key: "chat", label: "Chat" },
-  { key: "calendar", label: "Calendar" },
-  { key: "routines", label: "Routines" },
-  { key: "polls", label: "Polls" },
-  { key: "races", label: "Races & Meets" },
+const SECTIONS: {
+  key: "chat" | "calendar" | "routines" | "polls" | "races";
+  label: string;
+  subtitle: string;
+  icon: MaterialIconName;
+  tint: string;
+}[] = [
+  { key: "chat", label: "Chat", subtitle: "Jump into the conversation", icon: "forum", tint: colors.primary },
+  { key: "calendar", label: "Calendar", subtitle: "Races, practices & events", icon: "calendar-month", tint: colors.secondary },
+  { key: "routines", label: "Routines", subtitle: "This week's training plan", icon: "fitness-center", tint: colors.tertiary },
+  { key: "polls", label: "Polls", subtitle: "Vote on what's next", icon: "how-to-vote", tint: colors.secondary },
+  { key: "races", label: "Races & Meets", subtitle: "Upcoming races & meets", icon: "emoji-events", tint: colors.primaryContainer },
 ];
 
 // Admin-only row — regular members never see it exists at all, per the
 // founder's wireframe for Eboard & Council (SPEC.md task #17).
-const ADMIN_SECTIONS: { key: "eboard"; label: string }[] = [{ key: "eboard", label: "Eboard & Council" }];
+const ADMIN_SECTIONS: { key: "eboard"; label: string; subtitle: string; icon: MaterialIconName }[] = [
+  { key: "eboard", label: "Eboard & Council", subtitle: "Admin-only space", icon: "shield" },
+];
 
 export default function ClubHubScreen() {
   const club = useClub();
@@ -47,7 +57,7 @@ export default function ClubHubScreen() {
           }}
           style={{ marginLeft: 12, padding: 4 }}
         >
-          <Text style={{ fontSize: 24, color: "#2563eb" }}>‹</Text>
+          <MaterialIcons name="arrow-back" size={22} color={colors.primary} />
         </TouchableOpacity>
       ),
     });
@@ -55,42 +65,69 @@ export default function ClubHubScreen() {
 
   return (
     <View style={styles.container}>
-      {SECTIONS.map((section) => (
-        <TouchableOpacity
-          key={section.key}
-          style={styles.row}
-          onPress={() => router.push(`/clubs/${club.clubId}/${section.key}`)}
-        >
-          <Text style={styles.rowLabel}>{section.label}</Text>
-          <Text style={styles.chevron}>›</Text>
-        </TouchableOpacity>
-      ))}
-      {club.role === "admin" &&
-        ADMIN_SECTIONS.map((section) => (
+      <View style={styles.identity}>
+        <Text style={styles.clubName}>{club.name.toUpperCase()}</Text>
+      </View>
+
+      <View style={styles.grid}>
+        {SECTIONS.map((section) => (
           <TouchableOpacity
             key={section.key}
-            style={styles.row}
+            style={styles.card}
             onPress={() => router.push(`/clubs/${club.clubId}/${section.key}`)}
           >
-            <Text style={styles.rowLabel}>{section.label}</Text>
-            <Text style={styles.chevron}>›</Text>
+            <View style={[styles.iconBadge, { backgroundColor: section.tint }]}>
+              <MaterialIcons name={section.icon} size={22} color={colors.onPrimary} />
+            </View>
+            <View style={styles.cardTextWrap}>
+              <Text style={styles.cardLabel}>{section.label.toUpperCase()}</Text>
+              <Text style={styles.cardSubtitle}>{section.subtitle}</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
           </TouchableOpacity>
         ))}
+        {club.role === "admin" &&
+          ADMIN_SECTIONS.map((section) => (
+            <TouchableOpacity
+              key={section.key}
+              style={[styles.card, styles.adminCard]}
+              onPress={() => router.push(`/clubs/${club.clubId}/${section.key}`)}
+            >
+              <View style={[styles.iconBadge, { backgroundColor: colors.inverseSurface }]}>
+                <MaterialIcons name={section.icon} size={22} color={colors.onPrimary} />
+              </View>
+              <View style={styles.cardTextWrap}>
+                <Text style={[styles.cardLabel, styles.adminCardLabel]}>{section.label.toUpperCase()}</Text>
+                <Text style={[styles.cardSubtitle, styles.adminCardSubtitle]}>{section.subtitle}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={22} color={colors.surfaceVariant} />
+            </TouchableOpacity>
+          ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 10 },
-  row: {
+  container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
+  identity: { alignItems: "center", marginBottom: spacing.gutter },
+  clubName: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5 },
+  grid: { gap: spacing.stackSm },
+  card: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#f1f5f9",
-    borderRadius: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    gap: spacing.gutter,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
   },
-  rowLabel: { fontSize: 17, fontWeight: "600", color: "#0f172a" },
-  chevron: { fontSize: 20, color: "#94a3b8" },
+  adminCard: { backgroundColor: colors.inverseSurface, borderColor: colors.inverseSurface },
+  iconBadge: { width: 44, height: 44, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
+  cardTextWrap: { flex: 1 },
+  cardLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
+  cardSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
+  adminCardLabel: { color: colors.inverseOnSurface },
+  adminCardSubtitle: { color: colors.surfaceVariant },
 });
