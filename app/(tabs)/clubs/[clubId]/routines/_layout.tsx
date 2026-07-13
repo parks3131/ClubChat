@@ -1,6 +1,7 @@
 import { Stack, useRouter } from "expo-router";
 import { Text, TouchableOpacity } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../components/BackHeaderButton";
+import { colors, typography } from "../../../../../constants/theme";
 import { useClub } from "../_layout";
 
 // Its own nested Stack (same shape as club-profile/_layout.tsx) rather than
@@ -8,19 +9,24 @@ import { useClub } from "../_layout";
 // sub-screens (activity-type picker, create/edit form, detail) each with
 // their own title/back-fallback — only "index" needs the shared
 // tappable-club-name + invite-code header the hub/chat/calendar share.
+// Header styling mirrors [clubId]/_layout.tsx's clubScreenOptions exactly
+// (Anton headline + Energetic Orange) — this nested Stack has its own
+// headerShown:false entry in the parent layout, so it never inherited
+// that styling for free and had drifted to the pre-redesign default.
 export default function RoutinesStackLayout() {
   const club = useClub();
   const router = useRouter();
 
   const clubScreenOptions = {
+    headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
       <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}>
-        <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{club.name}</Text>
+        <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{club.name}</Text>
       </TouchableOpacity>
     ),
     headerRight: () =>
       club.role === "admin" ? (
-        <Text style={{ marginRight: 16, color: "#2563eb", fontWeight: "600" as const }}>
+        <Text style={{ ...typography.labelSm, marginRight: 16, color: colors.primary, textTransform: "uppercase" as const }}>
           Invite: {club.inviteCode}
         </Text>
       ) : null,

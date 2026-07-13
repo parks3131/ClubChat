@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { fetchEboardChannel, type EboardChannel } from "../../../../../lib/eboard";
 import { useClub } from "../_layout";
@@ -74,15 +75,21 @@ export default function EboardLayout() {
   }
 
   const title = channel?.name ?? "Eboard & Council";
+  // Styling mirrors [clubId]/_layout.tsx's clubScreenOptions exactly
+  // (Anton headline + Energetic Orange) — this nested Stack has its own
+  // headerShown:false entry in the parent layout, so it never inherited
+  // that styling for free and had drifted to the plain default.
+  const titleStyle = { ...typography.headlineLgMobile, fontSize: 17, color: colors.primary };
   const headerOptions = {
     headerShown: true,
+    headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () =>
       channel ? (
         <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/eboard/roster`)}>
-          <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{title}</Text>
+          <Text style={titleStyle}>{title}</Text>
         </TouchableOpacity>
       ) : (
-        <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{title}</Text>
+        <Text style={titleStyle}>{title}</Text>
       ),
   };
 
@@ -130,6 +137,29 @@ export default function EboardLayout() {
             title: "New meeting",
             presentation: "modal",
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/meetings`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/index"
+          options={{
+            ...headerOptions,
+            title: "Polls",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/create"
+          options={{
+            title: "New poll",
+            presentation: "modal",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/polls`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/[pollId]"
+          options={{
+            title: "Poll",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/polls`),
           }}
         />
         <Stack.Screen

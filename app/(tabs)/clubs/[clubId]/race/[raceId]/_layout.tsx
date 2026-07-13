@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { fetchRace } from "../../../../../../lib/races";
 import { supabase } from "../../../../../../lib/supabase";
@@ -117,11 +118,16 @@ export default function RaceLayout() {
     );
   }
 
+  // Styling mirrors [clubId]/_layout.tsx's clubScreenOptions exactly
+  // (Anton headline + Energetic Orange) — this nested Stack has its own
+  // headerShown:false entry in the parent layout, so it never inherited
+  // that styling for free and had drifted to the plain default.
   const raceScreenOptions = {
     headerShown: true,
+    headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
       <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/race/${race.raceId}/roster`)}>
-        <Text style={{ fontSize: 17, fontWeight: "600" as const }}>{race.name}</Text>
+        <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{race.name}</Text>
       </TouchableOpacity>
     ),
   };
@@ -165,6 +171,29 @@ export default function RaceLayout() {
             ...raceScreenOptions,
             title: "Meet Information",
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/index"
+          options={{
+            ...raceScreenOptions,
+            title: "Polls",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/create"
+          options={{
+            title: "New poll",
+            presentation: "modal",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/polls`),
+          }}
+        />
+        <Stack.Screen
+          name="polls/[pollId]"
+          options={{
+            title: "Poll",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/polls`),
           }}
         />
         <Stack.Screen
