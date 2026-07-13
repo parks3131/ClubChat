@@ -9,9 +9,10 @@ import { fetchCalendarFeed, type CalendarFeedItem } from "../../../../lib/calend
 import { toDateKey } from "../../../../lib/dates";
 import { useClub } from "./_layout";
 
-// Background/text pair per badge label — covers all 7 feed item types
+// Background/text pair per badge label — covers all 8 feed item types
 // lib/calendarFeed.ts can surface (5 calendar_event types + "Race/Meet" +
-// "Eboard Meeting"), not just the 3 the Stitch mockup happened to show.
+// "Eboard Meeting" + "Poll"), not just the 3 the Stitch mockup happened
+// to show.
 const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
   Race: { bg: colors.primaryFixed, fg: colors.onPrimaryFixedVariant },
   Practice: { bg: colors.tertiaryFixed, fg: colors.onTertiaryFixedVariant },
@@ -20,6 +21,7 @@ const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
   Other: { bg: colors.surfaceContainerHigh, fg: colors.onSurfaceVariant },
   "Race/Meet": { bg: colors.primary, fg: colors.onPrimary },
   "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
+  Poll: { bg: colors.secondaryContainer, fg: colors.onSecondaryContainer },
 };
 
 const BIB_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -30,6 +32,7 @@ const BIB_STYLE: Record<string, { bg: string; fg: string }> = {
   Other: { bg: colors.onSurfaceVariant, fg: colors.surface },
   "Race/Meet": { bg: colors.primaryContainer, fg: colors.onPrimaryContainer },
   "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
+  Poll: { bg: colors.secondary, fg: colors.onSecondary },
 };
 
 function formatItemDate(item: CalendarFeedItem) {
@@ -101,8 +104,18 @@ export default function ClubCalendarScreen() {
 
   const now = Date.now();
   const todayKey = toDateKey(new Date());
+  // A poll has no fixed "when it happens" the way an event/race/meeting
+  // does — an open-ended poll (no closes_at) would otherwise flip to
+  // "Past" the instant its own createdAt timestamp (used as atIso so it
+  // still sorts/displays somewhere) ticks past "now". Use isOpen (mirrors
+  // lib/polls.ts's isPollEffectivelyClosed) instead of a date compare for
+  // this one kind.
   const isUpcoming = (item: CalendarFeedItem) =>
-    item.hasTime ? new Date(item.atIso).getTime() >= now : item.atIso.slice(0, 10) >= todayKey;
+    item.kind === "poll"
+      ? !!item.isOpen
+      : item.hasTime
+        ? new Date(item.atIso).getTime() >= now
+        : item.atIso.slice(0, 10) >= todayKey;
 
   const upcoming = items.filter(isUpcoming);
   const past = items.filter((i) => !isUpcoming(i)).reverse();
