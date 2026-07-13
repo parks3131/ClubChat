@@ -332,20 +332,41 @@ app/                          Expo Router file-based routes
                                 read-only for members, Edit/Delete for
                                 admins. No completion tracking.
   (tabs)/clubs/[clubId]/polls/
-                                Task #24 — own nested Stack (same shape as
-                                races/). `index.tsx`: Active/Closed grouped
-                                list (mirrors races/index.tsx's Upcoming/
-                                Finished), admin-only "+ Create Poll".
-                                `create.tsx`: admin-only, question + 2-10
-                                free-text options (dynamic add/remove) +
-                                two Switch toggles (allow-multiple,
-                                private vote). `[pollId].tsx`: vote by
+                                Task #24, redesigned + generalized task #38
+                                — own nested Stack (same shape as races/).
+                                As of task #38 all 3 screens are thin
+                                wrappers around shared components/
+                                PollsListScreen.tsx / PollDetailScreen.tsx /
+                                PollCreateScreen.tsx (same
+                                ChatScreen/HighlightsScreen-style
+                                extraction as task #16), passing
+                                `scope: { type: "club", clubId }` — race/
+                                (below) and eboard/ (below) mount the exact
+                                same components with their own scope
+                                instead of forking two more copies.
+                                `index.tsx`: "Community Voice / Active
+                                Conversations" header, ALL POLLS/MY VOTES
+                                segmented tabs (replaced the old Active/
+                                Closed section grouping — status is now
+                                shown per-card instead, hero-style card for
+                                an open poll incl. a countdown badge when
+                                `closesAt` is set, muted "CLOSED" card
+                                otherwise), "Have a new idea?" prompt card +
+                                FAB, both `canCreate`-gated. `create.tsx`:
+                                question + 2-10 free-text options + two
+                                Switch toggles (allow-multiple, private
+                                vote) + task #38's new "Ends" row (duration
+                                chips: 1 Day/3 Days/1 Week/Custom/No
+                                deadline, computed into `closesAt` client-
+                                side at submit time — no date-picker
+                                dependency added). `[pollId].tsx`: vote by
                                 tapping an option (toggles off if already
                                 selected, moves the vote on a single-
                                 choice poll), counts always shown, voter
                                 names per option shown only when public or
                                 viewing as the creator; creator-only
-                                Close/Reopen/Delete.
+                                Close/Reopen/Delete; voting UI disabled
+                                once `isPollEffectivelyClosed`.
   (tabs)/clubs/[clubId]/club-profile/
                                 Club identity (avatar, name, description,
                                 admin-only edit) + full member roster
@@ -439,12 +460,28 @@ app/                          Expo Router file-based routes
                                 infinite-render bug during its own
                                 Playwright pass — see task #19 in
                                 `docs/HISTORY.md`.
+                                `polls/{index,create,[pollId]}.tsx`: task
+                                #38 — thin wrappers around the same shared
+                                components/PollsListScreen.tsx/etc. club
+                                polls uses, `scope: { type: "race", clubId,
+                                raceId }`. `canCreate = race.isAdmin`
+                                (any club admin, matching every other race-
+                                management action). Reached via a "Polls"
+                                row on the race hub, sibling to Chat/Meet
+                                Information/Car Assignments & Groups.
                                 `roster.tsx`: reached by tapping the race
                                 name in the header (same "tap the name for
                                 membership" pattern as club-profile) —
                                 pending-requests approve/deny, add-member
                                 (search scoped to this club's own roster,
-                                not every profile), and the member list.
+                                not every profile), and the member list,
+                                each row admin-only "Remove"-able (task
+                                #36 — `race_members` had insert/select
+                                policies and an add-member UI since task
+                                #16 but no delete policy and no way to
+                                remove someone at all, a genuine gap rather
+                                than a regression, closed by
+                                `0037_race_members_delete.sql`).
                                 No separate "race admin" role; a club
                                 admin already has full access to every
                                 race under their club.
@@ -483,6 +520,20 @@ app/                          Expo Router file-based routes
                                 buttons are also hidden client-side),
                                 "Added by <name>", tappable link opens via
                                 `Linking.openURL`.
+                                `polls/{index,create,[pollId]}.tsx`: task
+                                #38 — thin wrappers around the same shared
+                                components/PollsListScreen.tsx/etc. club/
+                                race polls use, `scope: { type: "eboard",
+                                clubId, eboardChannelId }`. `canCreate` is
+                                unconditionally true here (any Eboard
+                                member, mirroring Eboard Meetings' own
+                                "any member can create" rule) — every
+                                wrapper screen gates on `eboard.channel
+                                ?.isMember` first with the same direct-URL
+                                redirect guard `chat.tsx` already has, so
+                                the component itself never needs to know
+                                about that check. Reached via a "Polls" row
+                                on the Eboard hub, sibling to Chat/Meetings.
                                 `roster.tsx`: pending requests + add-member
                                 (search scoped to this club's own admins),
                                 both gated on the *caller* already being a
@@ -544,6 +595,40 @@ components/HighlightsScreen.tsx  Task #16 — same extraction, for the
                                  header as ChatScreen (`backFallback` prop,
                                  native header hidden); tab/row styling
                                  was already Stitch-derived and untouched.
+components/PollsListScreen.tsx   Task #38 — same ChatScreen/HighlightsScreen-
+                                 style extraction, for the redesigned Polls
+                                 list ("Stitch Poll" export, re-skinned with
+                                 constants/theme.ts tokens, not the export's
+                                 raw hex). ALL POLLS/MY VOTES segmented
+                                 tabs, hero card for an open poll (countdown
+                                 badge via lib/dates.ts's formatCountdown
+                                 when `closesAt` is set) vs. a muted
+                                 "CLOSED" card, "Have a new idea?" prompt +
+                                 FAB (both `canCreate`-gated). Props:
+                                 `scope: PollScope`, `canCreate`,
+                                 `createPath`, `pollPath(id)` — parametrized
+                                 the same way ChatScreen is by
+                                 `channelId`/`isAdmin`/etc., so club/race/
+                                 Eboard polls (route wrappers under
+                                 clubs/[clubId]/polls/, race/[raceId]/
+                                 polls/, eboard/polls/) mount the identical
+                                 component instead of forking three copies.
+components/PollDetailScreen.tsx  Task #38 — same extraction, for the vote/
+                                 detail screen. Voting disabled once
+                                 `isPollEffectivelyClosed` (lib/polls.ts),
+                                 mirroring the same check enforced
+                                 server-side so a disabled button never
+                                 promises something the RLS layer would
+                                 reject anyway.
+components/PollCreateScreen.tsx  Task #38 — same extraction, for the
+                                 create form. New "Ends" section (duration
+                                 chips: 1 Day/3 Days/1 Week/Custom/No
+                                 deadline) computes `closesAt` client-side
+                                 at submit time — the Stitch create-poll
+                                 mockup had no deadline field at all, only
+                                 the list screen's badge implied one
+                                 exists, so this was planned via
+                                 `AskUserQuestion` before being designed.
 components/LegalDocument.tsx     Task #32 — shared renderer for a
                                  title + `{heading, body}[]` sections
                                  array (see lib/legalContent.ts), used by
@@ -611,15 +696,27 @@ lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
                                  / dismissReports / DisplayMessage.deletedAt.
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent
-lib/calendarFeed.ts              Task #23 — fetchCalendarFeed(clubId,
-                                 userId, isClubAdmin) merges calendar.ts's
+lib/calendarFeed.ts              Task #23, extended task #39 — fetchCalendarFeed
+                                 (clubId, userId, isClubAdmin) merges calendar.ts's
                                  fetchEvents (always), races.ts's fetchRaces
                                  (filtered to access !== "none"), and
                                  eboard.ts's fetchEboardChannel+fetchMeetings
                                  (only if isMember) into one sorted
                                  CalendarFeedItem[] — no new tables/RLS,
                                  every read already goes through each
-                                 feature's own existing policies
+                                 feature's own existing policies. Task #39
+                                 added polls.ts's fetchPolls as a 4th source
+                                 (club polls always, race polls per
+                                 accessible race, Eboard polls only if
+                                 isMember — same visibility rules as the
+                                 other 3 sources). CalendarFeedItem gained
+                                 `isOpen?: boolean` (poll-only, via
+                                 isPollEffectivelyClosed) since a poll has
+                                 no fixed date the way an event/race/
+                                 meeting does — Upcoming/Past bucketing for
+                                 a poll item uses isOpen, not a raw date
+                                 compare against atIso (which is
+                                 closesAt ?? createdAt).
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest
 lib/profile.ts                   fetchProfile / updateProfile /
@@ -658,11 +755,24 @@ lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
                                  ACTIVITY_LABELS/ACTIVITY_ICONS
-lib/polls.ts                     Task #24 — fetchPolls / createPoll /
-                                 fetchPoll / fetchPollVoters (only called
-                                 when eligible to see voters) / castVote
-                                 (wraps the cast_vote RPC) / setPollClosed /
-                                 deletePoll
+lib/polls.ts                     Task #24, extended task #38 — fetchPolls /
+                                 createPoll / fetchPoll / fetchPollVoters
+                                 (only called when eligible to see voters) /
+                                 castVote (wraps the cast_vote RPC) /
+                                 setPollClosed / deletePoll. Task #38 added
+                                 a `PollScope` discriminated union (club /
+                                 race / eboard, each carrying its own id +
+                                 clubId) threaded through fetchPolls/
+                                 createPoll instead of a bare clubId;
+                                 fetchPolls gained `closesAt`/`hasVoted` per
+                                 item (the latter via one extra query,
+                                 powers the redesigned list's MY VOTES tab);
+                                 createPoll gained `closesAt`; new exported
+                                 `isPollEffectivelyClosed(poll)` (`isClosed
+                                 || closesAt has passed`) so the list/detail
+                                 screens can't drift on what "closed" means
+                                 client-side, independent of the same check
+                                 enforced server-side (is_poll_closed).
 lib/races.ts                     Task #16 — fetchRaces (per-race access +
                                  request status for the current user) /
                                  createRace / requestJoinRace / fetchRace /
@@ -959,6 +1069,54 @@ supabase/migrations/
                                  decided requests now stay visible as
                                  history (tagged with the outcome) rather
                                  than disappearing.
+  0036_fix_announcement_notify_race_cast.sql
+                                 Task #36 — fixes a real bug: announcing in
+                                 a race channel always 400'd. `notify_
+                                 announcement()`'s race branch (0034) was
+                                 the only one of its 3 scope branches using
+                                 `select distinct ... from (... union
+                                 ...)`, which forces the 'announcement'
+                                 literal to resolve as `text` before it
+                                 reaches the notification_type column,
+                                 defeating Postgres's implicit unknown-
+                                 literal-to-enum cast on INSERT...SELECT.
+                                 Fixed with an explicit `::notification_type`
+                                 cast on all 3 branches (only the race one
+                                 was actually broken, the other two were
+                                 cast defensively too).
+  0037_race_members_delete.sql     Task #36 — race_members had insert/
+                                 select policies since 0016_races.sql but
+                                 no delete policy at all, so there was no
+                                 way to remove someone from a race roster —
+                                 a genuine gap, not a regression. Adds the
+                                 missing admin-only delete policy, same
+                                 pattern as 0022_race_car_groups_delete.sql.
+  0038_polls_scope_and_deadline.sql
+                                 Task #38 — polls gains closes_at (nullable
+                                 timestamptz), race_id, eboard_channel_id
+                                 (both nullable, club_id stays not null
+                                 always — mirrors channels.club_id's shape
+                                 exactly). can_access_poll and the polls
+                                 INSERT policy become 3-way branches
+                                 (race/eboard/club); is_poll_closed and
+                                 cast_vote's inline check both extended to
+                                 `is_closed or closes_at < now()` — no
+                                 cron, computed live. polls' own SELECT
+                                 policy is written as an inline 3-way CASE
+                                 on the row's own columns, deliberately
+                                 *not* routed through can_access_poll(id) —
+                                 see SPEC.md section 6 for the real
+                                 INSERT...RETURNING bug that shape caused
+                                 and why. notify_poll_created (0034) is
+                                 also re-created here with the same 3-way
+                                 scope-aware audience as notify_announcement
+                                 (it previously fanned out every poll,
+                                 including private Eboard ones, to the
+                                 entire club) — including the same
+                                 `::notification_type` cast fix from
+                                 0036, since its own race branch hit the
+                                 identical DISTINCT+UNION trap in this
+                                 same migration.
 ```
 
 ## 5. Current status
@@ -1002,6 +1160,10 @@ supabase/migrations/
 | 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — see task #33 in `docs/HISTORY.md`. Fifth of the six tasks. `app.json` now has `ios.bundleIdentifier`/`android.package` = `com.parkstechusa.clubchat` (founder-chosen, via `AskUserQuestion` — effectively permanent once published) and a hand-written `eas.json` with development/preview/production build profiles. **Still needs**: `eas login` + `eas init` (interactive, requires the founder's own Expo account) to get full EAS project linkage — not attempted autonomously. |
 | 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see task #34 in `docs/HISTORY.md`. A same-day founder session had already implemented a full Stitch-based redesign (new `constants/theme.ts` tokens, Anton/Archivo Narrow/Inter fonts) inside an isolated `.claude/worktrees/` git worktree, but it never made it back into `main` — recovered and merged in (confirmed a clean superset, zero conflicts) rather than rebuilt from scratch. On top of the recovery: a from-scratch chat redesign (custom glass-blur header via `expo-blur`, gradient sent-bubble via `expo-linear-gradient`, floating pinned notice, editorial announcement card) from a second, same-day Stitch export; the same visual language then extended to Highlights, and to every Races/Eboard screen (hubs, lists, forms, rosters) to match the already-redesigned club hub. Global `primary` color overridden to a brighter `#ff4d00` per explicit founder preference (SPEC's own DESIGN.md tokens said `#aa3000`). Two real, independently-shippable bugs surfaced and fixed along the way: `expo-image-picker`'s web shim opens its file input via `dispatchEvent(new MouseEvent("click"))` instead of `.click()`, which silently no-ops in some real (non-automated) browser configurations — worked around with `lib/pickImageOnWeb.ts`, applied at all 3 photo-picker call sites; and react-native-web's `Switch` defaults its "on" thumb to teal (`#009688`) unless `activeThumbColor` is set explicitly — fixed app-wide via a new shared `components/ThemedSwitch.tsx`. Also: every "search-result-row + separate Add button" (carpool/roster/club-profile add-member flows) converted to a single `Pressable` row with an orange hover highlight; chat header's title made tappable again (club-profile / race roster / eboard roster) and swapped to show the actual name instead of the literal "ClubChat" brand text; a real scroll-to-bottom regression (new messages landing ~44% short of the true bottom) fixed by wrapping `scrollToEnd` in `requestAnimationFrame`; and the "Send as announcement" full-width banner (was blocking the message list) replaced with a compact megaphone toggle icon in the input row. |
 | 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see task #35 in `docs/HISTORY.md`. A from-scratch founder request (not a wireframe this time), planned via `EnterPlanMode` + two rounds of `AskUserQuestion` before any code, since almost every design axis was a genuine open question. New 3rd bottom tab with a bell + native `tabBarBadge`; a flat reverse-chronological feed merging discrete `notifications` rows (join requests, membership changes, poll/event/race/meeting creation, announcements) with live-computed "N unread messages in Club X chat" rows (`fetch_unread_channel_summaries()` RPC, backed by a new `channel_reads` table — no read/unread concept existed anywhere in the schema before this). Admin/Eboard-member inbox for pending join requests (Eboard requests fan out only to current Eboard members, not all club admins, matching task #17's existing approval-rights asymmetry); personal notifications for added/removed/promoted/demoted/approved/denied; creation fan-out excluding the actor; announcements notify, a plain pin never does (falls out for free — `message_type = 'announcement'` is an `INSERT`-time value, structurally separate from the `pinned` boolean's later `UPDATE`). Opening the tab clears discrete-item unread state but never a chat's unread count — that only clears by actually opening the chat. 3 real bugs found and fixed during initial live verification (a realtime channel-topic collision between the badge provider and the feed screen; decided requests never leaving the admin inbox; an ambiguous PL/pgSQL column reference causing a silent 400 on approve/deny). 3 more founder follow-ups shipped right after, triaged via a third `AskUserQuestion` round: decided requests now persist as tagged history ("Approved"/"Denied") instead of disappearing — deliberately reversing one of the 3 bug fixes above, per explicit founder direction; scroll-to-load-more pagination on the feed (mirrors task #28's chat pattern, simpler here since a newest-first list appends older pages at the bottom, no scroll-position-preservation needed); and the club roster's "Joined Nm ago" text removed (no real presence tracking exists yet to back an "active" label). |
+| 36 | Bug fixes: race-chat announcements silently failing + race roster missing "Remove" | ✅ Done — see task #36 in `docs/HISTORY.md`. Two founder-reported bugs, both root-caused live rather than guessed at. (1) Announcing in a race channel always 400'd, draft silently lost: `notify_announcement()`'s race branch (task #35) was the only one of its 3 scope branches using `select distinct ... from (... union ...)`, which forces the `'announcement'` literal to resolve as `text` before reaching the `notification_type` column, defeating Postgres's implicit unknown-literal-to-enum cast on `INSERT...SELECT` — club/Eboard chat never hit it since neither branch uses `DISTINCT`. Fixed with an explicit `::notification_type` cast (`0036_fix_announcement_notify_race_cast.sql`). (2) `race_members` had insert/select policies but no delete policy and no `removeRaceMember` function at all — never built, not a regression (`0037_race_members_delete.sql` + `lib/races.ts`/`race/[raceId]/roster.tsx`). Both migrations applied directly via `docker exec ... psql` against the live local DB (not `supabase db reset`, which would have wiped the founder's real club data) and registered in `supabase_migrations.schema_migrations` by hand. |
+| 37 | Header styling consistency fix — Routines/Polls/Races/Eboard/Race never got the "Kinetic Performance System" header treatment | ✅ Done — see task #37 in `docs/HISTORY.md`. Founder-reported: Eboard's header showed plain black text while the club hub's showed the orange Anton title. Root cause: task #34's header restyle (orange Anton title, `colors.surfaceContainerLow` background) was only ever applied to `[clubId]/_layout.tsx` — five sibling nested-stack layouts (`routines/_layout.tsx`, `polls/_layout.tsx`, `races/_layout.tsx`, `eboard/_layout.tsx`, `race/[raceId]/_layout.tsx`) each define their own header options and never inherited it. Two of them still had the literal pre-redesign `#2563eb` blue hardcoded for the invite-code text. Fixed all five to match the reference layout exactly. |
+| 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see task #38 in `docs/HISTORY.md`. Three founder asks bundled into one `EnterPlanMode` pass (advisor-reviewed before planning): apply a new "Stitch Poll" export's list/create-screen design using this app's own theme tokens, not its raw hex; add an optional poll deadline; and let a poll be created inside a Race or inside Eboard & Council, not just at the club level. 4 `AskUserQuestion` answers shaped the plan: relative duration chips (1 Day/3 Days/1 Week/Custom) over an absolute date field; auto-close computed live (`is_closed OR now() > closes_at`, no cron); Race polls admin-only / Eboard polls any-member (mirrors each scope's own existing pattern), close/delete stays creator-only everywhere; and each scope's Polls list is siloed, not merged with the club's. Schema: nullable `race_id`/`eboard_channel_id` on `polls` (`club_id` stays always-populated, mirrors `channels`), 3-way `can_access_poll`/INSERT-policy branches, `is_poll_closed` extended for the deadline (`0038_polls_scope_and_deadline.sql`). UI: extracted `components/PollsListScreen.tsx`/`PollDetailScreen.tsx`/`PollCreateScreen.tsx` (same reuse payoff as `ChatScreen`'s task #16 extraction) so Race/Eboard polls are thin wrapper routes, not forked copies. **Two real, freshly-discovered RLS bugs caught live during this task's own verification, both documented in the migration file for future sessions**: (1) the exact `SELECT DISTINCT ... UNION` → enum-cast trap from task #36 recurred in this task's own new code (`notify_poll_created`'s race branch) — same fix, same session, worth a second explicit callout since it repeated. (2) A genuinely new variant of SPEC.md section 6's chicken-and-egg gotcha: routing `polls`' own SELECT policy through `can_access_poll(id)` (a security-definer function that re-queries `polls` by id) caused `INSERT...RETURNING` to fail even though a plain `INSERT` and a manual follow-up `SELECT` both succeeded — a self-referential subquery back into the table being inserted into is materially riskier than an inline column-bound check, unlike the `is_channel_member`-inside-`channels`-SELECT-policy precedent this was modeled on (which, it turns out, has never actually been exercised through a client `.insert().select()` in this codebase). Fixed by writing the 3-way branch inline on the row's own columns instead of through the function. See section 6 below for the general lesson. |
+| 39 | Polls in the unified Calendar | ✅ Done — see task #39 in `docs/HISTORY.md`. Founder follow-up right after task #38 shipped: "if any poll is created, if the person is in the club, race, or eboard channel he should see it in the calendar." `lib/calendarFeed.ts`'s `fetchCalendarFeed` gained a 4th merged source — club polls (always), race polls (only for races the caller has access to, one `fetchPolls` call per accessible race), Eboard polls (only if a member) — reusing the exact same per-scope visibility rules already established for races/Eboard meetings, no new RLS. A poll has no fixed "when it happens" the way an event/race/meeting does, so a new `CalendarFeedItem.isOpen` field (computed via `lib/polls.ts`'s existing `isPollEffectivelyClosed`, not a fresh date compare) drives Upcoming/Past bucketing for poll items specifically — otherwise an open-ended poll with no deadline would flip to "Past" the instant its own `createdAt` (used as the sort/display date, via `closesAt ?? createdAt`) ticked past "now". Verified live end-to-end creating one poll in each of the 3 scopes through the actual UI (not seeded via SQL) and confirming all 3 appeared in Calendar correctly dated and ordered, each tapping through to the right poll detail screen. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 identified in a founder-requested audit, four are done (photo
@@ -1025,6 +1187,16 @@ Task #35's Notifications feature is now the natural place push
 notifications (still unbuilt) would plug into — every fan-out already
 computes a `body`/`target_path`, which is exactly what an
 `expo-notifications` payload would need.
+
+Since task #35: two founder-reported bugs fixed (#36 — race-chat
+announcements silently failing, race roster missing "Remove"), the
+header-styling gap from task #34's rollout closed (#37 — five nested-
+stack layouts never got the orange-Anton treatment), and Polls
+redesigned + given an optional deadline + generalized to Race/Eboard
+scopes (#38, from a new "Stitch Poll" founder export). Polls is now
+structurally on par with Chat/Highlights — same 3-scope shape, same
+shared-component extraction — closing the gap where it had been the one
+remaining club-only-only feature among races/eboard/chat/highlights.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
@@ -1067,6 +1239,68 @@ make sure the SELECT policy also covers "I am the one who just created
 this," not just "I am now a member/participant of it." This will matter
 again for `race` creation once that table exists (creator should see
 their own race row immediately, same pattern).
+
+### A second, subtler variant: a self-referential SELECT policy function breaks INSERT...RETURNING even with no trigger involved
+
+Found live during task #38 (Polls' Race/Eboard scoping). `polls`' new
+SELECT policy was written as `using (can_access_poll(id))`, where
+`can_access_poll(p_poll_id)` is a security-definer function that does
+`select ... from public.polls p where p.id = p_poll_id` — modeled
+directly on `is_channel_member`, which is used the same way inside
+`channels`' own SELECT policy and was believed proven safe by that
+precedent (see task #24's original write-up).
+
+It isn't safe in this shape. A plain `INSERT` into `polls` (no
+`RETURNING`) succeeded every time. The identical insert through
+supabase-js's `.insert().select()` — i.e. `INSERT...RETURNING` — failed
+with "new row violates row-level security policy," even though a manual
+`SELECT can_access_poll(id)` run immediately afterward, in the same
+transaction, returned `true`. Confirmed by reproducing both the failure
+and the fix directly in `psql`, impersonating the caller via
+`set local role authenticated` + `select set_config('request.jwt.claims',
+...)`.
+
+**Root cause**: the *original*, working policy for this exact case
+(`is_club_member(club_id)`) evaluated a column read straight off the row
+being returned — no further lookup. Routing the check through
+`can_access_poll(id)` instead makes the SELECT-policy check re-query
+`polls` **by id, from inside a function, during the same RETURNING
+evaluation that is still producing that very row** — a self-referential
+subquery back into the table being inserted into. That is a materially
+riskier shape than "a security-definer function used inside its own
+table's policy" in the abstract, and the `is_channel_member`/`channels`
+precedent this was modeled on turns out to have never actually been
+exercised through a client `.insert().select()` — every `channels` row
+in this codebase is inserted server-side by a trigger (`handle_new_race`,
+`handle_new_eboard_channel`, `handle_new_club`), never returned to a
+caller.
+
+**The fix**: write the check inline, bound directly to the row's own
+columns, instead of delegating to a function that re-queries the table:
+
+```sql
+create policy "eligible members can read polls"
+  on public.polls for select
+  to authenticated
+  using (
+    case
+      when race_id is not null then is_race_admin(race_id) or is_race_member(race_id)
+      when eboard_channel_id is not null then is_eboard_member(eboard_channel_id)
+      else is_club_member(club_id)
+    end
+  );
+```
+
+**Takeaway**: a security-definer function reading its own table from
+inside that table's SELECT policy is fine when nothing calling it ever
+does `INSERT...RETURNING` on a brand-new row of that same table. The
+moment a client `.insert().select()` needs to pass that policy for the
+row it just created, prefer a check written directly against the row's
+own columns (bound from the tuple, no subquery) over one routed through
+a "look this row up again by id" function — even with no trigger
+anywhere in the picture. This is the same family of bug as the `clubs`
+gotcha above (RETURNING re-checks SELECT), but triggered by the shape of
+the SELECT policy itself, not by a trigger's timing.
 
 ### Minor gotchas encountered along the way
 
