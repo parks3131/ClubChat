@@ -9,8 +9,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from "react-native";
 import { LoadError } from "../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../constants/theme";
 import { useAuth } from "../../../contexts/AuthProvider";
 import { fetchProfile, updateProfile } from "../../../lib/profile";
 
@@ -90,14 +92,20 @@ export default function EditProfileScreen() {
   }
 
   if (loading) {
-    return <ActivityIndicator style={styles.centered} />;
+    return <ActivityIndicator style={styles.centered} color={colors.primary} />;
   }
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
         <Text style={styles.label}>Name</Text>
-        <TextInput style={styles.input} value={fullName} onChangeText={setFullName} placeholder="Your name" />
+        <TextInput
+          style={styles.input}
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Enter your name"
+          placeholderTextColor={colors.onSurfaceVariant}
+        />
 
         <Text style={styles.label}>Description</Text>
         <TextInput
@@ -105,11 +113,18 @@ export default function EditProfileScreen() {
           value={bio}
           onChangeText={setBio}
           placeholder="Tell your clubs a bit about yourself"
+          placeholderTextColor={colors.onSurfaceVariant}
           multiline
         />
 
         <Text style={styles.label}>City</Text>
-        <TextInput style={styles.input} value={city} onChangeText={setCity} placeholder="Where you're based" />
+        <TextInput
+          style={styles.input}
+          value={city}
+          onChangeText={setCity}
+          placeholder="Where you're based"
+          placeholderTextColor={colors.onSurfaceVariant}
+        />
 
         <Text style={styles.label}>Date of birth (YYYY-MM-DD)</Text>
         <TextInput
@@ -117,35 +132,57 @@ export default function EditProfileScreen() {
           value={dateOfBirth}
           onChangeText={setDateOfBirth}
           placeholder="1998-04-12"
+          placeholderTextColor={colors.onSurfaceVariant}
           autoCapitalize="none"
         />
 
         <Text style={styles.label}>School</Text>
-        <TextInput style={styles.input} value={school} onChangeText={setSchool} placeholder="Where you studied" />
+        <TextInput
+          style={styles.input}
+          value={school}
+          onChangeText={setSchool}
+          placeholder="Where you studied"
+          placeholderTextColor={colors.onSurfaceVariant}
+        />
 
         {error && <Text style={styles.error}>{error}</Text>}
+      </ScrollView>
 
+      <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.button, (!fullName.trim() || saving) && styles.buttonDisabled]}
           onPress={handleSave}
           disabled={!fullName.trim() || saving}
         >
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save</Text>}
+          {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.buttonText}>SAVE</Text>}
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1 },
-  flex: { flex: 1 },
-  container: { padding: 24, gap: 8 },
-  label: { fontSize: 13, fontWeight: "600", color: "#475569", marginTop: 8 },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 14, fontSize: 16 },
+  flex: { flex: 1, backgroundColor: colors.surface },
+  container: { padding: spacing.marginMobile, gap: spacing.stackSm },
+  label: { ...typography.labelSm, fontSize: 12, textTransform: "none", color: colors.onSurfaceVariant, marginTop: spacing.stackSm },
+  input: {
+    ...typography.bodyMd,
+    color: colors.onSurface,
+    backgroundColor: colors.surfaceContainerLow,
+    borderRadius: radii.DEFAULT,
+    padding: spacing.gutter,
+    fontSize: 16,
+  },
   multiline: { height: 120, textAlignVertical: "top" },
-  button: { backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 16 },
+  footer: {
+    padding: spacing.marginMobile,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
+  },
+  button: { backgroundColor: colors.primary, borderRadius: radii.DEFAULT, padding: spacing.gutter, alignItems: "center" },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  error: { color: "#dc2626", textAlign: "center" },
+  buttonText: { ...typography.headlineLgMobile, fontSize: 20, color: colors.onPrimary },
+  error: { color: colors.error, textAlign: "center" },
 });

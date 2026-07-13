@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { ACTIVITY_LABELS, createWorkout, fetchWorkout, updateWorkout } from "../../../../../../lib/routines";
 import type { RoutineActivityType } from "../../../../../../types/database";
@@ -112,57 +114,100 @@ export default function CreateOrEditWorkoutScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.activityBadge}>{ACTIVITY_LABELS[activityType]}</Text>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <View style={styles.eyebrowRow}>
+          <MaterialIcons name="add" size={16} color={colors.onSurfaceVariant} />
+          <Text style={styles.eyebrow}>{isEditing ? "Edit Workout" : "New Workout"}</Text>
+        </View>
 
-        <TextInput style={styles.input} placeholder="Workout title" value={title} onChangeText={setTitle} />
+        <Text style={styles.activityBadge}>{ACTIVITY_LABELS[activityType].toUpperCase()}</Text>
+
+        <TextInput
+          style={styles.titleInput}
+          placeholder={ACTIVITY_LABELS[activityType].toUpperCase()}
+          placeholderTextColor={colors.outline}
+          value={title}
+          onChangeText={setTitle}
+        />
         <TextInput
           style={[styles.input, styles.multiline]}
           placeholder="Add description"
+          placeholderTextColor={colors.onSurfaceVariant}
           value={description}
           onChangeText={setDescription}
           multiline
         />
 
         {error && <Text style={styles.error}>{error}</Text>}
+      </ScrollView>
 
+      <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.button, saving && styles.buttonDisabled]}
           onPress={handleSave}
           disabled={saving}
         >
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save</Text>}
+          {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.buttonText}>SAVE WORKOUT</Text>}
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, gap: 12 },
+  content: { padding: spacing.marginMobile, gap: spacing.stackMd },
+  eyebrowRow: { flexDirection: "row", alignItems: "center", gap: spacing.unit + 2 },
+  eyebrow: { ...typography.labelSm, fontSize: 13, color: colors.onSurfaceVariant, textTransform: "uppercase" },
   activityBadge: {
     alignSelf: "flex-start",
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#2563eb",
-    backgroundColor: "#dbeafe",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    ...typography.labelSm,
+    fontSize: 10,
+    color: colors.onPrimaryFixedVariant,
+    backgroundColor: colors.primaryFixed,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: 2,
   },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 14, fontSize: 16 },
-  multiline: { height: 90, textAlignVertical: "top" },
-  error: { color: "#dc2626", textAlign: "center" },
-  button: { backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
+  titleInput: {
+    ...typography.displayXl,
+    fontSize: 40,
+    lineHeight: 46,
+    color: colors.onSurface,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.DEFAULT,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.gutter,
+  },
+  input: {
+    ...typography.bodyMd,
+    fontSize: 16,
+    color: colors.onSurface,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.DEFAULT,
+    padding: spacing.gutter,
+  },
+  multiline: { height: 120, textAlignVertical: "top", fontSize: 17 },
+  error: { color: colors.error, textAlign: "center" },
+  footer: {
+    padding: spacing.marginMobile,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
+  },
+  button: { backgroundColor: colors.primary, borderRadius: radii.DEFAULT, padding: spacing.gutter, alignItems: "center" },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  buttonText: { ...typography.headlineLgMobile, fontSize: 20, color: colors.onPrimary },
 });
