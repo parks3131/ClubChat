@@ -1,64 +1,113 @@
 import { supabase } from "./supabase";
 
+// A poll is club-scoped by default, or scoped to one Race or one Eboard &
+// Council channel instead — mirrors the channels.race_id/eboard_channel_id
+// generalization (0016/0017) and, closer to home, how race_car_groups/
+// eboard_meetings are scoped. club_id is always carried (even on a race/
+// eboard poll, denormalized) since every fetch/create call already has it
+// in context and every notification needs it regardless of scope.
+export type PollScope =
+  | { type: "club"; clubId: string }
+  | { type: "race"; clubId: string; raceId: string }
+  | { type: "eboard"; clubId: string; eboardChannelId: string };
+
 export interface PollListItem {
   id: string;
   question: string;
   isClosed: boolean;
+  closesAt: string | null;
   optionCount: number;
+  voteCount: number;
+  hasVoted: boolean;
   createdAt: string;
 }
 
-export async function fetchPolls(clubId: string): Promise<PollListItem[]> {
-  const { data: polls, error } = await supabase
+// True once voting is actually blocked server-side (is_poll_closed /
+// cast_vote, 0038_polls_scope_and_deadline.sql) — a manual close, or a
+// closes_at deadline that has passed. Kept as one shared helper so the
+// list and detail screens can't drift on what "closed" means.
+export function isPollEffectivelyClosed(poll: { isClosed: boolean; closesAt: string | null }): boolean {
+  return poll.isClosed || (poll.closesAt !== null && new Date(poll.closesAt).getTime() <= Date.now());
+}
+
+export async function fetchPolls(scope: PollScope, currentUserId: string): Promise<PollListItem[]> {
+  let query = supabase
     .from("polls")
-    .select("id, question, is_closed, created_at")
-    .eq("club_id", clubId)
+    .select("id, question, is_closed, closes_at, created_at")
     .order("created_at", { ascending: false });
 
+  if (scope.type === "club") {
+    // Excludes race/Eboard polls that happen to share this club_id — a
+    // club's Polls list is siloed to its own club-wide polls, same as
+    // club chat never shows race/Eboard messages.
+    query = query.eq("club_id", scope.clubId).is("race_id", null).is("eboard_channel_id", null);
+  } else if (scope.type === "race") {
+    query = query.eq("race_id", scope.raceId);
+  } else {
+    query = query.eq("eboard_channel_id", scope.eboardChannelId);
+  }
+
+  const { data: polls, error } = await query;
   if (error) throw error;
   if (!polls || polls.length === 0) return [];
 
-  const { data: options } = await supabase
-    .from("poll_options")
-    .select("poll_id")
-    .in(
-      "poll_id",
-      polls.map((p) => p.id)
-    );
+  const pollIds = polls.map((p) => p.id);
 
-  const countByPollId = new Map<string, number>();
+  const [{ data: options }, { data: myVotes }] = await Promise.all([
+    supabase.from("poll_options").select("poll_id, vote_count").in("poll_id", pollIds),
+    supabase.from("poll_votes").select("poll_id").eq("user_id", currentUserId).in("poll_id", pollIds),
+  ]);
+
+  const optionCountByPollId = new Map<string, number>();
+  const voteCountByPollId = new Map<string, number>();
   for (const o of options ?? []) {
-    countByPollId.set(o.poll_id, (countByPollId.get(o.poll_id) ?? 0) + 1);
+    optionCountByPollId.set(o.poll_id, (optionCountByPollId.get(o.poll_id) ?? 0) + 1);
+    voteCountByPollId.set(o.poll_id, (voteCountByPollId.get(o.poll_id) ?? 0) + o.vote_count);
   }
+  const votedPollIds = new Set((myVotes ?? []).map((v) => v.poll_id));
 
   return polls.map((p) => ({
     id: p.id,
     question: p.question,
     isClosed: p.is_closed,
-    optionCount: countByPollId.get(p.id) ?? 0,
+    closesAt: p.closes_at,
+    optionCount: optionCountByPollId.get(p.id) ?? 0,
+    voteCount: voteCountByPollId.get(p.id) ?? 0,
+    hasVoted: votedPollIds.has(p.id),
     createdAt: p.created_at,
   }));
 }
 
 export async function createPoll(params: {
-  clubId: string;
+  scope: PollScope;
   question: string;
   options: string[];
   allowMultiple: boolean;
   isPrivate: boolean;
+  closesAt: string | null;
   createdBy: string;
 }): Promise<{ id: string }> {
-  const { data: poll, error } = await supabase
-    .from("polls")
-    .insert({
-      club_id: params.clubId,
-      question: params.question,
-      allow_multiple: params.allowMultiple,
-      is_private: params.isPrivate,
-      created_by: params.createdBy,
-    })
-    .select("id")
-    .single();
+  const insertRow: {
+    club_id: string;
+    race_id?: string;
+    eboard_channel_id?: string;
+    question: string;
+    allow_multiple: boolean;
+    is_private: boolean;
+    closes_at: string | null;
+    created_by: string;
+  } = {
+    club_id: params.scope.clubId,
+    question: params.question,
+    allow_multiple: params.allowMultiple,
+    is_private: params.isPrivate,
+    closes_at: params.closesAt,
+    created_by: params.createdBy,
+  };
+  if (params.scope.type === "race") insertRow.race_id = params.scope.raceId;
+  if (params.scope.type === "eboard") insertRow.eboard_channel_id = params.scope.eboardChannelId;
+
+  const { data: poll, error } = await supabase.from("polls").insert(insertRow).select("id").single();
 
   if (error) throw error;
 
@@ -90,6 +139,7 @@ export interface PollDetail {
   allowMultiple: boolean;
   isPrivate: boolean;
   isClosed: boolean;
+  closesAt: string | null;
   createdBy: string;
   createdByName: string;
   createdAt: string;
@@ -101,7 +151,7 @@ export async function fetchPoll(pollId: string, currentUserId: string): Promise<
     await Promise.all([
       supabase
         .from("polls")
-        .select("id, club_id, question, allow_multiple, is_private, is_closed, created_by, created_at")
+        .select("id, club_id, question, allow_multiple, is_private, is_closed, closes_at, created_by, created_at")
         .eq("id", pollId)
         .single(),
       supabase.from("poll_options").select("id, text, position, vote_count").eq("poll_id", pollId).order("position"),
@@ -126,6 +176,7 @@ export async function fetchPoll(pollId: string, currentUserId: string): Promise<
     allowMultiple: poll.allow_multiple,
     isPrivate: poll.is_private,
     isClosed: poll.is_closed,
+    closesAt: poll.closes_at,
     createdBy: poll.created_by,
     createdByName: creatorProfile?.full_name ?? "Unknown",
     createdAt: poll.created_at,

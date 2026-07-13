@@ -364,11 +364,14 @@ export interface Database {
         Row: {
           id: string;
           club_id: string;
+          race_id: string | null;
+          eboard_channel_id: string | null;
           created_by: string;
           question: string;
           allow_multiple: boolean;
           is_private: boolean;
           is_closed: boolean;
+          closes_at: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["polls"]["Row"]> & {

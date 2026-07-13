@@ -9,6 +9,7 @@ import { useEboard } from "./_layout";
 const SECTIONS: { key: string; label: string; subtitle: string; icon: MaterialIconName; tint: string }[] = [
   { key: "chat", label: "Chat", subtitle: "Jump into the conversation", icon: "forum", tint: colors.primary },
   { key: "meetings", label: "Meetings", subtitle: "Upcoming & past meetings", icon: "groups", tint: colors.secondary },
+  { key: "polls", label: "Polls", subtitle: "Vote on what's next", icon: "how-to-vote", tint: colors.secondary },
 ];
 
 export default function EboardHubScreen() {

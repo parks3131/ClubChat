@@ -1,4 +1,4 @@
-import { addDays, combineToIso, getMonday, splitIso, toDateKey } from "./dates";
+import { addDays, combineToIso, formatCountdown, getMonday, splitIso, toDateKey } from "./dates";
 
 describe("toDateKey", () => {
   it("formats a date as YYYY-MM-DD in local time", () => {
@@ -54,5 +54,25 @@ describe("splitIso / combineToIso", () => {
 
   it("combineToIso returns null for a malformed time", () => {
     expect(combineToIso("2026-03-05", "2:30pm")).toBeNull();
+  });
+});
+
+describe("formatCountdown", () => {
+  it("returns ENDED for a timestamp already in the past", () => {
+    expect(formatCountdown(new Date(Date.now() - 1000).toISOString())).toBe("ENDED");
+  });
+
+  it("returns ENDING SOON for under an hour away", () => {
+    expect(formatCountdown(new Date(Date.now() + 30 * 60000).toISOString())).toBe("ENDING SOON");
+  });
+
+  it("pluralizes hours correctly", () => {
+    expect(formatCountdown(new Date(Date.now() + 5 * 3600000).toISOString())).toBe("5 HOURS LEFT");
+    expect(formatCountdown(new Date(Date.now() + 1 * 3600000 + 60000).toISOString())).toBe("1 HOUR LEFT");
+  });
+
+  it("switches to days once 24 hours away, and pluralizes correctly", () => {
+    expect(formatCountdown(new Date(Date.now() + 2 * 86400000).toISOString())).toBe("2 DAYS LEFT");
+    expect(formatCountdown(new Date(Date.now() + 1 * 86400000 + 60000).toISOString())).toBe("1 DAY LEFT");
   });
 });

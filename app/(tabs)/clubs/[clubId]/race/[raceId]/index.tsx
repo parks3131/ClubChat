@@ -7,6 +7,7 @@ import { useRace } from "./_layout";
 const SECTIONS: { key: string; label: string; subtitle: string; icon: MaterialIconName; tint: string }[] = [
   { key: "chat", label: "Chat", subtitle: "Jump into the conversation", icon: "forum", tint: colors.primary },
   { key: "location", label: "Meet Information", subtitle: "Location, hotel, photos & results", icon: "info", tint: colors.secondary },
+  { key: "polls", label: "Polls", subtitle: "Vote on what's next", icon: "how-to-vote", tint: colors.secondary },
   { key: "carpool", label: "Car Assignments & Groups", subtitle: "Who's riding with who", icon: "directions-car", tint: colors.tertiary },
 ];
 

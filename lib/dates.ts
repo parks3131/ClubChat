@@ -63,3 +63,18 @@ export function timeAgo(iso: string): string {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
+
+// The forward-looking mirror of timeAgo, for a poll's optional closes_at
+// deadline — the Stitch mockup's "2 DAYS LEFT" list-card badge. Enforcement
+// of the deadline itself lives server-side (is_poll_closed/cast_vote,
+// 0038_polls_scope_and_deadline.sql); this is purely the display string.
+export function formatCountdown(closesAtIso: string): string {
+  const diffMs = new Date(closesAtIso).getTime() - Date.now();
+  if (diffMs <= 0) return "ENDED";
+  const minutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(minutes / 60);
+  if (hours < 1) return "ENDING SOON";
+  if (hours < 24) return `${hours} HOUR${hours === 1 ? "" : "S"} LEFT`;
+  const days = Math.floor(hours / 24);
+  return `${days} DAY${days === 1 ? "" : "S"} LEFT`;
+}
