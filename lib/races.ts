@@ -169,6 +169,11 @@ export async function addRaceMember(raceId: string, userId: string) {
   if (error) throw error;
 }
 
+export async function removeRaceMember(raceId: string, userId: string) {
+  const { error } = await supabase.from("race_members").delete().eq("race_id", raceId).eq("user_id", userId);
+  if (error) throw error;
+}
+
 export interface SearchedClubMember {
   id: string;
   fullName: string;

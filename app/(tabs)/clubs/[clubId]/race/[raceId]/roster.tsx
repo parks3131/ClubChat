@@ -1,7 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Image, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import {
@@ -9,6 +9,7 @@ import {
   decideRaceJoinRequest,
   fetchPendingRaceRequests,
   fetchRaceMembers,
+  removeRaceMember,
   searchClubMembersToAdd,
   type RaceJoinRequestRow,
   type RaceMemberRow,
@@ -16,6 +17,19 @@ import {
 } from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
+
+// Mirrors club-profile/index.tsx's confirmAction — Alert.alert is a no-op
+// on web (SPEC.md section 6), so a destructive action needs an explicit
+// web branch through window.confirm instead.
+function confirmAction(title: string, message: string): Promise<boolean> {
+  if (Platform.OS === "web") return Promise.resolve(window.confirm(message));
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+      { text: "OK", onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 // Mirrors club-profile/index.tsx's roster + pending-requests + add-member
 // sections, scoped to a race instead of the whole club — reached by
@@ -110,6 +124,20 @@ export default function RaceRosterScreen() {
     }
   };
 
+  const handleRemove = async (member: RaceMemberRow) => {
+    const proceed = await confirmAction("Remove member?", `Remove ${member.fullName} from this race?`);
+    if (!proceed) return;
+    setBusyUserId(member.userId);
+    try {
+      await removeRaceMember(race.raceId, member.userId);
+      await reload();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
   if (loadError) {
     return <LoadError message="Couldn't load the roster." onRetry={reload} />;
   }
@@ -186,14 +214,25 @@ export default function RaceRosterScreen() {
       }
       renderItem={({ item }) => (
         <View style={styles.memberRow}>
-          {item.avatarUrl ? (
-            <Image source={{ uri: item.avatarUrl }} style={styles.memberAvatar} />
-          ) : (
-            <View style={[styles.memberAvatar, styles.avatarPlaceholder]}>
-              <Text style={styles.memberAvatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
-            </View>
+          <View style={styles.memberInfo}>
+            {item.avatarUrl ? (
+              <Image source={{ uri: item.avatarUrl }} style={styles.memberAvatar} />
+            ) : (
+              <View style={[styles.memberAvatar, styles.avatarPlaceholder]}>
+                <Text style={styles.memberAvatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
+              </View>
+            )}
+            <Text style={styles.rowName}>{item.fullName}</Text>
+          </View>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.iconTextButton}
+              onPress={() => handleRemove(item)}
+              disabled={busyUserId === item.userId}
+            >
+              <MaterialIcons name="person-remove" size={18} color={colors.error} />
+            </TouchableOpacity>
           )}
-          <Text style={styles.rowName}>{item.fullName}</Text>
         </View>
       )}
       ListEmptyComponent={<Text style={styles.empty}>No members yet.</Text>}
@@ -247,16 +286,18 @@ const styles = StyleSheet.create({
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.stackSm + 2,
+    justifyContent: "space-between",
     backgroundColor: colors.surfaceContainerLowest,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.outlineVariant,
     padding: spacing.stackSm + 4,
   },
+  memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm + 2 },
   memberAvatar: { width: 36, height: 36, borderRadius: 18 },
   avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
   memberAvatarInitial: { ...typography.labelSm, fontSize: 15, color: colors.primary },
   rowName: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
+  iconTextButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
 });
