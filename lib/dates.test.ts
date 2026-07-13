@@ -67,12 +67,20 @@ describe("formatCountdown", () => {
   });
 
   it("pluralizes hours correctly", () => {
-    expect(formatCountdown(new Date(Date.now() + 5 * 3600000).toISOString())).toBe("5 HOURS LEFT");
+    // +60000ms buffer above the exact hour mark on every case here — sitting
+    // exactly on a boundary (e.g. `Date.now() + 5 * 3600000` with zero
+    // margin) is genuinely flaky: formatCountdown recomputes Date.now()
+    // internally, and any execution delay between building the timestamp
+    // here and that internal call (real on a loaded CI runner) pushes the
+    // diff a hair under the threshold, flooring to one hour less. Caught
+    // live by a real CI failure, not hypothetical.
+    expect(formatCountdown(new Date(Date.now() + 5 * 3600000 + 60000).toISOString())).toBe("5 HOURS LEFT");
     expect(formatCountdown(new Date(Date.now() + 1 * 3600000 + 60000).toISOString())).toBe("1 HOUR LEFT");
   });
 
   it("switches to days once 24 hours away, and pluralizes correctly", () => {
-    expect(formatCountdown(new Date(Date.now() + 2 * 86400000).toISOString())).toBe("2 DAYS LEFT");
+    // Same boundary-buffer reasoning as above.
+    expect(formatCountdown(new Date(Date.now() + 2 * 86400000 + 60000).toISOString())).toBe("2 DAYS LEFT");
     expect(formatCountdown(new Date(Date.now() + 1 * 86400000 + 60000).toISOString())).toBe("1 DAY LEFT");
   });
 });
