@@ -46,3 +46,8 @@ yarn-error.*
 
 # Playwright MCP test artifacts
 .playwright-mcp/
+
+# Stray verification screenshots dropped at repo root (e.g. by an explicit
+# page.screenshot({ path: '...' }) call) — real app assets live under
+# assets/, so this root-only rule (no /**) doesn't touch those.
+/*.png
