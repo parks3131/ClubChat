@@ -12,6 +12,14 @@ export default function ClubProfileStackLayout() {
         options={{ title: "Club Profile", headerLeft: makeBackHeaderLeft(router, `/clubs/${clubId}`) }}
       />
       <Stack.Screen name="edit" options={{ title: "Edit club", presentation: "modal" }} />
+      <Stack.Screen
+        name="members"
+        options={{ title: "Members", headerLeft: makeBackHeaderLeft(router, `/clubs/${clubId}/club-profile`) }}
+      />
+      <Stack.Screen
+        name="gallery"
+        options={{ title: "Gallery", headerLeft: makeBackHeaderLeft(router, `/clubs/${clubId}/club-profile`) }}
+      />
     </Stack>
   );
 }

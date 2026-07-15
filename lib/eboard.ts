@@ -87,6 +87,16 @@ export async function createEboardChannel(params: {
   return data;
 }
 
+// RLS: "eboard members can delete their channel" (0040_club_eboard_delete.sql)
+// — only existing members, mirroring every other Eboard management action
+// (add/decide rights already belong to existing members, not every club
+// admin). Cascades clean up membership/requests/meetings/polls/channel
+// automatically via existing FKs.
+export async function deleteEboardChannel(eboardChannelId: string) {
+  const { error } = await supabase.from("eboard_channels").delete().eq("id", eboardChannelId);
+  if (error) throw error;
+}
+
 export async function requestJoinEboardChannel(eboardChannelId: string): Promise<"joined" | "requested"> {
   const { data, error } = await supabase.rpc("request_join_eboard_channel", {
     target_eboard_channel_id: eboardChannelId,
@@ -169,6 +179,17 @@ export async function addEboardMember(eboardChannelId: string, userId: string) {
   const { error } = await supabase
     .from("eboard_channel_members")
     .insert({ eboard_channel_id: eboardChannelId, user_id: userId });
+  if (error) throw error;
+}
+
+// Self-removal is blocked at the RLS layer (0039_eboard_members_delete.sql),
+// not just hidden in the UI — see eboard/roster.tsx's isSelf guard.
+export async function removeEboardMember(eboardChannelId: string, userId: string) {
+  const { error } = await supabase
+    .from("eboard_channel_members")
+    .delete()
+    .eq("eboard_channel_id", eboardChannelId)
+    .eq("user_id", userId);
   if (error) throw error;
 }
 

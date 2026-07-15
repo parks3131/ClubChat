@@ -37,7 +37,6 @@ import {
 } from "../lib/messages";
 import { markChannelRead } from "../lib/notifications";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
-import { fetchProfile } from "../lib/profile";
 import { reportError } from "../lib/reportError";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
@@ -114,7 +113,6 @@ export default function ChatScreen({
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [viewerPhotoUrl, setViewerPhotoUrl] = useState<string | null>(null);
   const [reportedIds, setReportedIds] = useState<Set<string>>(new Set());
-  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null);
   const [dismissedPinnedIds, setDismissedPinnedIds] = useState<Set<string>>(new Set());
   const flatListRef = useRef<FlatList<DisplayMessage>>(null);
   // Set right before an older page is prepended, so onContentSizeChange
@@ -140,13 +138,6 @@ export default function ChatScreen({
     loop.start();
     return () => loop.stop();
   }, [pulseAnim]);
-
-  useEffect(() => {
-    if (!session) return;
-    fetchProfile(session.user.id)
-      .then((p) => setMyAvatarUrl(p.avatarUrl))
-      .catch(() => {});
-  }, [session]);
 
   const reload = useCallback(() => {
     // Merge, don't replace: replacing would drop any older page the user
@@ -525,11 +516,6 @@ export default function ChatScreen({
               <MaterialIcons name="bolt" size={16} color={colors.onPrimary} />
               <Text style={styles.highlightsButtonText}>Highlights</Text>
             </TouchableOpacity>
-            {myAvatarUrl ? (
-              <Image source={{ uri: myAvatarUrl }} style={styles.headerAvatar} />
-            ) : (
-              <View style={[styles.headerAvatar, styles.avatarPlaceholder]} />
-            )}
           </View>
         </View>
       </BlurView>
@@ -704,7 +690,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.unit + 2,
   },
   highlightsButtonText: { ...typography.labelSm, fontSize: 10, color: colors.onPrimary },
-  headerAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: "rgba(255,77,0,0.5)" },
   pinnedStrip: {
     position: "absolute",
     left: spacing.gutter,

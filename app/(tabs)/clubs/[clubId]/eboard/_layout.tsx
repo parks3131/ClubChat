@@ -85,7 +85,7 @@ export default function EboardLayout() {
     headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () =>
       channel ? (
-        <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/eboard/roster`)}>
+        <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/eboard/profile`)}>
           <Text style={titleStyle}>{title}</Text>
         </TouchableOpacity>
       ) : (
@@ -163,8 +163,16 @@ export default function EboardLayout() {
           }}
         />
         <Stack.Screen
+          name="profile"
+          options={{ ...headerOptions, title, headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`) }}
+        />
+        <Stack.Screen
           name="roster"
-          options={{ title: "Members", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`) }}
+          options={{ title: "Members", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/profile`) }}
+        />
+        <Stack.Screen
+          name="gallery"
+          options={{ title: "Gallery", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/profile`) }}
         />
       </Stack>
     </EboardContext.Provider>

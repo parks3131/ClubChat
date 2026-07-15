@@ -12,7 +12,7 @@ export default function RaceChatScreen() {
       memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${race.clubId}/race/${race.raceId}/highlights`}
       backFallback={`/clubs/${race.clubId}/race/${race.raceId}`}
-      titlePath={`/clubs/${race.clubId}/race/${race.raceId}/roster`}
+      titlePath={`/clubs/${race.clubId}/race/${race.raceId}/profile`}
     />
   );
 }

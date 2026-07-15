@@ -1,9 +1,11 @@
-import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Image, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Alert, Platform, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
-import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
+import MembersScreen, { type MembersScreenRow } from "../../../../../../components/MembersScreen";
+import { colors } from "../../../../../../constants/theme";
+import { useAuth } from "../../../../../../contexts/AuthProvider";
+import { fetchClubMembers, type ClubMemberRow } from "../../../../../../lib/members";
 import {
   addRaceMember,
   decideRaceJoinRequest,
@@ -13,7 +15,6 @@ import {
   searchClubMembersToAdd,
   type RaceJoinRequestRow,
   type RaceMemberRow,
-  type SearchedClubMember,
 } from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
@@ -31,31 +32,35 @@ function confirmAction(title: string, message: string): Promise<boolean> {
   });
 }
 
-// Mirrors club-profile/index.tsx's roster + pending-requests + add-member
-// sections, scoped to a race instead of the whole club — reached by
-// tapping the race name in the header, same "tap the name to manage
-// membership" pattern used everywhere else in the app.
+// Reached by tapping the race name in the header, same "tap the name to
+// manage membership" pattern used everywhere else. Admins section is
+// *implicit* — club admins have automatic race access without ever
+// getting a race_members row (SPEC's existing design) — so it's built
+// from the club roster, excluding anyone who also has a real
+// race_members row (the race creator gets auto-added there by
+// handle_new_race, which would otherwise render them twice).
 export default function RaceRosterScreen() {
   const race = useRace();
   const isAdmin = race.isAdmin;
+  const { session } = useAuth();
 
+  const [clubAdmins, setClubAdmins] = useState<ClubMemberRow[]>([]);
   const [members, setMembers] = useState<RaceMemberRow[]>([]);
   const [requests, setRequests] = useState<RaceJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
-  const [addQuery, setAddQuery] = useState("");
-  const [addResults, setAddResults] = useState<SearchedClubMember[]>([]);
-  const [addSearching, setAddSearching] = useState(false);
-
   const reload = useCallback(() => {
-    const loaders: Promise<unknown>[] = [fetchRaceMembers(race.raceId).then(setMembers)];
+    const loaders: Promise<unknown>[] = [
+      fetchClubMembers(race.clubId).then((rows) => setClubAdmins(rows.filter((r) => r.role === "admin"))),
+      fetchRaceMembers(race.raceId).then(setMembers),
+    ];
     if (isAdmin) {
       loaders.push(fetchPendingRaceRequests(race.raceId).then(setRequests));
     }
     return Promise.all(loaders);
-  }, [race.raceId, isAdmin]);
+  }, [race.raceId, race.clubId, isAdmin]);
 
   useFocusEffect(
     useCallback(() => {
@@ -77,31 +82,11 @@ export default function RaceRosterScreen() {
     }, [reload])
   );
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    const trimmed = addQuery.trim();
-    if (trimmed.length < 2) {
-      setAddResults([]);
-      return;
-    }
-    setAddSearching(true);
-    const timeout = setTimeout(() => {
-      searchClubMembersToAdd(
-        race.clubId,
-        trimmed,
-        members.map((m) => m.userId)
-      )
-        .then(setAddResults)
-        .catch(reportError)
-        .finally(() => setAddSearching(false));
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, [addQuery, isAdmin, race.clubId, members]);
-
-  const handleDecide = async (request: RaceJoinRequestRow, approve: boolean) => {
-    setBusyUserId(request.userId);
+  const handleDecide = async (requestId: string, approve: boolean) => {
+    const request = requests.find((r) => r.id === requestId);
+    setBusyUserId(request?.userId ?? null);
     try {
-      await decideRaceJoinRequest(request.id, approve);
+      await decideRaceJoinRequest(requestId, approve);
       await reload();
     } catch (err) {
       reportError(err);
@@ -110,12 +95,10 @@ export default function RaceRosterScreen() {
     }
   };
 
-  const handleAdd = async (user: SearchedClubMember) => {
-    setBusyUserId(user.id);
+  const handleAdd = async (userId: string) => {
+    setBusyUserId(userId);
     try {
-      await addRaceMember(race.raceId, user.id);
-      setAddQuery("");
-      setAddResults([]);
+      await addRaceMember(race.raceId, userId);
       await reload();
     } catch (err) {
       reportError(err);
@@ -124,12 +107,14 @@ export default function RaceRosterScreen() {
     }
   };
 
-  const handleRemove = async (member: RaceMemberRow) => {
+  const handleRemove = async (userId: string) => {
+    const member = members.find((m) => m.userId === userId);
+    if (!member) return;
     const proceed = await confirmAction("Remove member?", `Remove ${member.fullName} from this race?`);
     if (!proceed) return;
-    setBusyUserId(member.userId);
+    setBusyUserId(userId);
     try {
-      await removeRaceMember(race.raceId, member.userId);
+      await removeRaceMember(race.raceId, userId);
       await reload();
     } catch (err) {
       reportError(err);
@@ -137,6 +122,8 @@ export default function RaceRosterScreen() {
       setBusyUserId(null);
     }
   };
+
+  const handleSearch = (query: string) => searchClubMembersToAdd(race.clubId, query, members.map((m) => m.userId));
 
   if (loadError) {
     return <LoadError message="Couldn't load the roster." onRetry={reload} />;
@@ -144,160 +131,45 @@ export default function RaceRosterScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
+  const memberIds = new Set(members.map((m) => m.userId));
+
+  const adminRows: MembersScreenRow[] = clubAdmins
+    .filter((a) => !memberIds.has(a.userId))
+    .map((a) => ({
+      userId: a.userId,
+      fullName: a.fullName,
+      avatarUrl: a.avatarUrl,
+      isSelf: a.userId === session?.user.id,
+      removable: false,
+    }));
+
+  const memberRows: MembersScreenRow[] = members.map((m) => ({
+    userId: m.userId,
+    fullName: m.fullName,
+    avatarUrl: m.avatarUrl,
+    isSelf: m.userId === session?.user.id,
+    removable: isAdmin && m.userId !== session?.user.id,
+  }));
+
   return (
-    <FlatList
-      data={members}
-      keyExtractor={(item) => item.userId}
-      contentContainerStyle={styles.list}
-      ListHeaderComponent={
-        <View>
-          {isAdmin && (
-            <View style={styles.addSection}>
-              <Text style={styles.sectionTitle}>Add a member</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Search club members by name"
-                placeholderTextColor={colors.onSurfaceVariant}
-                autoCapitalize="none"
-                value={addQuery}
-                onChangeText={setAddQuery}
-              />
-              {addSearching && <ActivityIndicator style={{ marginTop: spacing.stackSm }} color={colors.primary} />}
-              {addResults.map((user) => (
-                <Pressable
-                  key={user.id}
-                  style={(state) => [styles.addResultRow, (state as { hovered?: boolean }).hovered && styles.addResultRowHovered]}
-                  onPress={() => handleAdd(user)}
-                  disabled={busyUserId === user.id}
-                >
-                  <Text style={styles.rowName}>{user.fullName}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          {isAdmin && requests.length > 0 && (
-            <View style={styles.requestsSection}>
-              <Text style={styles.sectionTitle}>Pending requests</Text>
-              {requests.map((r) => (
-                <View key={r.id} style={styles.requestRow}>
-                  <Text style={styles.rowName}>{r.fullName}</Text>
-                  <View style={styles.requestActions}>
-                    <TouchableOpacity
-                      style={[styles.iconActionButton, styles.denyIconButton]}
-                      onPress={() => handleDecide(r, false)}
-                      disabled={busyUserId === r.userId}
-                    >
-                      <MaterialIcons name="close" size={18} color={colors.onErrorContainer} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.iconActionButton, styles.approveIconButton]}
-                      onPress={() => handleDecide(r, true)}
-                      disabled={busyUserId === r.userId}
-                    >
-                      <MaterialIcons name="check" size={18} color={colors.onPrimary} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <Text style={styles.sectionTitle}>Members</Text>
-        </View>
-      }
-      renderItem={({ item }) => (
-        <View style={styles.memberRow}>
-          <View style={styles.memberInfo}>
-            {item.avatarUrl ? (
-              <Image source={{ uri: item.avatarUrl }} style={styles.memberAvatar} />
-            ) : (
-              <View style={[styles.memberAvatar, styles.avatarPlaceholder]}>
-                <Text style={styles.memberAvatarInitial}>{item.fullName.charAt(0).toUpperCase() || "?"}</Text>
-              </View>
-            )}
-            <Text style={styles.rowName}>{item.fullName}</Text>
-          </View>
-          {isAdmin && (
-            <TouchableOpacity
-              style={styles.iconTextButton}
-              onPress={() => handleRemove(item)}
-              disabled={busyUserId === item.userId}
-            >
-              <MaterialIcons name="person-remove" size={18} color={colors.error} />
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-      ListEmptyComponent={<Text style={styles.empty}>No members yet.</Text>}
+    <MembersScreen
+      adminRows={adminRows}
+      memberRows={memberRows}
+      requests={isAdmin ? requests.map((r) => ({ id: r.id, userId: r.userId, fullName: r.fullName })) : []}
+      canManage={isAdmin}
+      busyUserId={busyUserId}
+      onDecideRequest={handleDecide}
+      onRemove={handleRemove}
+      onSearch={handleSearch}
+      onAdd={handleAdd}
+      memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
+      addPlaceholder="Search club members by name"
     />
   );
 }
-
-const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: spacing.marginMobile, gap: spacing.stackSm, backgroundColor: colors.surface },
-  sectionTitle: { ...typography.statValue, fontSize: 15, color: colors.onSurface, marginTop: spacing.stackMd, marginBottom: spacing.stackSm },
-  addSection: { marginBottom: spacing.unit },
-  input: {
-    ...typography.bodyMd,
-    borderWidth: 2,
-    borderColor: colors.surfaceContainerHigh,
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    paddingHorizontal: spacing.gutter,
-    paddingVertical: spacing.stackSm,
-    color: colors.onSurface,
-  },
-  addResultRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
-    marginTop: spacing.stackSm,
-  },
-  addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
-  requestsSection: { marginBottom: spacing.unit },
-  requestRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.stackSm + 4,
-    marginBottom: spacing.stackSm,
-  },
-  requestActions: { flexDirection: "row", gap: spacing.stackSm },
-  iconActionButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  denyIconButton: { backgroundColor: colors.errorContainer },
-  approveIconButton: { backgroundColor: colors.primary },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.stackSm + 4,
-  },
-  memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm + 2 },
-  memberAvatar: { width: 36, height: 36, borderRadius: 18 },
-  avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
-  memberAvatarInitial: { ...typography.labelSm, fontSize: 15, color: colors.primary },
-  rowName: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
-  iconTextButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
-});

@@ -35,7 +35,7 @@ export default function EboardChatScreen() {
       memberPath={(userId) => `/clubs/${eboard.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${eboard.clubId}/eboard/highlights`}
       backFallback={`/clubs/${eboard.clubId}/eboard`}
-      titlePath={`/clubs/${eboard.clubId}/eboard/roster`}
+      titlePath={`/clubs/${eboard.clubId}/eboard/profile`}
     />
   );
 }

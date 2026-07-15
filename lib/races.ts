@@ -169,8 +169,31 @@ export async function addRaceMember(raceId: string, userId: string) {
   if (error) throw error;
 }
 
+// Also clears any Car Assignments & Groups membership — otherwise a
+// removed person keeps sitting in a car group (possibly still tagged
+// Incharge) despite losing all other race access. Ordered car-group-first:
+// if that delete fails, race access is left untouched rather than
+// half-revoked; if it succeeds but the race_members delete then fails, the
+// person is merely out of the car group early, not left with stale access.
+// The existing clear_incharge_on_member_removed trigger (0021) clears
+// incharge_user_id automatically if they were Incharge.
 export async function removeRaceMember(raceId: string, userId: string) {
+  const { error: carGroupError } = await supabase
+    .from("race_car_group_members")
+    .delete()
+    .eq("race_id", raceId)
+    .eq("user_id", userId);
+  if (carGroupError) throw carGroupError;
+
   const { error } = await supabase.from("race_members").delete().eq("race_id", raceId).eq("user_id", userId);
+  if (error) throw error;
+}
+
+// RLS: "admins can delete races" (0016_races.sql) — cascades clean up
+// channels/messages/race_members/race_join_requests/race_car_groups/polls
+// automatically via existing FKs, no extra cleanup needed here.
+export async function deleteRace(raceId: string) {
+  const { error } = await supabase.from("races").delete().eq("id", raceId);
   if (error) throw error;
 }
 

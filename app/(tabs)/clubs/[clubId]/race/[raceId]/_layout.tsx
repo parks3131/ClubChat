@@ -126,7 +126,7 @@ export default function RaceLayout() {
     headerShown: true,
     headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
-      <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/race/${race.raceId}/roster`)}>
+      <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/race/${race.raceId}/profile`)}>
         <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{race.name}</Text>
       </TouchableOpacity>
     ),
@@ -159,10 +159,18 @@ export default function RaceLayout() {
           }}
         />
         <Stack.Screen
+          name="profile"
+          options={{
+            ...raceScreenOptions,
+            title: race.name,
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+          }}
+        />
+        <Stack.Screen
           name="roster"
           options={{
             title: "Members",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/profile`),
           }}
         />
         <Stack.Screen
@@ -202,6 +210,13 @@ export default function RaceLayout() {
             ...raceScreenOptions,
             title: "Car Assignments & Groups",
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+          }}
+        />
+        <Stack.Screen
+          name="gallery"
+          options={{
+            title: "Gallery",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/profile`),
           }}
         />
       </Stack>

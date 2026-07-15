@@ -26,6 +26,7 @@ export interface ClubProfile {
   name: string;
   description: string | null;
   avatarUrl: string | null;
+  createdBy: string;
 }
 
 export async function fetchMyClubs(userId: string): Promise<ClubWithRole[]> {
@@ -106,12 +107,27 @@ export async function joinOrRequestClub(clubId: string): Promise<"joined" | "req
 export async function fetchClubProfile(clubId: string): Promise<ClubProfile> {
   const { data, error } = await supabase
     .from("clubs")
-    .select("id, name, description, avatar_url")
+    .select("id, name, description, avatar_url, created_by")
     .eq("id", clubId)
     .single();
 
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, avatarUrl: data.avatar_url };
+  return {
+    id: data.id,
+    name: data.name,
+    description: data.description,
+    avatarUrl: data.avatar_url,
+    createdBy: data.created_by,
+  };
+}
+
+// RLS: "creator can delete their club" (0040_club_eboard_delete.sql) —
+// only the original creator, not every admin, given the blast radius
+// (wipes chat history, members, races, Eboard, polls — everything, for
+// everyone, permanently, via existing on-delete-cascade FKs).
+export async function deleteClub(clubId: string) {
+  const { error } = await supabase.from("clubs").delete().eq("id", clubId);
+  if (error) throw error;
 }
 
 // Enforced by the existing "admins can update their club" RLS policy —

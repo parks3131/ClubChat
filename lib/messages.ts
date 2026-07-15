@@ -114,6 +114,35 @@ export async function fetchMessages(
   return attachSendersAndReactions(data ?? []);
 }
 
+export interface GalleryPhoto {
+  id: string;
+  photoUrl: string;
+  createdAt: string;
+}
+
+// Every photo ever sent in a channel, newest first — powers the Gallery
+// screen (club/race/Eboard). Reuses the same signPhotoUrls batching
+// sendMessage/fetchMessages already use for chat bubbles.
+export async function fetchChannelPhotos(channelId: string): Promise<GalleryPhoto[]> {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, media_url, created_at")
+    .eq("channel_id", channelId)
+    .eq("message_type", "photo")
+    .is("deleted_at", null)
+    .not("media_url", "is", null)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return [];
+
+  const signedByPath = await signPhotoUrls(data.map((m) => m.media_url as string));
+
+  return data
+    .map((m) => ({ id: m.id, photoUrl: signedByPath.get(m.media_url as string) ?? null, createdAt: m.created_at }))
+    .filter((p): p is GalleryPhoto => p.photoUrl !== null);
+}
+
 export async function sendMessage(params: {
   channelId: string;
   senderId: string;
