@@ -6,7 +6,7 @@
 -- application logic); ownership is transferable via a new RPC.
 --
 -- Permission matrix this migration implements (club-wide, not race/Eboard-
--- specific — those are handled separately below/in 0043):
+-- specific — those are handled separately below/in 0044):
 --   promote_to_admin        Owner or Admin -> promotes a Member to Admin
 --   demote_admin_to_member  Owner or Admin -> demotes an Admin to Member
 --   remove_member           Owner or Admin -> removes a Member outright
@@ -16,12 +16,10 @@
 --                                             the outgoing Owner becomes an
 --                                             Admin (confirmed default)
 --
--- club_role is a Postgres enum (not a text+check column), so adding the
--- new value needs `alter type ... add value`. Verified directly against
--- this project's local Postgres that a value added this way can be used
--- later in the *same* transaction (this migration runs as one), so no
--- multi-file split is needed for that reason alone.
-alter type public.club_role add value 'owner';
+-- club_role is a Postgres enum (not a text+check column); the new
+-- 'owner' value was added in 0042_club_role_owner_enum.sql, its own
+-- migration file — see that file's comment for why it couldn't just be
+-- the first statement here.
 
 -- Backfill: every existing club's creator becomes its Owner, regardless
 -- of their current role (not filtered to role = 'admin' — handle_new_club
@@ -197,10 +195,10 @@ create policy "club owner can remove eboard members"
 -- hard drop-dependency in Postgres — verified directly, dropping the
 -- callee first doesn't error either — this order is just clearer to a
 -- future reader. is_race_club_creator (also calls is_club_creator) is
--- dropped in 0043 alongside the race_members policy that used it, kept
+-- dropped in 0044 alongside the race_members policy that used it, kept
 -- local to that migration since it's a race-membership-model change; it's
 -- harmless for it to briefly reference an already-dropped function since
--- nothing calls it again before 0043 runs in the same deploy.
+-- nothing calls it again before 0044 runs in the same deploy.
 drop function public.is_eboard_club_creator(uuid);
 drop function public.is_club_creator(uuid);
 
@@ -216,10 +214,10 @@ drop function public.is_club_creator(uuid);
 -- sides of that transition already have/keep Eboard+race access.
 --
 -- This version also only syncs Eboard, not races — the "auto-join
--- upcoming races" behavior 0041 added is removed entirely by 0043, which
+-- upcoming races" behavior 0041 added is removed entirely by 0044, which
 -- reverses race-channel membership back to creator/admin-controlled, not
 -- automatic. Rewriting the whole function body once here (rather than
--- once now and again in 0043) avoids a pointless double edit.
+-- once now and again in 0044) avoids a pointless double edit.
 create or replace function public.handle_admin_role_membership_sync()
 returns trigger
 language plpgsql

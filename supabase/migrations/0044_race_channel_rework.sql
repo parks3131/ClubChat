@@ -10,7 +10,7 @@
 -- Management authority (approve/deny join requests, add/remove members
 -- after creation) stays "creator + any Admin/Owner" — which is already
 -- exactly what is_race_admin(race_id) (= is_club_admin(club_id), which
--- now includes Owner via 0042's redefinition) has always meant, since a
+-- now includes Owner via 0043's redefinition) has always meant, since a
 -- race can only be created by a club admin/owner in the first place. So
 -- request_join_race/decide_race_join_request and their policies need no
 -- changes at all — only chat *access* (is_channel_member/is_channel_admin)
@@ -78,7 +78,7 @@ $$;
 -- race member" vs "admins can remove non-admin race members") doesn't
 -- map to anything in the new spec — no "only the Owner can remove an
 -- admin from one race" rule was requested (unlike the club-wide
--- remove_admin rule in 0042), and race management authority is uniformly
+-- remove_admin rule in 0043), and race management authority is uniformly
 -- "creator + any Admin/Owner" per the founder's own answer.
 drop policy "admins can remove non-admin race members" on public.race_members;
 drop policy "club creator can remove any race member" on public.race_members;

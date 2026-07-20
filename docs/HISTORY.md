@@ -3486,3 +3486,108 @@ _layout.tsx` guard from task #16, left unchanged.
 cleanly on top of all 40 prior migrations (the local DB was already
 freshly emptied earlier in this same session, so a full reset was a
 safe, cheap way to pick up the new trigger/policy definitions).
+
+## Task 42: Owner/Admin/Member role hierarchy + race-channel membership rework
+
+A from-scratch founder spec, delivered as a structured brief (role
+hierarchy, a permission table for promote/demote/remove/remove-admin/
+transfer-ownership, and a description of the desired race-channel
+behavior) rather than a wireframe. Three genuinely open questions were
+called out by the founder in the brief itself; each was answered via
+`AskUserQuestion` with a recommended default before any code was
+written, and all three recommendations were accepted: outgoing Owner
+becomes Admin on transfer; `remove_admin` cleans up Eboard/race rows
+the same way demotion already did, and the pre-existing gap where
+`remove_member`/outright removal never cleaned those rows up at all
+got fixed alongside it; race-channel management authority (approve
+requests, add/remove people) is "creator + any Admin/Owner," not
+creator-only.
+
+See SPEC.md's migration changelog (0042/0043/0044) for the full design
+narrative — permission-matrix policies, the tier-aware Eboard-sync
+trigger rewrite, `transfer_ownership()`'s two-step demote-then-promote
+ordering, and the race-channel access model (`is_race_member` required
+for chat even for the Owner, `is_race_admin` for management authority).
+Two things worth recording here specifically:
+
+**Verification went well beyond `tsc`/`npm test`, and caught real bugs
+before they ever touched a real database.** Before writing any RLS
+policy, two things were verified directly against a scratch Postgres
+instance rather than assumed: whether a newly-added enum value could be
+used later in the same transaction (yes, when the enum type itself was
+also created fresh in that transaction — see the caveat below), and
+whether `ON DELETE CASCADE` respects RLS on the child table (it
+doesn't — a row a restrictive policy blocks from *direct* deletion is
+still genuinely removed, not orphaned, when removed via cascade from
+the parent). That second finding simplified the Delete Club design
+considerably — no RPC-wrapping needed for the Owner's own
+`club_members` row to survive a club-wide cascade delete. Separately,
+full RLS-impersonation testing (`set local role authenticated` +
+`set local request.jwt.claim.sub`) against a `pg_dump`-restored copy of
+the actual local dev data — not a fabricated fixture — exercised every
+branch of the permission matrix and the full race request/approve flow
+before either migration touched the real DB, and caught two real bugs
+this way: `request_join_race` still short-circuited to `'joined'` for
+any club Admin/Owner without ever inserting a real `race_members` row
+(silently correct under the old auto-access model, silently *wrong*
+under the new one — a manager's own join request would no-op instead
+of filing); and `is_user_race_participant` (backs Car Assignment group
+membership from task #19) still let any club admin be assigned to a
+car group for a race they'd never actually joined, the same stale
+"admins have automatic race access" assumption surfacing a third time
+in a place not originally in scope.
+
+**A second, later `supabase db reset` (run in a fresh session after
+this work had already been committed and pushed) failed outright** with
+`ERROR: unsafe use of new value "owner" of enum type club_role
+(SQLSTATE 55P04)`, on the very backfill statement immediately following
+`alter type club_role add value 'owner'` in what was then
+`0042_club_role_owner.sql`. The original verification of "a newly-added
+enum value can be used later in the same transaction" was real, but it
+tested the wrong scenario: a scratch test that also `CREATE TYPE`'d the
+enum fresh inside the same transaction before adding a value to it and
+using it — which Postgres allows — is not the same as adding a value to
+an *already-committed* enum type (`club_role` has existed since
+migration 0001) and using it later in that same transaction, which
+Postgres explicitly forbids via this exact error. The gap between the
+two only showed up because `supabase db reset` runs each migration file
+as a single transaction, whereas the *manual* apply path used earlier
+in the same original session (`docker exec ... psql -f`, per CLAUDE.md's
+own documented non-reset workflow) runs in autocommit-per-statement
+mode by default and never hit the restriction at all — so the bug was
+invisible on the exact path it was "verified" against, and only surfaced
+the first time the other, equally-supported deployment path was
+actually exercised. Fixed by splitting the single `alter type ... add
+value` statement into its own migration file
+(`0042_club_role_owner_enum.sql`), letting it commit on its own before
+anything else reads or writes rows using `'owner'` — the former
+`0042_club_role_owner.sql` and `0043_race_channel_rework.sql` were
+renumbered to `0043`/`0044` accordingly, with their few internal
+cross-references to each other's migration numbers updated to match.
+Re-ran `supabase db reset` end-to-end afterward to confirm all 44
+migrations now apply cleanly from scratch, not just re-applied the fix
+directly against the already-running local DB.
+
+**Lesson for future migrations that add an enum value**: always give
+`alter type ... add value` its own migration file, unconditionally —
+don't rely on "I tested it working in the same transaction," since
+that result depends entirely on whether the enum type was also created
+in that same transaction, which is almost never true for a value being
+added to a type that's existed since an early migration.
+
+### Verification
+
+`npx tsc --noEmit` and `npm test` both clean throughout. Verified via
+direct Postgres experimentation (not assumption) before writing RLS:
+`ALTER TYPE ... ADD VALUE` usable later in the same transaction when
+the enum is also new in that transaction; `ON DELETE CASCADE` bypasses
+RLS on the child table entirely. Verified via full RLS-impersonation
+testing against a `pg_dump`-restored copy of live data for every
+permission-matrix branch (promote/demote/remove-member/remove-admin-as-
+admin[blocked]/remove-admin-as-owner[allowed]/owner-can't-leave/
+transfer-ownership including correct Eboard sync and exactly one system
+message) and the full race request/approve/access flow. Verified live
+end-to-end via Playwright with 3 real accounts covering the same
+scenarios in the actual running app. After the migration-numbering fix,
+re-ran `supabase db reset` from a clean slate and confirmed all 44
+migrations apply without error.

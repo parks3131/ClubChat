@@ -1,0 +1,14 @@
+-- Split out of what's now 0043_club_role_owner.sql, into its own migration
+-- file, after a real `supabase db reset` failure: `alter type ... add
+-- value` cannot be used later in the *same* transaction when the enum
+-- type already existed before that transaction started (only safe when
+-- the enum itself was also created fresh in the same transaction — this
+-- restriction was verified against the wrong scenario the first time:
+-- `supabase db reset` runs each migration file as one transaction, unlike
+-- a plain `psql -f` apply, which is autocommit-per-statement and masked
+-- this). Postgres raises `unsafe use of new value "owner" of enum type
+-- club_role (SQLSTATE 55P04)` the moment a later statement in the same
+-- transaction tries to use it. Isolating the ADD VALUE in its own
+-- migration lets it commit on its own before 0043 (or anything else)
+-- reads/writes rows using 'owner'.
+alter type public.club_role add value 'owner';
