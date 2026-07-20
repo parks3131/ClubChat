@@ -166,7 +166,9 @@ export default function ProfileScreen() {
                 onPress={() => router.push(`/clubs/${club.id}?from=profile`)}
               >
                 <Text style={styles.clubChipText}>{club.name}</Text>
-                <Text style={styles.clubChipRole}>{club.role === "admin" ? "Admin" : "Member"}</Text>
+                <Text style={styles.clubChipRole}>
+                  {club.role === "owner" ? "Owner" : club.role === "admin" ? "Admin" : "Member"}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>

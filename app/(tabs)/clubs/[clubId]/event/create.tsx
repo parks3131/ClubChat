@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -10,10 +11,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type TextInputProps,
 } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
-import { combineToIso, splitIso } from "../../../../../lib/dates";
+import { combineToIso, isPastInstant, isSameInstant, splitIso } from "../../../../../lib/dates";
 import { createEvent, fetchEvent, updateEvent } from "../../../../../lib/calendar";
 import type { CalendarEventType } from "../../../../../types/database";
 import { useClub } from "../_layout";
@@ -25,6 +28,29 @@ const EVENT_TYPES: { value: CalendarEventType; label: string }[] = [
   { value: "volunteer", label: "Volunteer" },
   { value: "other", label: "Other" },
 ];
+
+// Kinetic-styled input: a 2px border that snaps to primary on focus, per
+// DESIGN.md's Components section ("the focus state should be a 2px
+// Energetic Orange ring") — the closest RN equivalent to the mockup's
+// CSS focus ring/glass-blur treatment.
+function KineticInput({ style, ...props }: TextInputProps) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      {...props}
+      style={[styles.input, focused && styles.inputFocused, style]}
+      placeholderTextColor={colors.outline + "80"}
+      onFocus={(e) => {
+        setFocused(true);
+        props.onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        props.onBlur?.(e);
+      }}
+    />
+  );
+}
 
 export default function CreateOrEditEventScreen() {
   const { clubId, eventId } = useLocalSearchParams<{ clubId: string; eventId?: string }>();
@@ -46,6 +72,11 @@ export default function CreateOrEditEventScreen() {
   const [startTime, setStartTime] = useState("");
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
+  // Original values as loaded, so editing a past event's title doesn't
+  // get blocked by its own already-past date — only actually changing a
+  // date to a past value (on create or edit) is rejected.
+  const [originalStartAt, setOriginalStartAt] = useState<string | null>(null);
+  const [originalEndAt, setOriginalEndAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEditing);
   const [loadError, setLoadError] = useState(false);
@@ -53,7 +84,7 @@ export default function CreateOrEditEventScreen() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       if (router.canGoBack()) {
         router.back();
       } else {
@@ -75,11 +106,13 @@ export default function CreateOrEditEventScreen() {
         const start = splitIso(existing.startAt);
         setStartDate(start.date);
         setStartTime(start.time);
+        setOriginalStartAt(existing.startAt);
         if (existing.endAt) {
           const end = splitIso(existing.endAt);
           setEndDate(end.date);
           setEndTime(end.time);
         }
+        setOriginalEndAt(existing.endAt ?? null);
         setLoadError(false);
       })
       .catch(() => setLoadError(true))
@@ -99,12 +132,20 @@ export default function CreateOrEditEventScreen() {
       setError("Start date/time must be YYYY-MM-DD and HH:MM.");
       return;
     }
+    if (isPastInstant(startAt) && !isSameInstant(startAt, originalStartAt)) {
+      setError("Start date/time can't be in the past.");
+      return;
+    }
 
     let endAt: string | null = null;
     if (endDate.trim() || endTime.trim()) {
       endAt = combineToIso(endDate.trim(), endTime.trim());
       if (!endAt) {
         setError("End date/time must be YYYY-MM-DD and HH:MM, or both left blank.");
+        return;
+      }
+      if (isPastInstant(endAt) && !isSameInstant(endAt, originalEndAt)) {
+        setError("End date/time can't be in the past.");
         return;
       }
     }
@@ -148,7 +189,7 @@ export default function CreateOrEditEventScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -156,72 +197,92 @@ export default function CreateOrEditEventScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>{isEditing ? "Edit event" : "New event"}</Text>
-
-        <View style={styles.typeRow}>
-          {EVENT_TYPES.map((t) => (
-            <TouchableOpacity
-              key={t.value}
-              style={[styles.typeChip, eventType === t.value && styles.typeChipActive]}
-              onPress={() => setEventType(t.value)}
-            >
-              <Text style={[styles.typeChipText, eventType === t.value && styles.typeChipTextActive]}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.titleWrap}>
+          <Text style={styles.title}>{isEditing ? "EDIT EVENT" : "NEW EVENT"}</Text>
+          <View style={styles.titleUnderline} />
         </View>
 
-        <TextInput style={styles.input} placeholder="Event title" value={title} onChangeText={setTitle} />
-        <TextInput style={styles.input} placeholder="Location" value={location} onChangeText={setLocation} />
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          placeholder="Description (optional)"
-          value={description}
-          onChangeText={setDescription}
-          multiline
-        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeRowScroll}>
+          <View style={styles.typeRow}>
+            {EVENT_TYPES.map((t) => (
+              <TouchableOpacity
+                key={t.value}
+                style={[styles.typeChip, eventType === t.value && styles.typeChipActive]}
+                onPress={() => setEventType(t.value)}
+              >
+                <Text style={[styles.typeChipText, eventType === t.value && styles.typeChipTextActive]}>
+                  {t.label.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
 
-        <Text style={styles.sectionLabel}>Starts</Text>
-        <View style={styles.dateTimeRow}>
-          <TextInput
-            style={[styles.input, styles.dateInput]}
-            placeholder="YYYY-MM-DD"
-            value={startDate}
-            onChangeText={setStartDate}
-          />
-          <TextInput
-            style={[styles.input, styles.timeInput]}
-            placeholder="HH:MM"
-            value={startTime}
-            onChangeText={setStartTime}
+        <View style={styles.field}>
+          <Text style={styles.label}>Event Title</Text>
+          <KineticInput placeholder="e.g. Morning Sprint Championship" value={title} onChangeText={setTitle} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Location</Text>
+          <View style={styles.inputIconWrap}>
+            <MaterialIcons name="location-on" size={20} color={colors.outline} style={styles.inputIcon} />
+            <KineticInput
+              style={styles.inputWithIcon}
+              placeholder="Where's it happening?"
+              value={location}
+              onChangeText={setLocation}
+            />
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Description</Text>
+          <KineticInput
+            style={styles.multiline}
+            placeholder="Tell the team what to bring, the schedule, and any requirements..."
+            value={description}
+            onChangeText={setDescription}
+            multiline
           />
         </View>
 
-        <Text style={styles.sectionLabel}>Ends (optional)</Text>
-        <View style={styles.dateTimeRow}>
-          <TextInput
-            style={[styles.input, styles.dateInput]}
-            placeholder="YYYY-MM-DD"
-            value={endDate}
-            onChangeText={setEndDate}
-          />
-          <TextInput
-            style={[styles.input, styles.timeInput]}
-            placeholder="HH:MM"
-            value={endTime}
-            onChangeText={setEndTime}
-          />
+        <View style={styles.scheduleCard}>
+          <Text style={styles.scheduleTitle}>SCHEDULE</Text>
+
+          <View style={styles.scheduleField}>
+            <Text style={styles.scheduleLabel}>Starts</Text>
+            <View style={styles.dateTimeRow}>
+              <KineticInput
+                style={[styles.dateInput]}
+                placeholder="YYYY-MM-DD"
+                value={startDate}
+                onChangeText={setStartDate}
+              />
+              <KineticInput style={[styles.timeInput]} placeholder="HH:MM" value={startTime} onChangeText={setStartTime} />
+            </View>
+          </View>
+
+          <View style={styles.scheduleField}>
+            <Text style={styles.scheduleLabel}>Ends (optional)</Text>
+            <View style={styles.dateTimeRow}>
+              <KineticInput style={[styles.dateInput]} placeholder="YYYY-MM-DD" value={endDate} onChangeText={setEndDate} />
+              <KineticInput style={[styles.timeInput]} placeholder="HH:MM" value={endTime} onChangeText={setEndTime} />
+            </View>
+          </View>
         </View>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <TouchableOpacity
-          style={[styles.button, saving && styles.buttonDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save event</Text>}
+        <TouchableOpacity style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
+          {saving ? (
+            <ActivityIndicator color={colors.onPrimary} />
+          ) : (
+            <>
+              <Text style={styles.buttonText}>SAVE EVENT</Text>
+              <MaterialIcons name="send" size={20} color={colors.onPrimary} />
+            </>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -229,29 +290,66 @@ export default function CreateOrEditEventScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, gap: 12 },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  content: { padding: spacing.marginMobile, gap: spacing.stackMd },
+  titleWrap: { gap: spacing.stackSm, marginBottom: spacing.unit },
+  title: { ...typography.displayXl, fontSize: 34, color: colors.onSurface, letterSpacing: 0 },
+  titleUnderline: { height: 4, width: 96, backgroundColor: colors.primary, borderRadius: radii.full },
+  typeRowScroll: { marginHorizontal: -spacing.marginMobile },
+  typeRow: { flexDirection: "row", gap: spacing.gutter, paddingHorizontal: spacing.marginMobile, paddingBottom: spacing.stackSm },
   typeChip: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.gutter + 8,
+    paddingVertical: spacing.stackSm,
+    backgroundColor: colors.surfaceContainerLowest,
   },
-  typeChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  typeChipText: { fontSize: 13, color: "#334155" },
-  typeChipTextActive: { color: "#fff", fontWeight: "600" },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 14, fontSize: 16 },
-  multiline: { height: 90, textAlignVertical: "top" },
-  sectionLabel: { fontSize: 13, fontWeight: "700", color: "#64748b", marginTop: 4 },
-  dateTimeRow: { flexDirection: "row", gap: 8 },
+  typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  typeChipText: { ...typography.labelSm, color: colors.onSurfaceVariant, letterSpacing: 1 },
+  typeChipTextActive: { color: colors.onPrimary },
+  field: { gap: spacing.unit },
+  label: { ...typography.labelSm, color: colors.primary, letterSpacing: 1 },
+  input: {
+    ...typography.bodyMd,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.gutter,
+    color: colors.onSurface,
+  },
+  inputFocused: { borderColor: colors.primary },
+  inputIconWrap: { position: "relative", justifyContent: "center" },
+  inputIcon: { position: "absolute", left: spacing.gutter, zIndex: 1 },
+  inputWithIcon: { paddingLeft: spacing.gutter + 28 },
+  multiline: { height: 120, textAlignVertical: "top" },
+  scheduleCard: {
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
+    gap: spacing.gutter,
+  },
+  scheduleTitle: { ...typography.headlineLgMobile, fontSize: 22, color: colors.onSurface },
+  scheduleField: { gap: spacing.stackSm },
+  scheduleLabel: { ...typography.labelSm, color: colors.onSurfaceVariant, letterSpacing: 1 },
+  dateTimeRow: { flexDirection: "row", gap: spacing.stackSm },
   dateInput: { flex: 2 },
   timeInput: { flex: 1 },
-  error: { color: "#dc2626", textAlign: "center" },
-  button: { backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
+  error: { ...typography.bodyMd, color: colors.error, textAlign: "center" },
+  button: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.primary,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.gutter,
+  },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  buttonText: { ...typography.statValue, color: colors.onPrimary, letterSpacing: 1 },
 });

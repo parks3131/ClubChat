@@ -15,6 +15,7 @@ import {
   type EboardMemberRow,
 } from "../../../../../lib/eboard";
 import { reportError } from "../../../../../lib/reportError";
+import { useClub } from "../_layout";
 import { useEboard } from "./_layout";
 
 // Mirrors club-profile/index.tsx's confirmAction — Alert.alert is a no-op
@@ -38,6 +39,7 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 // there's no separate "Members" tier to show.
 export default function EboardRosterScreen() {
   const eboard = useEboard();
+  const club = useClub();
   const canManage = eboard.channel?.isMember ?? false;
 
   const [members, setMembers] = useState<EboardMemberRow[]>([]);
@@ -132,12 +134,15 @@ export default function EboardRosterScreen() {
     );
   }
 
+  // Every eboard_channel_members row is already guaranteed to be a club
+  // admin (enforced by the insert policy), so removing anyone here is
+  // "kicking an admin out of the group" — creator-only (migration 0041).
   const adminRows: MembersScreenRow[] = members.map((m) => ({
     userId: m.userId,
     fullName: m.fullName,
     avatarUrl: m.avatarUrl,
     isSelf: m.userId === eboard.userId,
-    removable: canManage && m.userId !== eboard.userId,
+    removable: club.isCreator && m.userId !== eboard.userId,
   }));
 
   return (

@@ -64,6 +64,29 @@ export function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
+// "Can't create/schedule this in the past" guards, shared by every create
+// form that takes a date (events, races, Eboard meetings, routine
+// workouts). Two variants since some fields carry a time component
+// (compare the full instant against now) and some are date-only (compare
+// against today's local date key, so "today" is never rejected).
+export function isPastInstant(iso: string): boolean {
+  return new Date(iso).getTime() < Date.now();
+}
+
+export function isPastDateOnly(dateStr: string): boolean {
+  return dateStr < toDateKey(new Date());
+}
+
+// Compares two ISO instants by parsed value, not raw string — a
+// round-tripped Supabase timestamptz (e.g. "...+00:00") and a freshly
+// combineToIso'd string (always "...Z") represent the same instant but
+// are never string-equal, which would otherwise defeat an "unchanged
+// since load" edit-exemption check.
+export function isSameInstant(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return new Date(a).getTime() === new Date(b).getTime();
+}
+
 // The forward-looking mirror of timeAgo, for a poll's optional closes_at
 // deadline — the Stitch mockup's "2 DAYS LEFT" list-card badge. Enforcement
 // of the deadline itself lives server-side (is_poll_closed/cast_vote,

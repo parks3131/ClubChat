@@ -73,13 +73,18 @@ export interface RaceDetail {
   clubId: string;
   name: string;
   eventDate: string;
-  channelId: string;
+  // null when the caller can read the race row (any club member can) but
+  // isn't a real race_members participant — chat access requires an
+  // actual roster row now, not just club-admin status (race-channel
+  // rework). maybeSingle (not single) so that case returns 0 rows instead
+  // of throwing.
+  channelId: string | null;
 }
 
 export async function fetchRace(raceId: string): Promise<RaceDetail> {
   const [{ data: race, error: raceError }, { data: channel, error: channelError }] = await Promise.all([
     supabase.from("races").select("id, club_id, name, event_date").eq("id", raceId).single(),
-    supabase.from("channels").select("id").eq("race_id", raceId).single(),
+    supabase.from("channels").select("id").eq("race_id", raceId).maybeSingle(),
   ]);
 
   if (raceError) throw raceError;
@@ -90,7 +95,7 @@ export async function fetchRace(raceId: string): Promise<RaceDetail> {
     clubId: race.club_id,
     name: race.name,
     eventDate: race.event_date,
-    channelId: channel.id,
+    channelId: channel?.id ?? null,
   };
 }
 

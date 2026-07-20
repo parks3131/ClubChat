@@ -14,8 +14,16 @@ interface RaceContextValue {
   clubId: string;
   name: string;
   eventDate: string;
-  channelId: string;
-  isAdmin: boolean;
+  // null until isMember — see lib/races.ts's fetchRace.
+  channelId: string | null;
+  // Club Admin/Owner: race-management authority (approve/deny requests,
+  // add/remove members, edit meet info, pin/announce) — creator + any
+  // Admin/Owner, per the race-channel rework. No longer implies chat
+  // access on its own.
+  isManager: boolean;
+  // A real race_members row — required for chat/hub access. A manager
+  // who wasn't added still needs this to be true, same as anyone else.
+  isMember: boolean;
 }
 
 const RaceContext = createContext<RaceContextValue | undefined>(undefined);
@@ -27,11 +35,12 @@ export function useRace() {
 }
 
 // Mirrors [clubId]/_layout.tsx's shape: fetch race + this user's access
-// once, expose via context. A club admin always has access (no separate
-// "race admin" role — see migration 0016_races.sql); a regular member
-// needs an approved race_members row. Anyone without either is bounced
-// back to the races list rather than shown a locked/partial hub — the
-// list screen is where requesting access actually happens.
+// once, expose via context. Race-channel rework: a club Admin/Owner
+// (isManager) can always reach this Stack — to manage the roster, approve
+// requests, add people — but no longer gets chat/hub access for free; that
+// still requires a real race_members row (isMember), exactly like a plain
+// Member. Anyone with neither is bounced back to the races list, mirroring
+// eboard/_layout.tsx's "visible to managers, membership is separate" gate.
 export default function RaceLayout() {
   const { raceId } = useLocalSearchParams<{ raceId: string }>();
   const club = useClub();
@@ -49,34 +58,32 @@ export default function RaceLayout() {
 
     async function load() {
       try {
-        const isClubAdmin = club.role === "admin";
+        const isManager = club.isAdmin;
 
-        // Check membership *before* fetchRace, not alongside it — fetchRace
-        // reads the race's channel, which RLS blocks for a non-member/non-
-        // admin (is_channel_member fails), throwing rather than returning
-        // an empty result. Calling it in parallel with the membership check
-        // meant that throw happened before this function ever got to the
-        // "not authorized, redirect" branch, so an unauthorized visitor just
-        // saw a permanent spinner instead of being bounced to the races list.
-        if (!isClubAdmin) {
-          const membership = await supabase
-            .from("race_members")
-            .select("user_id")
-            .eq("race_id", raceId)
-            .eq("user_id", session!.user.id)
-            .maybeSingle();
+        // Always check the real roster row now, even for a manager — it
+        // no longer implies chat access. fetchRace's channel read is safe
+        // to call regardless (maybeSingle, resolves to a null channelId
+        // when RLS can't see it) rather than needing to be skipped/ordered
+        // around like the old admin-implies-access version required.
+        const membership = await supabase
+          .from("race_members")
+          .select("user_id")
+          .eq("race_id", raceId)
+          .eq("user_id", session!.user.id)
+          .maybeSingle();
 
-          if (cancelled) return;
+        if (cancelled) return;
 
-          if (membership.error) {
-            setLoadFailed(true);
-            return;
-          }
+        if (membership.error) {
+          setLoadFailed(true);
+          return;
+        }
 
-          if (!membership.data) {
-            setDenied(true);
-            return;
-          }
+        const isMember = !!membership.data;
+
+        if (!isManager && !isMember) {
+          setDenied(true);
+          return;
         }
 
         const raceDetail = await fetchRace(raceId);
@@ -88,7 +95,8 @@ export default function RaceLayout() {
           name: raceDetail.name,
           eventDate: raceDetail.eventDate,
           channelId: raceDetail.channelId,
-          isAdmin: isClubAdmin,
+          isManager,
+          isMember,
         });
       } catch {
         if (!cancelled) setLoadFailed(true);
@@ -99,7 +107,7 @@ export default function RaceLayout() {
     return () => {
       cancelled = true;
     };
-  }, [raceId, club.role, session, retryToken]);
+  }, [raceId, club.isAdmin, session, retryToken]);
 
   useEffect(() => {
     if (!denied) return;

@@ -1,4 +1,14 @@
-import { addDays, combineToIso, formatCountdown, getMonday, splitIso, toDateKey } from "./dates";
+import {
+  addDays,
+  combineToIso,
+  formatCountdown,
+  getMonday,
+  isPastDateOnly,
+  isPastInstant,
+  isSameInstant,
+  splitIso,
+  toDateKey,
+} from "./dates";
 
 describe("toDateKey", () => {
   it("formats a date as YYYY-MM-DD in local time", () => {
@@ -54,6 +64,48 @@ describe("splitIso / combineToIso", () => {
 
   it("combineToIso returns null for a malformed time", () => {
     expect(combineToIso("2026-03-05", "2:30pm")).toBeNull();
+  });
+});
+
+describe("isPastInstant", () => {
+  it("returns true for a timestamp already in the past", () => {
+    expect(isPastInstant(new Date(Date.now() - 60000).toISOString())).toBe(true);
+  });
+
+  it("returns false for a timestamp in the future", () => {
+    expect(isPastInstant(new Date(Date.now() + 60000).toISOString())).toBe(false);
+  });
+});
+
+describe("isPastDateOnly", () => {
+  it("returns true for yesterday", () => {
+    expect(isPastDateOnly(toDateKey(addDays(new Date(), -1)))).toBe(true);
+  });
+
+  it("returns false for today", () => {
+    expect(isPastDateOnly(toDateKey(new Date()))).toBe(false);
+  });
+
+  it("returns false for a future date", () => {
+    expect(isPastDateOnly(toDateKey(addDays(new Date(), 1)))).toBe(false);
+  });
+});
+
+describe("isSameInstant", () => {
+  it("treats a +00:00-offset string and a Z-suffixed string for the same instant as equal", () => {
+    // Mirrors a real round trip: Supabase/PostgREST returns timestamptz
+    // as "...+00:00", while combineToIso always produces "...Z".
+    expect(isSameInstant("2026-03-05T14:30:00+00:00", "2026-03-05T14:30:00.000Z")).toBe(true);
+  });
+
+  it("returns false for genuinely different instants", () => {
+    expect(isSameInstant("2026-03-05T14:30:00.000Z", "2026-03-05T15:30:00.000Z")).toBe(false);
+  });
+
+  it("treats two nulls as equal, and null vs a value as unequal", () => {
+    expect(isSameInstant(null, null)).toBe(true);
+    expect(isSameInstant(null, "2026-03-05T14:30:00.000Z")).toBe(false);
+    expect(isSameInstant("2026-03-05T14:30:00.000Z", null)).toBe(false);
   });
 });
 

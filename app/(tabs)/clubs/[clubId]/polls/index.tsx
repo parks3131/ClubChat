@@ -7,7 +7,7 @@ export default function ClubPollsListScreen() {
   return (
     <PollsListScreen
       scope={{ type: "club", clubId: club.clubId }}
-      canCreate={club.role === "admin"}
+      canCreate={club.isAdmin}
       createPath={`/clubs/${club.clubId}/polls/create`}
       pollPath={(pollId) => `/clubs/${club.clubId}/polls/${pollId}`}
     />

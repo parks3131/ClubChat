@@ -7,7 +7,7 @@ export default function ClubChatScreen() {
   return (
     <ChatScreen
       channelId={club.channelId}
-      isAdmin={club.role === "admin"}
+      isAdmin={club.isAdmin}
       placeholderName={club.name}
       memberPath={(userId) => `/clubs/${club.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${club.clubId}/highlights`}

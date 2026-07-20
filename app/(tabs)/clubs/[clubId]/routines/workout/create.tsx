@@ -15,6 +15,7 @@ import {
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
+import { isPastDateOnly } from "../../../../../../lib/dates";
 import { ACTIVITY_LABELS, createWorkout, fetchWorkout, updateWorkout } from "../../../../../../lib/routines";
 import type { RoutineActivityType } from "../../../../../../types/database";
 import { useClub } from "../../_layout";
@@ -37,7 +38,7 @@ export default function CreateOrEditWorkoutScreen() {
   }, [navigation, isEditing]);
 
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       if (router.canGoBack()) {
         router.back();
       } else {
@@ -78,6 +79,13 @@ export default function CreateOrEditWorkoutScreen() {
 
     if (!title.trim()) {
       setError("Title is required.");
+      return;
+    }
+    // workoutDate is only ever set here on create (seeded from the day
+    // card's `?date=` param and never resubmitted on edit — see
+    // updateWorkout below), so this only needs to guard the create path.
+    if (!isEditing && isPastDateOnly(workoutDate)) {
+      setError("Workout date can't be in the past.");
       return;
     }
 

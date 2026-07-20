@@ -4,7 +4,6 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
-import { fetchClubMembers } from "../../../../../../lib/members";
 import { deleteRace, fetchRaceMembers } from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
@@ -36,10 +35,9 @@ function formatEventDate(dateKey: string) {
 
 // Slim identity + menu screen for a race, mirroring club-profile/index.tsx
 // exactly — reached by tapping the race name anywhere in its header. The
-// Members count/preview combines both populations the Members screen
-// itself shows (implicit club admins + the real race_members roster,
-// deduped) so this row's number matches what you actually see after
-// tapping in.
+// Members preview is just the real race_members roster now — membership
+// is no longer implicit for club admins (race-channel rework), so there's
+// nothing else to merge in here anymore.
 export default function RaceProfileScreen() {
   const race = useRace();
   const router = useRouter();
@@ -50,19 +48,9 @@ export default function RaceProfileScreen() {
   const [deletingRace, setDeletingRace] = useState(false);
 
   const reload = useCallback(async () => {
-    const [clubMembers, raceMembers] = await Promise.all([
-      fetchClubMembers(race.clubId),
-      fetchRaceMembers(race.raceId),
-    ]);
-    const byId = new Map<string, { userId: string; fullName: string; avatarUrl: string | null }>();
-    for (const a of clubMembers.filter((m) => m.role === "admin")) {
-      byId.set(a.userId, { userId: a.userId, fullName: a.fullName, avatarUrl: a.avatarUrl });
-    }
-    for (const m of raceMembers) {
-      byId.set(m.userId, { userId: m.userId, fullName: m.fullName, avatarUrl: m.avatarUrl });
-    }
-    setPreview([...byId.values()]);
-  }, [race.clubId, race.raceId]);
+    const raceMembers = await fetchRaceMembers(race.raceId);
+    setPreview(raceMembers.map((m) => ({ userId: m.userId, fullName: m.fullName, avatarUrl: m.avatarUrl })));
+  }, [race.raceId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -155,7 +143,7 @@ export default function RaceProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {race.isAdmin && (
+      {race.isManager && (
         <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteRace} disabled={deletingRace}>
           {deletingRace ? (
             <ActivityIndicator size="small" color={colors.error} />

@@ -37,7 +37,7 @@ export default function RacesListScreen() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchRaces(club.clubId, club.role === "admin")
+    fetchRaces(club.clubId, club.isAdmin)
       .then((data) => {
         setRaces(data);
         setLoadError(false);
@@ -130,7 +130,7 @@ export default function RacesListScreen() {
         )}
       />
 
-      {club.role === "admin" && (
+      {club.isAdmin && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${club.clubId}/races/create`)}>
           <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>

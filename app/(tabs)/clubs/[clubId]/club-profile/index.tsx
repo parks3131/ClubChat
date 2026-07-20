@@ -34,7 +34,7 @@ export default function ClubProfileScreen() {
   const club = useClub();
   const router = useRouter();
   const { session } = useAuth();
-  const isAdmin = club.role === "admin";
+  const isAdmin = club.isAdmin;
 
   const [profile, setProfile] = useState<ClubProfile | null>(null);
   const [members, setMembers] = useState<ClubMemberRow[]>([]);

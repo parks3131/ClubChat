@@ -51,22 +51,22 @@ export default function EboardLayout() {
   }, [club.clubId, session]);
 
   useEffect(() => {
-    if (club.role === "admin") {
+    if (club.isAdmin) {
       load();
     }
   }, [club.role, load]);
 
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       router.replace(`/clubs/${club.clubId}`);
     }
   }, [club.role, club.clubId, router]);
 
-  if (club.role === "admin" && loadFailed) {
+  if (club.isAdmin && loadFailed) {
     return <LoadError message="Couldn't load Eboard & Council." onRetry={load} />;
   }
 
-  if (club.role !== "admin" || !loaded || !session) {
+  if (!club.isAdmin || !loaded || !session) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator />

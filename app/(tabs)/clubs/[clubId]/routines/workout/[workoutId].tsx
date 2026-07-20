@@ -100,7 +100,7 @@ export default function WorkoutDetailScreen() {
 
       {workout.description && <Text style={styles.description}>{workout.description}</Text>}
 
-      {club.role === "admin" && (
+      {club.isAdmin && (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.editButton}

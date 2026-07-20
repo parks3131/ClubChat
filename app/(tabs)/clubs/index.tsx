@@ -81,8 +81,8 @@ export default function ClubsListScreen() {
                 </View>
               </View>
               <View style={styles.clubRowRight}>
-                <Text style={[styles.roleBadge, item.role === "admin" ? styles.adminBadge : styles.memberBadge]}>
-                  {item.role === "admin" ? "Admin" : "Member"}
+                <Text style={[styles.roleBadge, item.role !== "member" ? styles.adminBadge : styles.memberBadge]}>
+                  {item.role === "owner" ? "Owner" : item.role === "admin" ? "Admin" : "Member"}
                 </Text>
                 <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
               </View>

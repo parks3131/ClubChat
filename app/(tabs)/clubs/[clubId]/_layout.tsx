@@ -14,6 +14,13 @@ interface ClubContextValue {
   name: string;
   inviteCode: string;
   role: ClubRole;
+  isCreator: boolean;
+  // Derived from role: "owner" | "admin" all count as admin-tier for the
+  // ~20 call sites across this app that used to compare role === "admin"
+  // directly — Owner is a strict superset of Admin for every permission
+  // except remove_admin/transfer_ownership, which check isOwner instead.
+  isAdmin: boolean;
+  isOwner: boolean;
 }
 
 const ClubContext = createContext<ClubContextValue | undefined>(undefined);
@@ -50,7 +57,7 @@ export default function ClubLayout() {
             .eq("club_id", clubId)
             .eq("user_id", session!.user.id)
             .single(),
-          supabase.from("clubs").select("name, invite_code").eq("id", clubId).single(),
+          supabase.from("clubs").select("name, invite_code, created_by").eq("id", clubId).single(),
           supabase
             .from("channels")
             .select("id")
@@ -73,6 +80,9 @@ export default function ClubLayout() {
           name: clubRow.name,
           inviteCode: clubRow.invite_code,
           role: membership.role,
+          isCreator: clubRow.created_by === session!.user.id,
+          isAdmin: membership.role === "admin" || membership.role === "owner",
+          isOwner: membership.role === "owner",
         });
       } catch {
         if (!cancelled) setLoadFailed(true);
@@ -106,7 +116,7 @@ export default function ClubLayout() {
       </TouchableOpacity>
     ),
     headerRight: () =>
-      club.role === "admin" ? (
+      club.isAdmin ? (
         <Text style={{ ...typography.labelSm, marginRight: 16, color: colors.primary, textTransform: "uppercase" as const }}>
           Invite: {club.inviteCode}
         </Text>

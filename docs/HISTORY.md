@@ -3334,3 +3334,155 @@ calendar card and confirmed it navigated to the correct poll detail
 screen for its scope. Test club, race, Eboard channel, and account fully
 cleaned up afterward, confirmed via a post-cleanup query that no rows
 were left behind.
+
+## Task 40: Eboard member removal + Delete Club/Race/Eboard
+
+Backfilled into this file (and into `SPEC.md`'s status table) during
+task #41's own migration-numbering review, which noticed `supabase/
+migrations/` already had `0039_eboard_members_delete.sql` and
+`0040_club_eboard_delete.sql` on disk with no corresponding SPEC.md/
+HISTORY.md entries — an earlier session shipped this work without
+updating either doc. This entry is reconstructed from the migration
+files and the `lib/` functions that consume them, not from a
+first-hand build narrative — there's no record of what live testing
+(if any) was done at the time.
+
+`0039_eboard_members_delete.sql` closes the same class of gap task #36
+found and fixed for `race_members` in `0037`: `eboard_channel_members`
+had insert/select policies since `0017_eboard.sql` but no delete policy
+at all, so there was no way to remove someone from the Eboard roster.
+The fix mirrors `0017`'s own asymmetry — removal rights belong to
+*existing eboard members*, not to every club admin — and blocks
+self-removal at the RLS layer itself (`user_id <> auth.uid()`), not
+just in the UI. (Task #41 below replaces this policy entirely with a
+creator-only rule.)
+
+`0040_club_eboard_delete.sql` adds two delete policies: Delete Club is
+restricted to `created_by = auth.uid()` — deliberately *not* "any
+admin," given deleting a club cascades away every member's chat
+history, races, Eboard, polls, and notifications, permanently, for
+everyone — and Delete Eboard channel is restricted to existing
+members, the same asymmetry `0039` uses. Race delete already existed
+(`0016`'s plain admin-only policy). The corresponding client entry
+points are `lib/clubs.ts`'s `deleteClub`, `lib/eboard.ts`'s
+`deleteEboardChannel`/`removeEboardMember`, and `lib/races.ts`'s
+`deleteRace`, plus whatever UI wired them up (not independently
+verified as part of this backfill).
+
+## Task 41: Admin auto-membership for Race/Eboard + calendar visibility
+
+A from-scratch founder request, not a wireframe: club admins should get
+*real*, visible, individually-removable membership in every Race and in
+Eboard & Council, not the implicit access (`is_club_admin`/`is_race_admin`
+checks, no roster row) every prior task had used. Specifically: (1)
+creating a race or the Eboard channel should add every *current* club
+admin, not just whoever clicked create; (2) promoting someone to admin
+should immediately add them to Eboard and to every upcoming race;
+(3) regular members still only get into a race by requesting or being
+added, unchanged; (4) the club "owner" should be able to kick an admin
+out of a race or out of Eboard; (5) a race should show up on the
+unified Calendar for every club member as soon as it's created, not
+just for members who already have access.
+
+Almost every clause above had a real open question hiding in it, so
+this was planned via `EnterPlanMode` rather than built directly. An
+`advisor` consult before drafting any `AskUserQuestion` caught two
+things worth recording: first, that "available in the calendar" was
+ambiguous between the plain Races & Meets list (already visible to
+every club member today, tagged Requested/Request-to-join) and the
+unified Calendar tab (`calendarFeed.ts`, which actually filtered a race
+out for anyone without access) — a scope question, not a design
+decision, and asking it the wrong way ("should we change the filter?")
+would have buried the real fork. Second, that "owner" in "owner should
+have the option to kick the admin out" was being quietly resolved to
+"any admin" by pointing at what existing RLS already permitted, rather
+than by asking what the founder actually meant — and `0040`'s own
+Delete Club policy (creator-only, argued for explicitly because of
+blast radius) was direct precedent that "kicking an admin out" might
+deserve the same restriction, not the default. Both went into
+`AskUserQuestion`, alongside two smaller but easy-to-get-wrong
+questions: whether demotion should auto-reverse the auto-add (yes,
+selected), and whether "upcoming" for the promotion sync means
+`event_date >= current_date` or strictly greater (inclusive of today,
+selected). Answers: unified Calendar tab; club creator only, not any
+admin; auto-remove on demotion; today counts as upcoming.
+
+**A real latent bug found while tracing the existing code, before
+writing any new SQL**: `handle_new_race()` (0016) and
+`handle_new_eboard_channel()` (0017) both inserted the membership row
+*before* creating the channel:
+```sql
+insert into public.race_members (race_id, user_id) values (new.id, new.created_by);
+insert into public.channels (club_id, race_id) values (new.club_id, new.id);
+```
+`log_race_member_added()`'s own body starts with `select id into
+target_channel from public.channels where race_id = new.race_id`, then
+returns early if that's null. At the moment the `race_members` insert's
+`AFTER INSERT` trigger fires, the channel insert on the next line
+hasn't run yet — so `target_channel` was always null, and the
+creator's own "joined" system message and "you were added" notification
+have silently never fired, for every race and every Eboard channel ever
+created. Harmless with a single row (nobody looks for a missing
+system message announcing that the creator joined their own race), but
+this task's whole point is bulk-inserting *every* current admin into
+that same statement — without the fix, every one of those newly
+auto-added admins would have silently gotten no confirmation at all.
+Fixed by flipping the two `insert` statements' order in both functions
+while re-creating them anyway (`create or replace function`, same
+technique `0016`/`0017`/`0032` each already used on these exact
+functions — no existing migration file touched).
+
+**Schema** (`0041_admin_race_eboard_membership_sync.sql`): three new
+`security definer` helpers — `is_club_creator`, `is_race_club_creator`,
+`is_eboard_club_creator` — mirroring the existing `is_club_admin`/
+`is_user_club_admin` shape. `handle_new_race`/`handle_new_eboard_channel`
+re-created a third/second time (channel-first ordering fix above, plus
+bulk-inserting every club admin via `insert ... select ... from
+club_members where role = 'admin'` instead of just `created_by`). A new,
+independent trigger `handle_admin_role_membership_sync` on `club_members`
+role changes (deliberately *not* merged into the existing, already-dense
+`log_member_role_changed` — a second `after update of role` trigger on
+the same table fires fine): promoting to admin inserts into
+`eboard_channel_members` (if a channel exists) and into `race_members`
+for every race with `event_date >= current_date`; demoting reverses
+both for upcoming races only, deleting `race_car_group_members` first
+(mirroring `lib/races.ts`'s `removeRaceMember`, since that table has no
+FK cascade back to `race_members` and would otherwise leave a stale,
+possibly-Incharge row behind) — past races are left completely alone,
+on purpose, so losing admin status doesn't rewrite history for
+something that already happened.
+
+Two RLS policies replaced (both `drop policy` + `create policy` in the
+new file, the same technique `0016_races.sql` already used on
+`channels`' select policy — no existing migration file edited).
+`race_members` DELETE forks into two permissive policies: any race
+admin can still remove a member who *isn't currently* a club admin
+(unchanged from `0037`), but removing a member who *is* a club admin is
+now `is_race_club_creator`-only. `eboard_channel_members` DELETE is a
+straight replacement of `0039`'s "any existing member" with
+"`is_eboard_club_creator` and not self" — since every eboard member is
+already guaranteed to be a club admin (enforced by `0017`'s own insert
+policy), there was never a "non-admin eboard member" case to preserve;
+this is a deliberate, founder-confirmed narrowing of `0039`'s original
+rule, not a bug fix.
+
+**Application code**: `[clubId]/_layout.tsx`'s `ClubContext` gained
+`isCreator` (now also selects `created_by` from `clubs`). Both roster
+screens (`race/[raceId]/roster.tsx`, `eboard/roster.tsx`) now gate
+`removable` on `club.isCreator` for any row that belongs to a current
+club admin, instead of on plain admin/eboard-member status — race's
+existing synthetic "implicit admin, no real row yet" section (built
+from club admins minus real `race_members` rows) was left untouched,
+since it still correctly covers an admin promoted with no upcoming
+races to auto-join. `lib/calendarFeed.ts` dropped its `r.access ===
+"none"` guard entirely, so every club member sees every race on the
+unified Calendar immediately — tapping through without access still
+redirects to the Races & Meets list via the existing `race/[raceId]/
+_layout.tsx` guard from task #16, left unchanged.
+
+### Verification
+
+`npx tsc --noEmit` clean. `supabase db reset` applied migration 0041
+cleanly on top of all 40 prior migrations (the local DB was already
+freshly emptied earlier in this same session, so a full reset was a
+safe, cheap way to pick up the new trigger/policy definitions).

@@ -24,7 +24,7 @@ export default function RacesStackLayout() {
       </TouchableOpacity>
     ),
     headerRight: () =>
-      club.role === "admin" ? (
+      club.isAdmin ? (
         <Text style={{ ...typography.labelSm, marginRight: 16, color: colors.primary, textTransform: "uppercase" as const }}>
           Invite: {club.inviteCode}
         </Text>

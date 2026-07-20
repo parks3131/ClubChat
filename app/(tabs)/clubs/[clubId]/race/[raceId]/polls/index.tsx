@@ -7,7 +7,7 @@ export default function RacePollsListScreen() {
   return (
     <PollsListScreen
       scope={{ type: "race", clubId: race.clubId, raceId: race.raceId }}
-      canCreate={race.isAdmin}
+      canCreate={race.isManager}
       createPath={`/clubs/${race.clubId}/race/${race.raceId}/polls/create`}
       pollPath={(pollId) => `/clubs/${race.clubId}/race/${race.raceId}/polls/${pollId}`}
     />

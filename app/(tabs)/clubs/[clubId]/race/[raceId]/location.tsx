@@ -205,7 +205,7 @@ export default function RaceLocationScreen() {
         )}
       </View>
 
-      {race.isAdmin && (
+      {race.isManager && (
         <TouchableOpacity style={styles.editButton} onPress={startEdit}>
           <Text style={styles.editButtonText}>Edit Info</Text>
         </TouchableOpacity>

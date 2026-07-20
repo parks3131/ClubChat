@@ -33,18 +33,18 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 }
 
 // Reached by tapping the race name in the header, same "tap the name to
-// manage membership" pattern used everywhere else. Admins section is
-// *implicit* — club admins have automatic race access without ever
-// getting a race_members row (SPEC's existing design) — so it's built
-// from the club roster, excluding anyone who also has a real
-// race_members row (the race creator gets auto-added there by
-// handle_new_race, which would otherwise render them twice).
+// manage membership" pattern used everywhere else. Membership is no
+// longer automatic for admins/owner (race-channel rework) — every row
+// shown here is a real race_members row, split into Managers/Members
+// purely by the underlying club role for display, not by whether they
+// were "auto-added." clubMemberRoles is just a role lookup, not a
+// separate implicit section.
 export default function RaceRosterScreen() {
   const race = useRace();
-  const isAdmin = race.isAdmin;
+  const isManager = race.isManager;
   const { session } = useAuth();
 
-  const [clubAdmins, setClubAdmins] = useState<ClubMemberRow[]>([]);
+  const [clubMemberRoles, setClubMemberRoles] = useState<ClubMemberRow[]>([]);
   const [members, setMembers] = useState<RaceMemberRow[]>([]);
   const [requests, setRequests] = useState<RaceJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,14 +53,14 @@ export default function RaceRosterScreen() {
 
   const reload = useCallback(() => {
     const loaders: Promise<unknown>[] = [
-      fetchClubMembers(race.clubId).then((rows) => setClubAdmins(rows.filter((r) => r.role === "admin"))),
+      fetchClubMembers(race.clubId).then(setClubMemberRoles),
       fetchRaceMembers(race.raceId).then(setMembers),
     ];
-    if (isAdmin) {
+    if (isManager) {
       loaders.push(fetchPendingRaceRequests(race.raceId).then(setRequests));
     }
     return Promise.all(loaders);
-  }, [race.raceId, race.clubId, isAdmin]);
+  }, [race.raceId, race.clubId, isManager]);
 
   useFocusEffect(
     useCallback(() => {
@@ -137,32 +137,32 @@ export default function RaceRosterScreen() {
     );
   }
 
-  const memberIds = new Set(members.map((m) => m.userId));
+  // Every row here is a real race_members insert — no more implicit
+  // "club admins have automatic access" rows. Split into Managers/Members
+  // purely for display, using each person's underlying club role.
+  const roleByUserId = new Map(clubMemberRoles.map((m) => [m.userId, m.role]));
+  const isRoleManager = (userId: string) => {
+    const role = roleByUserId.get(userId);
+    return role === "admin" || role === "owner";
+  };
 
-  const adminRows: MembersScreenRow[] = clubAdmins
-    .filter((a) => !memberIds.has(a.userId))
-    .map((a) => ({
-      userId: a.userId,
-      fullName: a.fullName,
-      avatarUrl: a.avatarUrl,
-      isSelf: a.userId === session?.user.id,
-      removable: false,
-    }));
-
-  const memberRows: MembersScreenRow[] = members.map((m) => ({
+  const toRow = (m: RaceMemberRow): MembersScreenRow => ({
     userId: m.userId,
     fullName: m.fullName,
     avatarUrl: m.avatarUrl,
     isSelf: m.userId === session?.user.id,
-    removable: isAdmin && m.userId !== session?.user.id,
-  }));
+    removable: isManager && m.userId !== session?.user.id,
+  });
+
+  const adminRows: MembersScreenRow[] = members.filter((m) => isRoleManager(m.userId)).map(toRow);
+  const memberRows: MembersScreenRow[] = members.filter((m) => !isRoleManager(m.userId)).map(toRow);
 
   return (
     <MembersScreen
       adminRows={adminRows}
       memberRows={memberRows}
-      requests={isAdmin ? requests.map((r) => ({ id: r.id, userId: r.userId, fullName: r.fullName })) : []}
-      canManage={isAdmin}
+      requests={isManager ? requests.map((r) => ({ id: r.id, userId: r.userId, fullName: r.fullName })) : []}
+      canManage={isManager}
       busyUserId={busyUserId}
       onDecideRequest={handleDecide}
       onRemove={handleRemove}

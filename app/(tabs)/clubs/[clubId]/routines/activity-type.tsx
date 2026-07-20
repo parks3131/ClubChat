@@ -10,7 +10,7 @@ export default function SelectActivityTypeScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       if (router.canGoBack()) {
         router.back();
       } else {

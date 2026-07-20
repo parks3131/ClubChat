@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 describe("fetchCalendarFeed", () => {
-  it("excludes races the caller has no access to", async () => {
+  it("includes every race regardless of access (only tapping through is access-gated)", async () => {
     mockFetchEvents.mockResolvedValue([]);
     mockFetchRaces.mockResolvedValue([
       { id: "r1", clubId: "club-1", name: "Visible Race", eventDate: "2026-05-01", access: "member", requestStatus: null },
@@ -58,7 +58,7 @@ describe("fetchCalendarFeed", () => {
 
     const feed = await fetchCalendarFeed("club-1", "user-1", false);
 
-    expect(feed.map((i) => i.title)).toEqual(["Visible Race"]);
+    expect(feed.map((i) => i.title)).toEqual(["Visible Race", "Hidden Race"]);
   });
 
   it("excludes eboard meetings when there is no eboard channel yet", async () => {
@@ -203,12 +203,12 @@ describe("fetchCalendarFeed", () => {
     const feed = await fetchCalendarFeed("club-1", "user-1", false);
     const polls = feed.filter((i) => i.kind === "poll");
 
-    // Hidden Race's polls were never even requested — same "no access, no
-    // read" rule as the race item itself.
-    expect(mockFetchPolls).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "race", raceId: "r2" }),
-      expect.anything()
-    );
+    // Every race's polls are requested now, including Hidden Race's — the
+    // race item itself is no longer access-gated on the calendar, and
+    // fetchPolls is called uniformly regardless (RLS enforces read access
+    // server-side; the mock above returns [] for r2 since no case matches
+    // raceId: "r2").
+    expect(mockFetchPolls).toHaveBeenCalledWith(expect.objectContaining({ type: "race", raceId: "r2" }), expect.anything());
 
     expect(polls.map((p) => p.title)).toEqual([
       "Club poll, manually closed", // dated by createdAt (2026-04-02) — closesAt null, earliest

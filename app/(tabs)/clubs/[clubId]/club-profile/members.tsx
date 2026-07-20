@@ -8,11 +8,13 @@ import { useAuth } from "../../../../../contexts/AuthProvider";
 import {
   addMember,
   decideJoinRequest,
+  demoteToMember,
   fetchClubMembers,
   fetchPendingRequests,
   promoteToAdmin,
   removeMember,
   searchUsersToAdd,
+  transferOwnership,
   type ClubMemberRow,
   type JoinRequestRow,
 } from "../../../../../lib/members";
@@ -35,7 +37,7 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 export default function ClubMembersScreen() {
   const club = useClub();
   const { session } = useAuth();
-  const isAdmin = club.role === "admin";
+  const isAdmin = club.isAdmin;
 
   const [members, setMembers] = useState<ClubMemberRow[]>([]);
   const [requests, setRequests] = useState<JoinRequestRow[]>([]);
@@ -103,6 +105,41 @@ export default function ClubMembersScreen() {
     }
   };
 
+  const handleDemote = async (userId: string) => {
+    const member = members.find((m) => m.userId === userId);
+    if (!member) return;
+    const proceed = await confirmAction("Demote to member?", `Demote ${member.fullName} to a regular member?`);
+    if (!proceed) return;
+    setBusyUserId(userId);
+    try {
+      await demoteToMember(club.clubId, userId);
+      await reload();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
+  const handleTransferOwnership = async (userId: string) => {
+    const member = members.find((m) => m.userId === userId);
+    if (!member) return;
+    const proceed = await confirmAction(
+      "Transfer ownership?",
+      `Make ${member.fullName} the owner of this club? You will become an admin.`
+    );
+    if (!proceed) return;
+    setBusyUserId(userId);
+    try {
+      await transferOwnership(club.clubId, userId);
+      await reload();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
   const handleDecide = async (requestId: string, approve: boolean) => {
     const request = requests.find((r) => r.id === requestId);
     setBusyUserId(request?.userId ?? null);
@@ -147,12 +184,20 @@ export default function ClubMembersScreen() {
     fullName: m.fullName,
     avatarUrl: m.avatarUrl,
     isSelf: m.userId === session?.user.id,
-    removable: isAdmin && m.userId !== session?.user.id,
-    canPromote: isAdmin && m.role !== "admin",
+    role: m.role,
+    // remove_member (Owner or Admin removes a Member) vs remove_admin
+    // (Owner only removes an Admin outright) — the Owner's own row is
+    // never removable through this UI at all (must transfer first).
+    removable:
+      m.userId !== session?.user.id &&
+      ((m.role === "member" && isAdmin) || (m.role === "admin" && club.isOwner)),
+    canPromote: isAdmin && m.role === "member",
+    canDemote: isAdmin && m.role === "admin",
+    canTransferOwnership: club.isOwner && m.role !== "owner" && m.userId !== session?.user.id,
   });
 
-  const adminRows = members.filter((m) => m.role === "admin").map(toRow);
-  const memberRows = members.filter((m) => m.role !== "admin").map(toRow);
+  const adminRows = members.filter((m) => m.role === "admin" || m.role === "owner").map(toRow);
+  const memberRows = members.filter((m) => m.role === "member").map(toRow);
 
   return (
     <MembersScreen
@@ -163,6 +208,8 @@ export default function ClubMembersScreen() {
       busyUserId={busyUserId}
       onDecideRequest={handleDecide}
       onPromote={handlePromote}
+      onDemote={handleDemote}
+      onTransferOwnership={handleTransferOwnership}
       onRemove={handleRemove}
       onSearch={handleSearch}
       onAdd={handleAdd}

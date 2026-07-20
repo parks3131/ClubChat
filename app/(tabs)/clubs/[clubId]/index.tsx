@@ -86,7 +86,7 @@ export default function ClubHubScreen() {
             <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
           </TouchableOpacity>
         ))}
-        {club.role === "admin" &&
+        {club.isAdmin &&
           ADMIN_SECTIONS.map((section) => (
             <TouchableOpacity
               key={section.key}

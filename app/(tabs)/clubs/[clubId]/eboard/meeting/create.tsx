@@ -14,7 +14,7 @@ import {
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
-import { combineToIso, splitIso } from "../../../../../../lib/dates";
+import { combineToIso, isPastInstant, isSameInstant, splitIso } from "../../../../../../lib/dates";
 import { createMeeting, fetchMeeting, updateMeeting } from "../../../../../../lib/eboard";
 import { useEboard } from "../_layout";
 
@@ -35,6 +35,10 @@ export default function CreateOrEditMeetingScreen() {
   const [meetingLink, setMeetingLink] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  // As loaded, so editing a past meeting's title/link doesn't get blocked
+  // by its own already-past date — only actually changing the date to a
+  // past value is rejected.
+  const [originalMeetingAt, setOriginalMeetingAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isEditing);
   const [loadError, setLoadError] = useState(false);
@@ -68,6 +72,7 @@ export default function CreateOrEditMeetingScreen() {
         const split = splitIso(existing.meetingAt);
         setDate(split.date);
         setTime(split.time);
+        setOriginalMeetingAt(existing.meetingAt);
         setLoadError(false);
       })
       .catch(() => setLoadError(true))
@@ -85,6 +90,10 @@ export default function CreateOrEditMeetingScreen() {
     const meetingAt = combineToIso(date.trim(), time.trim());
     if (!meetingAt) {
       setError("Date/time must be YYYY-MM-DD and HH:MM.");
+      return;
+    }
+    if (isPastInstant(meetingAt) && !isSameInstant(meetingAt, originalMeetingAt)) {
+      setError("Date/time can't be in the past.");
       return;
     }
 

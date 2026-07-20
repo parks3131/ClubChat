@@ -2,7 +2,7 @@
 // exists, regenerate with:
 //   npx supabase gen types typescript --project-id <id> > types/database.ts
 
-export type ClubRole = "admin" | "member";
+export type ClubRole = "owner" | "admin" | "member";
 export type CalendarEventType = "race" | "practice" | "team_bonding" | "volunteer" | "other";
 export type MessageType = "text" | "photo" | "announcement" | "system";
 export type ClubJoinPolicy = "open" | "request";
@@ -515,6 +515,10 @@ export interface Database {
       };
       delete_account: {
         Args: Record<string, never>;
+        Returns: undefined;
+      };
+      transfer_ownership: {
+        Args: { target_club_id: string; new_owner_user_id: string };
         Returns: undefined;
       };
     };

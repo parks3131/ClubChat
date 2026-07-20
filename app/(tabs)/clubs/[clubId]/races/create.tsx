@@ -4,15 +4,18 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from "react-native";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
-import { createRace } from "../../../../../lib/races";
+import { isPastDateOnly } from "../../../../../lib/dates";
+import { addRaceMember, createRace, searchClubMembersToAdd, type SearchedClubMember } from "../../../../../lib/races";
 import { useClub } from "../_layout";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -27,15 +30,42 @@ export default function CreateRaceScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Initial-member picker: "the creator chooses which Admins and/or
+  // Members to add — either at creation time, or afterward" — this
+  // covers the at-creation-time half (afterward already exists via
+  // race/[raceId]/roster.tsx's own add-member search). Reuses the same
+  // pool searchClubMembersToAdd already exposes (every club member,
+  // including admins/owner), same as roster.tsx's add flow.
+  const [selected, setSelected] = useState<SearchedClubMember[]>([]);
+  const [addQuery, setAddQuery] = useState("");
+  const [addResults, setAddResults] = useState<SearchedClubMember[]>([]);
+  const [addSearching, setAddSearching] = useState(false);
+
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       if (router.canGoBack()) {
         router.back();
       } else {
         router.replace(`/clubs/${club.clubId}/races`);
       }
     }
-  }, [club.role, club.clubId, router]);
+  }, [club.isAdmin, club.clubId, router]);
+
+  useEffect(() => {
+    const trimmed = addQuery.trim();
+    if (trimmed.length < 2) {
+      setAddResults([]);
+      return;
+    }
+    setAddSearching(true);
+    const timeout = setTimeout(() => {
+      const excludeIds = [session?.user.id ?? "", ...selected.map((s) => s.id)];
+      searchClubMembersToAdd(club.clubId, trimmed, excludeIds)
+        .then(setAddResults)
+        .finally(() => setAddSearching(false));
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [addQuery, club.clubId, session, selected]);
 
   const handleSave = async () => {
     if (!session) return;
@@ -49,6 +79,10 @@ export default function CreateRaceScreen() {
       setError("Date must be YYYY-MM-DD.");
       return;
     }
+    if (isPastDateOnly(eventDate.trim())) {
+      setError("Date can't be in the past.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -58,6 +92,9 @@ export default function CreateRaceScreen() {
         eventDate: eventDate.trim(),
         createdBy: session.user.id,
       });
+      for (const person of selected) {
+        await addRaceMember(created.id, person.id);
+      }
       router.replace(`/clubs/${club.clubId}/race/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -90,6 +127,46 @@ export default function CreateRaceScreen() {
           onChangeText={setEventDate}
         />
 
+        <Text style={styles.label}>Add people (optional)</Text>
+        <Text style={styles.subtitle}>
+          Anyone not added here can request to join once the race is created — you'll always have access as the
+          creator.
+        </Text>
+        {selected.length > 0 && (
+          <View style={styles.chipRow}>
+            {selected.map((person) => (
+              <Pressable
+                key={person.id}
+                style={styles.chip}
+                onPress={() => setSelected((prev) => prev.filter((p) => p.id !== person.id))}
+              >
+                <Text style={styles.chipText}>{person.fullName} ✕</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        <TextInput
+          style={styles.input}
+          placeholder="Search by name"
+          placeholderTextColor={colors.onSurfaceVariant}
+          value={addQuery}
+          onChangeText={setAddQuery}
+        />
+        {addSearching && <ActivityIndicator style={{ marginTop: spacing.stackSm }} color={colors.primary} />}
+        {addResults.map((person) => (
+          <Pressable
+            key={person.id}
+            style={(state) => [styles.addResultRow, (state as { hovered?: boolean }).hovered && styles.addResultRowHovered]}
+            onPress={() => {
+              setSelected((prev) => [...prev, person]);
+              setAddQuery("");
+              setAddResults([]);
+            }}
+          >
+            <Text style={styles.addResultText}>{person.fullName}</Text>
+          </Pressable>
+        ))}
+
         {error && <Text style={styles.error}>{error}</Text>}
 
         <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
@@ -117,6 +194,23 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.stackSm + 6,
   },
   error: { color: colors.error, marginTop: spacing.stackSm },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.stackSm },
+  chip: {
+    backgroundColor: colors.primaryFixed,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm + 4,
+    paddingVertical: spacing.unit + 2,
+  },
+  chipText: { ...typography.labelSm, fontSize: 13, color: colors.primary, textTransform: "none" },
+  addResultRow: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+  },
+  addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
+  addResultText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
   saveButton: {
     backgroundColor: colors.primary,
     borderRadius: radii.full,

@@ -8,7 +8,7 @@ export default function ClubHighlightsScreen() {
     <HighlightsScreen
       channelId={club.channelId}
       memberPath={(userId) => `/clubs/${club.clubId}/member/${userId}`}
-      isAdmin={club.role === "admin"}
+      isAdmin={club.isAdmin}
       backFallback={`/clubs/${club.clubId}/chat`}
     />
   );

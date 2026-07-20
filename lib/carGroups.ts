@@ -109,20 +109,21 @@ export interface SearchedRaceParticipant {
 // race access without a race_members row — mirrors is_user_race_participant
 // in migration 0021. Excludes anyone already in *any* group for this
 // race, since a person can only belong to one car group per race.
+// clubId param dropped (race-channel rework) — car-group membership now
+// requires real race access, a club admin who never joined this race is
+// no longer eligible, so there's no more need to union in the club roster.
 export async function searchRaceParticipantsToAdd(
   raceId: string,
-  clubId: string,
   query: string,
   excludeIds: string[]
 ): Promise<SearchedRaceParticipant[]> {
-  const [{ data: memberRows, error: memberError }, { data: adminRows, error: adminError }] = await Promise.all([
-    supabase.from("race_members").select("user_id").eq("race_id", raceId),
-    supabase.from("club_members").select("user_id").eq("club_id", clubId).eq("role", "admin"),
-  ]);
+  const { data: memberRows, error: memberError } = await supabase
+    .from("race_members")
+    .select("user_id")
+    .eq("race_id", raceId);
   if (memberError) throw memberError;
-  if (adminError) throw adminError;
 
-  const participantIds = [...new Set([...(memberRows ?? []).map((m) => m.user_id), ...(adminRows ?? []).map((a) => a.user_id)])];
+  const participantIds = [...new Set((memberRows ?? []).map((m) => m.user_id))];
   if (participantIds.length === 0) return [];
 
   const { data: profiles, error: profilesError } = await supabase

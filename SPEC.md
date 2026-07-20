@@ -62,7 +62,10 @@ as a final layer.
 ```
 User (auth.users + profiles)
  └─ Club  (top-level container, has an invite_code + join_policy)
-     ├─ ClubMember (user_id, role: admin | member)
+     ├─ ClubMember (user_id, role: owner | admin | member — task #42;
+     │              exactly one owner per club at all times, enforced by
+     │              a DB-level unique index, transferable via a
+     │              transfer_ownership RPC)
      ├─ ClubJoinRequest (user_id, status: pending | approved | denied —
      │                   only used when join_policy = 'request')
      ├─ Channel (club-scoped by default; a race-scoped Channel has a
@@ -1117,6 +1120,201 @@ supabase/migrations/
                                  0036, since its own race branch hit the
                                  identical DISTINCT+UNION trap in this
                                  same migration.
+  0039_eboard_members_delete.sql   Task #40 — same class of gap as 0037:
+                                 eboard_channel_members had insert/select
+                                 policies since 0017_eboard.sql but no
+                                 delete policy at all. Adds a delete
+                                 policy scoped to existing eboard members
+                                 (mirrors 0017's own add/decide-request
+                                 asymmetry, not is_club_admin), self-
+                                 removal blocked at the RLS layer itself
+                                 (superseded by 0041 below — see task #41).
+  0040_club_eboard_delete.sql      Task #40 — Delete Club, creator-only
+                                 (`created_by = auth.uid()`, deliberately
+                                 not "any admin" given the blast radius —
+                                 cascades wipe chat/members/races/Eboard/
+                                 polls/notifications for every member,
+                                 permanently) + Delete Eboard channel,
+                                 existing-members-only (mirrors 0017's
+                                 asymmetry: club-admin status alone
+                                 doesn't grant Eboard rights). Race delete
+                                 already existed (0016's admin-only
+                                 policy); `lib/clubs.ts`'s `deleteClub` /
+                                 `lib/eboard.ts`'s `deleteEboardChannel` /
+                                 `lib/races.ts`'s `deleteRace` are the
+                                 corresponding client calls.
+  0041_admin_race_eboard_membership_sync.sql
+                                 Task #41 — founder follow-up tightening
+                                 admin access to Race/Eboard from implicit
+                                 (is_club_admin/is_race_admin checks, no
+                                 real roster row for most admins) to
+                                 explicit, individually-manageable
+                                 membership. `handle_new_race`/
+                                 `handle_new_eboard_channel` (0016/0017)
+                                 re-created a third/second time to
+                                 bulk-add *every* current club admin, not
+                                 just created_by — and, found while
+                                 tracing this, fixed a latent ordering bug
+                                 where the channel was created *after* the
+                                 members insert, so `log_race_member_added`
+                                 /`log_eboard_member_added`'s own channel
+                                 lookup always found nothing and silently
+                                 skipped the "joined" system message +
+                                 notification for whichever rows were
+                                 inserted here (harmless with one row, the
+                                 creator; would have swallowed every newly
+                                 auto-added admin's notification
+                                 otherwise). New trigger
+                                 `handle_admin_role_membership_sync` on
+                                 `club_members` role changes: promoting to
+                                 admin auto-joins Eboard (if it exists)
+                                 and every *upcoming* race
+                                 (`event_date >= current_date`); demoting
+                                 reverses both for upcoming races only —
+                                 past races are left untouched. New
+                                 `is_club_creator`/`is_race_club_creator`/
+                                 `is_eboard_club_creator` helpers back two
+                                 replaced DELETE policies: removing a
+                                 *non-admin* race member is still any-
+                                 admin (unchanged), but removing an
+                                 *admin* from a race, or removing anyone
+                                 from Eboard (every member there is
+                                 already guaranteed an admin), is now
+                                 creator-only — a deliberate narrowing of
+                                 0039's "any existing member" rule,
+                                 mirroring 0040's Delete Club precedent.
+                                 `lib/calendarFeed.ts`'s race branch lost
+                                 its `access !== "none"` filter, so every
+                                 club member sees a race on the unified
+                                 Calendar as soon as it's created (tapping
+                                 through without access still redirects to
+                                 the Races & Meets list, unchanged).
+  0042_club_role_owner.sql        Task #42 — introduces a real three-tier
+                                 role hierarchy, Owner > Admin > Member,
+                                 replacing the implicit, non-transferable
+                                 `clubs.created_by` "creator" concept 0040/
+                                 0041 leaned on for a few high-blast-radius
+                                 policies. `club_role` gains an `'owner'`
+                                 enum value (verified directly against
+                                 local Postgres that `alter type ... add
+                                 value` is usable later in the same
+                                 transaction/migration file); every club's
+                                 creator is backfilled to Owner, enforced
+                                 going forward by a partial unique index
+                                 (`one_owner_per_club`, one Owner per club
+                                 at the DB level, not just app logic).
+                                 `is_club_admin()` redefined to
+                                 `role in ('admin','owner')` — a one-line
+                                 change that makes Owner inherit every
+                                 existing admin-gated policy across the app
+                                 for free. New `transfer_ownership()` RPC
+                                 (security definer, mirrors
+                                 `decide_join_request`'s pattern): demotes
+                                 the caller to Admin *before* promoting the
+                                 target to Owner, since the unique index is
+                                 checked per-statement and the reverse order
+                                 would momentarily create two Owner rows.
+                                 `club_members` UPDATE/DELETE policies
+                                 rewritten into the full permission matrix
+                                 (promote/demote symmetric for Owner+Admin;
+                                 remove_member Owner+Admin; remove_admin
+                                 Owner-only; self-leave blocked for the
+                                 Owner specifically — an inferred safety
+                                 default, not explicitly requested, to
+                                 preserve "exactly one Owner"). `handle_
+                                 admin_role_membership_sync` (0041)
+                                 rewritten to compare admin-*tier*
+                                 membership (`role in ('admin','owner')`)
+                                 before/after instead of a binary
+                                 `role = 'admin'` check, so an ownership
+                                 transfer (owner↔admin) is correctly a
+                                 no-op for Eboard sync rather than looking
+                                 like a demotion+promotion; also drops this
+                                 function's race-sync half entirely (moved
+                                 to 0043 below — race membership stops
+                                 being automatic). New `club_members` AFTER
+                                 DELETE trigger closes a found-not-caused
+                                 gap: removing someone from the club
+                                 outright never cleaned up their race/
+                                 Eboard rows at all (only role *demotion*
+                                 was handled). `is_club_creator`/`is_
+                                 eboard_club_creator` dropped in favor of
+                                 `is_club_owner`/`is_eboard_club_owner` —
+                                 ownership is transferable now, so "the
+                                 original creator" is the wrong authority
+                                 for Delete Club / remove-from-Eboard.
+                                 Verified empirically (not just via `tsc`)
+                                 against a full pg_dump-restored copy of
+                                 live data, impersonating each role via
+                                 `set local role authenticated` +
+                                 `request.jwt.claim.sub`: promote/demote/
+                                 remove-member/remove-admin-as-admin
+                                 [blocked]/remove-admin-as-owner [allowed]/
+                                 owner-can't-leave/transfer-ownership (incl.
+                                 correct Eboard sync + exactly one system
+                                 message, not two) all behaved exactly as
+                                 designed before ever touching the real DB.
+  0043_race_channel_rework.sql    Task #42 — reverses 0041's race-related
+                                 auto-membership behavior (this was an
+                                 explicit founder request to replace, not
+                                 extend, that logic): `handle_new_race`
+                                 drops its bulk-add-every-admin block
+                                 (creator auto-add is unrelated, kept).
+                                 `is_channel_member`'s race branch becomes
+                                 `is_race_member(race_id)` only — a club
+                                 Admin/Owner no longer gets automatic chat
+                                 access without a real roster row, matching
+                                 "even the Owner must request or be added."
+                                 `is_channel_admin`'s race branch becomes
+                                 `is_race_member AND is_race_admin` (pin/
+                                 announce needs both). `race_members`
+                                 DELETE simplifies back to one policy (any
+                                 manager removes anyone) — 0041's owner-only
+                                 carve-out for races wasn't requested here
+                                 and only ever applied to the club-wide
+                                 `remove_admin` action. Race management
+                                 authority itself (approve requests, add/
+                                 remove members) barely changed — it was
+                                 already "any club Admin/Owner" via
+                                 `is_race_admin`, which is exactly what the
+                                 founder asked for. Two related latent bugs
+                                 caught live while testing this migration
+                                 against a copy of real data, both fixed in
+                                 the same file: `request_join_race` still
+                                 short-circuited to `'joined'` for any club
+                                 admin without ever inserting a real
+                                 `race_members` row (correct under the old
+                                 auto-access model, silently broken under
+                                 the new one — a manager's own join request
+                                 would no-op); and `is_user_race_participant`
+                                 (backs Car Assignment group membership,
+                                 0021) still let any club admin be assigned
+                                 to a car group for a race they'd never
+                                 actually joined, the same stale assumption
+                                 in a third place. `race/[raceId]/_layout.tsx`'s
+                                 `RaceContext` splits its old single
+                                 `isAdmin` into `isManager` (club Admin/
+                                 Owner, management authority) and `isMember`
+                                 (real roster row, required for chat/hub
+                                 access) — mirrors `eboard/_layout.tsx`'s
+                                 already-existing "visible to managers,
+                                 membership is separate" pattern exactly,
+                                 down to `index.tsx`'s branching and
+                                 `chat.tsx`/`highlights.tsx`/`gallery.tsx`'s
+                                 direct-URL member guards. `lib/races.ts`'s
+                                 `fetchRace` returns `channelId: string |
+                                 null` (`maybeSingle` not `single`) since a
+                                 manager who isn't a member can no longer
+                                 read the race's channel row at all.
+                                 Verified live end-to-end via Playwright
+                                 with three real accounts covering the
+                                 exact scenario the spec called out: an
+                                 Owner not added to a race sees "Request to
+                                 join" + a "Manage roster" entry point
+                                 (not the full hub), can approve *other*
+                                 people's requests without being a member
+                                 themself, and gets full chat access only
+                                 after their own request is approved.
 ```
 
 ## 5. Current status
@@ -1164,6 +1362,9 @@ supabase/migrations/
 | 37 | Header styling consistency fix — Routines/Polls/Races/Eboard/Race never got the "Kinetic Performance System" header treatment | ✅ Done — see task #37 in `docs/HISTORY.md`. Founder-reported: Eboard's header showed plain black text while the club hub's showed the orange Anton title. Root cause: task #34's header restyle (orange Anton title, `colors.surfaceContainerLow` background) was only ever applied to `[clubId]/_layout.tsx` — five sibling nested-stack layouts (`routines/_layout.tsx`, `polls/_layout.tsx`, `races/_layout.tsx`, `eboard/_layout.tsx`, `race/[raceId]/_layout.tsx`) each define their own header options and never inherited it. Two of them still had the literal pre-redesign `#2563eb` blue hardcoded for the invite-code text. Fixed all five to match the reference layout exactly. |
 | 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see task #38 in `docs/HISTORY.md`. Three founder asks bundled into one `EnterPlanMode` pass (advisor-reviewed before planning): apply a new "Stitch Poll" export's list/create-screen design using this app's own theme tokens, not its raw hex; add an optional poll deadline; and let a poll be created inside a Race or inside Eboard & Council, not just at the club level. 4 `AskUserQuestion` answers shaped the plan: relative duration chips (1 Day/3 Days/1 Week/Custom) over an absolute date field; auto-close computed live (`is_closed OR now() > closes_at`, no cron); Race polls admin-only / Eboard polls any-member (mirrors each scope's own existing pattern), close/delete stays creator-only everywhere; and each scope's Polls list is siloed, not merged with the club's. Schema: nullable `race_id`/`eboard_channel_id` on `polls` (`club_id` stays always-populated, mirrors `channels`), 3-way `can_access_poll`/INSERT-policy branches, `is_poll_closed` extended for the deadline (`0038_polls_scope_and_deadline.sql`). UI: extracted `components/PollsListScreen.tsx`/`PollDetailScreen.tsx`/`PollCreateScreen.tsx` (same reuse payoff as `ChatScreen`'s task #16 extraction) so Race/Eboard polls are thin wrapper routes, not forked copies. **Two real, freshly-discovered RLS bugs caught live during this task's own verification, both documented in the migration file for future sessions**: (1) the exact `SELECT DISTINCT ... UNION` → enum-cast trap from task #36 recurred in this task's own new code (`notify_poll_created`'s race branch) — same fix, same session, worth a second explicit callout since it repeated. (2) A genuinely new variant of SPEC.md section 6's chicken-and-egg gotcha: routing `polls`' own SELECT policy through `can_access_poll(id)` (a security-definer function that re-queries `polls` by id) caused `INSERT...RETURNING` to fail even though a plain `INSERT` and a manual follow-up `SELECT` both succeeded — a self-referential subquery back into the table being inserted into is materially riskier than an inline column-bound check, unlike the `is_channel_member`-inside-`channels`-SELECT-policy precedent this was modeled on (which, it turns out, has never actually been exercised through a client `.insert().select()` in this codebase). Fixed by writing the 3-way branch inline on the row's own columns instead of through the function. See section 6 below for the general lesson. |
 | 39 | Polls in the unified Calendar | ✅ Done — see task #39 in `docs/HISTORY.md`. Founder follow-up right after task #38 shipped: "if any poll is created, if the person is in the club, race, or eboard channel he should see it in the calendar." `lib/calendarFeed.ts`'s `fetchCalendarFeed` gained a 4th merged source — club polls (always), race polls (only for races the caller has access to, one `fetchPolls` call per accessible race), Eboard polls (only if a member) — reusing the exact same per-scope visibility rules already established for races/Eboard meetings, no new RLS. A poll has no fixed "when it happens" the way an event/race/meeting does, so a new `CalendarFeedItem.isOpen` field (computed via `lib/polls.ts`'s existing `isPollEffectivelyClosed`, not a fresh date compare) drives Upcoming/Past bucketing for poll items specifically — otherwise an open-ended poll with no deadline would flip to "Past" the instant its own `createdAt` (used as the sort/display date, via `closesAt ?? createdAt`) ticked past "now". Verified live end-to-end creating one poll in each of the 3 scopes through the actual UI (not seeded via SQL) and confirming all 3 appeared in Calendar correctly dated and ordered, each tapping through to the right poll detail screen. |
+| 40 | Eboard member removal + Delete Club/Race/Eboard | ✅ Done — migrations `0039_eboard_members_delete.sql`/`0040_club_eboard_delete.sql`. Closed the same class of gap task #36 found for `race_members` (insert/select policies since launch, no delete policy) on `eboard_channel_members`; added Delete Club (creator-only, given the cascade wipes every member's chat/races/Eboard/polls/notifications permanently — deliberately not "any admin") and Delete Eboard channel (existing-members-only, mirroring 0017's own asymmetry). `lib/clubs.ts`'s `deleteClub`, `lib/eboard.ts`'s `deleteEboardChannel`/`removeEboardMember`, `lib/races.ts`'s `deleteRace` are the client-side entry points. (Backfilled into this table during task #41's own migration-numbering review — shipped in an earlier session that didn't update SPEC.md at the time.) |
+| 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see task #41 in `docs/HISTORY.md`. Founder request tightening admin access from implicit (`is_club_admin` checks, no real roster row) to explicit: creating a race or the Eboard channel now adds *every* current club admin as a real, removable `race_members`/`eboard_channel_members` row (`handle_new_race`/`handle_new_eboard_channel` re-created again, also fixing a latent channel-creation-ordering bug that silently swallowed the "joined" system message/notification for those rows); promoting a member to admin immediately adds them to Eboard and every *upcoming* race, demoting reverses both (past races untouched); removing a non-admin race member is still any-admin, but removing an admin from a race, or removing anyone from Eboard, is now creator-only (`is_club_creator`/`is_race_club_creator`/`is_eboard_club_creator` helpers), mirroring task #40's Delete Club precedent — a deliberate narrowing of task #40's own `0039` "any existing member" rule. `lib/calendarFeed.ts` now shows every club member every race as soon as it's created, not just ones they already have access to. Planned via `EnterPlanMode` after an `advisor` consult flagged two under-specified points (which "calendar" the founder meant, and what "owner" meant for kick rights) that were then resolved via `AskUserQuestion` before any code was written — see section 6 lesson-style narrative in `docs/HISTORY.md` for the full ordering-bug discovery. |
+| 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — migrations `0042_club_role_owner.sql`/`0043_race_channel_rework.sql`. A from-scratch founder spec (explicit permission matrix: promote/demote symmetric for Owner+Admin, remove_member Owner+Admin, remove_admin/transfer_ownership Owner-only) planned via `EnterPlanMode` after resolving 3 open questions the founder flagged themselves via `AskUserQuestion` (outgoing-Owner-becomes-Admin, eBoard cleanup scope, race approval authority) — all three answers matched the recommended default. Real three-tier `club_role` enum (`owner`/`admin`/`member`), one Owner per club enforced by a DB-level partial unique index, `transfer_ownership()` RPC, and a client-wide `club.isAdmin`/`club.isOwner` derived-boolean refactor (~20 call sites that used to compare `role === "admin"` directly). Explicitly billed as replacing task #41's race-related auto-membership, not extending it: a club Admin/Owner no longer gets automatic race-chat access without a real `race_members` row — "even the Owner must request or be added," per the founder's own spec text — while race *management* authority (approve requests, add/remove members) stayed essentially unchanged, since it was already "any club Admin/Owner." Two verification techniques used well beyond `tsc`/`npm test`: (1) empirical Postgres experiments against a scratch DB before writing policy SQL, which reversed an initial wrong assumption (FK `ON DELETE CASCADE` turned out to bypass RLS on the child table entirely, verified directly rather than inferred, which simplified the Delete Club design); (2) full RLS-impersonation testing (`set local role authenticated` + `request.jwt.claim.sub`) against a `pg_dump`-restored copy of live data for every permission-matrix branch and the full race request/approve flow, before ever touching the real DB — caught two real bugs this way (`request_join_race` silently no-oping for a manager instead of filing a real request; `is_user_race_participant` still allowing car-group assignment without real race access) that a UI click-through alone likely wouldn't have surfaced. Confirmed again live end-to-end via Playwright with 3 real accounts after applying both migrations to the local dev DB: promote → demote → remove-admin (blocked as Admin, allowed as Owner) → transfer ownership (single system message, correct Eboard sync, no duplicate) → create a race → confirm the new Owner is *not* auto-added → sees "Request to join" + "Manage roster" (not the full hub) → requests → approved by the other Admin → full chat access granted. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 identified in a founder-requested audit, four are done (photo
@@ -1197,6 +1398,16 @@ scopes (#38, from a new "Stitch Poll" founder export). Polls is now
 structurally on par with Chat/Highlights — same 3-scope shape, same
 shared-component extraction — closing the gap where it had been the one
 remaining club-only-only feature among races/eboard/chat/highlights.
+Eboard member removal and Delete Club/Race/Eboard shipped next (#40),
+and admin membership in Race/Eboard moved from implicit access to real,
+auto-synced, individually-removable roster rows, with creator-only
+rights to remove an admin from either (#41). Most recently, task #42
+replaced the two-role `admin`/`member` system with a real Owner > Admin >
+Member hierarchy and an explicit permission matrix, and reversed #41's
+race auto-membership behavior back to creator/admin-controlled with a
+request-to-join flow — the "creator" authority #40/#41 leaned on
+(`clubs.created_by`) is now superseded by the transferable Owner role
+wherever it mattered (Delete Club, remove-from-Eboard).
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

@@ -310,8 +310,8 @@ export interface SearchedClubAdmin {
 }
 
 // The pool an existing eboard member can add directly: this club's own
-// admins (membership must always be a subset of club admins), matching
-// by name, minus whoever's already in.
+// admins and Owner (membership must always be a subset of admin-tier club
+// members), matching by name, minus whoever's already in.
 export async function searchClubAdminsToAdd(
   clubId: string,
   query: string,
@@ -321,7 +321,7 @@ export async function searchClubAdminsToAdd(
     .from("club_members")
     .select("user_id")
     .eq("club_id", clubId)
-    .eq("role", "admin");
+    .in("role", ["admin", "owner"]);
   if (error) throw error;
 
   const adminIds = (adminRows ?? []).map((m) => m.user_id);

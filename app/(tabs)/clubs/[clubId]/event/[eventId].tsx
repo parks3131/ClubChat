@@ -1,8 +1,10 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { deleteEvent, fetchEvent, type DisplayCalendarEvent } from "../../../../../lib/calendar";
 import { useClub } from "../_layout";
 
@@ -14,15 +16,16 @@ const TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+// Compact "AUG 24 • 08:30 AM" stat format, matching this app's existing
+// inline-formatter convention (calendar.tsx/routines/index.tsx etc. each
+// call toLocaleDateString(undefined, { month: "short" }) locally rather
+// than sharing a helper) — not the long-form sentence formatDateTime
+// produced before, which reads as body text, not a stat card value.
+function formatEventStat(iso: string) {
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
+  const timePart = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).toUpperCase();
+  return `${datePart} • ${timePart}`;
 }
 
 export default function EventDetailScreen() {
@@ -94,54 +97,69 @@ export default function EventDetailScreen() {
   if (loading || !event) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.typeBadge}>{TYPE_LABELS[event.eventType]}</Text>
-      <Text style={styles.title}>{event.title}</Text>
+      <Text style={styles.typeBadge}>{TYPE_LABELS[event.eventType].toUpperCase()}</Text>
+      <Text style={styles.title}>{event.title.toUpperCase()}</Text>
 
-      <View style={styles.infoRow}>
-        <Text style={styles.infoLabel}>Starts</Text>
-        <Text style={styles.infoValue}>{formatDateTime(event.startAt)}</Text>
+      <View style={styles.statGrid}>
+        <View style={styles.statCard}>
+          <View style={styles.statHeader}>
+            <MaterialIcons name="schedule" size={18} color={colors.primary} />
+            <Text style={styles.statLabel}>Starts</Text>
+          </View>
+          <Text style={styles.statValue}>{formatEventStat(event.startAt)}</Text>
+        </View>
+
+        {event.endAt && (
+          <View style={styles.statCard}>
+            <View style={styles.statHeader}>
+              <MaterialIcons name="schedule" size={18} color={colors.primary} />
+              <Text style={styles.statLabel}>Ends</Text>
+            </View>
+            <Text style={styles.statValue}>{formatEventStat(event.endAt)}</Text>
+          </View>
+        )}
+
+        {event.location && (
+          <View style={styles.statCard}>
+            <View style={styles.statHeader}>
+              <MaterialIcons name="location-on" size={18} color={colors.primary} />
+              <Text style={styles.statLabel}>Location</Text>
+            </View>
+            <Text style={styles.statValue}>{event.location.toUpperCase()}</Text>
+          </View>
+        )}
       </View>
-
-      {event.endAt && (
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Ends</Text>
-          <Text style={styles.infoValue}>{formatDateTime(event.endAt)}</Text>
-        </View>
-      )}
-
-      {event.location && (
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Location</Text>
-          <Text style={styles.infoValue}>{event.location}</Text>
-        </View>
-      )}
 
       {event.description && (
         <View style={styles.descriptionBlock}>
-          <Text style={styles.infoLabel}>Details</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionHeader}>Details</Text>
+            <View style={styles.sectionHeaderLine} />
+          </View>
           <Text style={styles.description}>{event.description}</Text>
         </View>
       )}
 
       <Text style={styles.creator}>Created by {event.createdByName}</Text>
 
-      {club.role === "admin" && (
+      {club.isAdmin && (
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.editButton}
             onPress={() => router.push(`/clubs/${clubId}/event/create?eventId=${eventId}`)}
           >
-            <Text style={styles.editButtonText}>Edit</Text>
+            <MaterialIcons name="edit" size={18} color={colors.onTertiaryContainer} />
+            <Text style={styles.editButtonText}>EDIT</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-            <Text style={styles.deleteButtonText}>Delete</Text>
+            <MaterialIcons name="delete" size={22} color={colors.onErrorContainer} />
           </TouchableOpacity>
         </View>
       )}
@@ -150,30 +168,57 @@ export default function EventDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, gap: 4 },
+  content: { padding: spacing.marginMobile, gap: spacing.stackSm },
   typeBadge: {
     alignSelf: "flex-start",
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#2563eb",
-    backgroundColor: "#dbeafe",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginBottom: 8,
+    ...typography.labelSm,
+    color: colors.onPrimaryContainer,
+    backgroundColor: colors.primaryContainer,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm - 2,
+    letterSpacing: 1,
+    marginBottom: spacing.stackSm,
   },
-  title: { fontSize: 24, fontWeight: "700", color: "#0f172a", marginBottom: 16 },
-  infoRow: { marginBottom: 12 },
-  infoLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", textTransform: "uppercase" },
-  infoValue: { fontSize: 16, color: "#0f172a", marginTop: 2 },
-  descriptionBlock: { marginTop: 4, marginBottom: 12 },
-  description: { fontSize: 15, color: "#334155", marginTop: 4, lineHeight: 21 },
-  creator: { fontSize: 13, color: "#94a3b8", marginTop: 12 },
-  actions: { flexDirection: "row", gap: 12, marginTop: 24 },
-  editButton: { flex: 1, backgroundColor: "#2563eb", borderRadius: 8, padding: 14, alignItems: "center" },
-  editButtonText: { color: "#fff", fontWeight: "600" },
-  deleteButton: { flex: 1, backgroundColor: "#fee2e2", borderRadius: 8, padding: 14, alignItems: "center" },
-  deleteButtonText: { color: "#dc2626", fontWeight: "600" },
+  title: { ...typography.displayXl, fontSize: 34, color: colors.onSurface, marginBottom: spacing.stackMd },
+  statGrid: { gap: spacing.stackSm, marginBottom: spacing.stackSm },
+  statCard: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
+    gap: spacing.stackSm,
+  },
+  statHeader: { flexDirection: "row", alignItems: "center", gap: spacing.unit + 2 },
+  statLabel: { ...typography.labelSm, color: colors.primary, letterSpacing: 1 },
+  statValue: { ...typography.statValue, color: colors.onSurface },
+  descriptionBlock: { marginTop: spacing.stackMd, marginBottom: spacing.stackSm },
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.gutter, marginBottom: spacing.stackSm },
+  sectionHeader: { ...typography.headlineLgMobile, fontSize: 20, color: colors.onSurfaceVariant },
+  sectionHeaderLine: { flex: 1, height: 2, backgroundColor: colors.outlineVariant, opacity: 0.5 },
+  description: { ...typography.bodyMd, color: colors.onSurface },
+  creator: { ...typography.labelSm, color: colors.outline, marginTop: spacing.stackMd, textTransform: "none" },
+  actions: { flexDirection: "row", gap: spacing.gutter, marginTop: spacing.stackMd },
+  editButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.tertiaryContainer,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
+  },
+  editButtonText: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onTertiaryContainer, letterSpacing: 1 },
+  deleteButton: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.errorContainer,
+    borderRadius: radii.lg,
+  },
 });

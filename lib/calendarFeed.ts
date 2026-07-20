@@ -96,9 +96,13 @@ export async function fetchCalendarFeed(
     });
   }
 
+  // Every club member sees every race on the calendar as soon as it's
+  // created (migration 0041 follow-up) — access level no longer gates
+  // calendar visibility, only what happens if they tap through without
+  // access (redirected to the Races & Meets list, per race/[raceId]/
+  // _layout.tsx's existing guard).
   const races = await fetchRaces(clubId, isClubAdmin);
   for (const r of races) {
-    if (r.access === "none") continue;
     items.push({
       id: `race:${r.id}`,
       kind: "race",

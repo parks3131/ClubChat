@@ -25,7 +25,7 @@ export default function EditClubProfileScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (club.role !== "admin") {
+    if (!club.isAdmin) {
       if (router.canGoBack()) router.back();
       else router.replace(`/clubs/${club.clubId}/club-profile`);
     }
@@ -72,7 +72,7 @@ export default function EditClubProfileScreen() {
     return <LoadError message="Couldn't load this club's profile." onRetry={() => setRetryToken((t) => t + 1)} />;
   }
 
-  if (loading || club.role !== "admin") {
+  if (loading || !club.isAdmin) {
     return <ActivityIndicator style={styles.centered} />;
   }
 

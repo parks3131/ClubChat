@@ -93,7 +93,7 @@ export default function RaceCarpoolScreen() {
     }
     setAddSearching(true);
     const timeout = setTimeout(() => {
-      searchRaceParticipantsToAdd(race.raceId, race.clubId, trimmed, allGroupedUserIds)
+      searchRaceParticipantsToAdd(race.raceId, trimmed, allGroupedUserIds)
         .then(setAddResults)
         .catch(reportError)
         .finally(() => setAddSearching(false));
@@ -207,7 +207,7 @@ export default function RaceCarpoolScreen() {
           <View style={styles.groupCard}>
             <View style={styles.groupHeader}>
               <Text style={styles.groupName}>{group.name}</Text>
-              {race.isAdmin && (
+              {race.isManager && (
                 <TouchableOpacity
                   disabled={busyKey === `deleteGroup:${group.id}`}
                   onPress={() => handleDeleteGroup(group)}
@@ -232,7 +232,7 @@ export default function RaceCarpoolScreen() {
                     <Text style={styles.memberName}>{member.fullName}</Text>
                     {isIncharge && <Text style={styles.inchargeBadge}>Incharge</Text>}
                   </View>
-                  {race.isAdmin && (
+                  {race.isManager && (
                     <View style={styles.memberActions}>
                       <TouchableOpacity
                         style={styles.smallButton}
@@ -255,7 +255,7 @@ export default function RaceCarpoolScreen() {
             })}
             {group.members.length === 0 && <Text style={styles.noMembers}>No members yet.</Text>}
 
-            {race.isAdmin && (
+            {race.isManager && (
               <View style={styles.addSection}>
                 <TouchableOpacity onPress={() => toggleAddMember(group.id)}>
                   <Text style={styles.addToggle}>{addingToGroupId === group.id ? "Cancel" : "+ Add member"}</Text>
@@ -288,7 +288,7 @@ export default function RaceCarpoolScreen() {
         )}
       />
 
-      {race.isAdmin && (
+      {race.isManager && (
         <TouchableOpacity style={styles.fab} disabled={creatingGroup} onPress={handleCreateGroup}>
           {creatingGroup ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.fabText}>+ Add Group</Text>}
         </TouchableOpacity>

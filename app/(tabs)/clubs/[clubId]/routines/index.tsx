@@ -123,7 +123,7 @@ export default function RoutinesWeekScreen() {
                 <Text style={styles.dayHeader}>
                   {DAY_LABELS_FULL[i]}, {formatDay(date)}
                 </Text>
-                {club.role === "admin" && (
+                {club.isAdmin && (
                   <TouchableOpacity
                     style={styles.addButton}
                     onPress={() => router.push(`/clubs/${club.clubId}/routines/activity-type?date=${dateKey}`)}

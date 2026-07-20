@@ -83,7 +83,7 @@ export default function ClubCalendarScreen() {
       if (!session) return;
       let cancelled = false;
       setLoading(true);
-      fetchCalendarFeed(club.clubId, session.user.id, club.role === "admin")
+      fetchCalendarFeed(club.clubId, session.user.id, club.isAdmin)
         .then((data) => {
           if (!cancelled) {
             setItems(data);
@@ -184,7 +184,7 @@ export default function ClubCalendarScreen() {
         )}
       />
 
-      {club.role === "admin" && (
+      {club.isAdmin && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${club.clubId}/event/create`)}>
           <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>

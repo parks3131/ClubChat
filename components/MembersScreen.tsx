@@ -27,6 +27,14 @@ export interface MembersScreenRow {
   // club-only — never set for race/Eboard rows (there's no promotion
   // concept once role comes from club membership).
   canPromote?: boolean;
+  // club-only — demote_admin_to_member is a distinct action from
+  // removable (which covers both remove_member and remove_admin outright).
+  canDemote?: boolean;
+  // Owner-only, club-only — hands the Owner role to this row's member.
+  canTransferOwnership?: boolean;
+  // Purely for the inline "Owner" badge next to their name — race/Eboard
+  // rows never set this, so they render no badge at all.
+  role?: "owner" | "admin" | "member";
 }
 
 export interface MembersScreenRequest {
@@ -43,6 +51,8 @@ interface MembersScreenProps {
   busyUserId: string | null;
   onDecideRequest?: (requestId: string, approve: boolean) => void;
   onPromote?: (userId: string) => void;
+  onDemote?: (userId: string) => void;
+  onTransferOwnership?: (userId: string) => void;
   onRemove: (userId: string) => void;
   onSearch: (query: string) => Promise<{ id: string; fullName: string }[]>;
   onAdd: (userId: string) => void;
@@ -63,6 +73,8 @@ export default function MembersScreen({
   busyUserId,
   onDecideRequest,
   onPromote,
+  onDemote,
+  onTransferOwnership,
   onRemove,
   onSearch,
   onAdd,
@@ -151,12 +163,13 @@ export default function MembersScreen({
                 )}
                 <Text style={styles.rowName}>
                   {item.fullName}
+                  {item.role === "owner" ? <Text style={styles.ownerTag}>  Owner</Text> : null}
                   {item.isSelf ? <Text style={styles.youTag}>  You</Text> : null}
                 </Text>
               </TouchableOpacity>
               {item.isSelf ? (
                 <MaterialIcons name="lock" size={18} color={colors.onSurfaceVariant + "60"} />
-              ) : item.removable ? (
+              ) : item.removable || item.canPromote || item.canDemote || item.canTransferOwnership ? (
                 <TouchableOpacity
                   style={styles.menuButton}
                   onPress={() => setMenuRow(item)}
@@ -263,6 +276,28 @@ export default function MembersScreen({
                 <Text style={styles.menuItemText}>Make Admin</Text>
               </TouchableOpacity>
             )}
+            {menuRow?.canDemote && onDemote && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  onDemote(menuRow.userId);
+                  setMenuRow(null);
+                }}
+              >
+                <Text style={styles.menuItemText}>Demote to Member</Text>
+              </TouchableOpacity>
+            )}
+            {menuRow?.canTransferOwnership && onTransferOwnership && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  onTransferOwnership(menuRow.userId);
+                  setMenuRow(null);
+                }}
+              >
+                <Text style={styles.menuItemText}>Make Owner</Text>
+              </TouchableOpacity>
+            )}
             {menuRow?.removable && (
               <TouchableOpacity
                 style={styles.menuItem}
@@ -323,6 +358,7 @@ const styles = StyleSheet.create({
   avatarInitial: { ...typography.labelSm, fontSize: 15, color: colors.primary },
   rowName: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
   youTag: { ...typography.labelSm, fontSize: 12, color: colors.onSurfaceVariant, textTransform: "none" },
+  ownerTag: { ...typography.labelSm, fontSize: 12, color: colors.primary, textTransform: "none" },
   menuButton: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   requestRow: {
     flexDirection: "row",
