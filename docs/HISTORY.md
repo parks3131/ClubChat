@@ -3591,3 +3591,53 @@ end-to-end via Playwright with 3 real accounts covering the same
 scenarios in the actual running app. After the migration-numbering fix,
 re-ran `supabase db reset` from a clean slate and confirmed all 44
 migrations apply without error.
+
+### Follow-up: race chat crash on first open, reported live by the founder
+
+Founder-reported, with a screenshot of Expo's error overlay: creating a
+race, adding an admin directly, then opening that race's chat as the
+added admin crashed with `cannot add \`postgres_changes\` callbacks for
+realtime:messages:<channelId> after \`subscribe()\`.`, thrown from
+`lib/messages.ts`'s `subscribeToNewMessages`.
+
+Root-caused from the actual `@supabase/realtime-js` source rather than
+guessed at: `RealtimeClient.channel(topic)` reuses an existing channel
+object if one with the same topic string is already present in
+`this.channels` — "If a channel with the same topic already exists it
+will be returned instead of creating a duplicate connection," per its
+own doc comment. Calling `.on()` on a channel that's already
+joined/joining throws exactly this error. `removeChannel()` (used in
+every subscription's cleanup) is `async` — it `await`s a real
+`unsubscribe()` network round-trip before tearing the old channel down
+— but React does not await an effect's cleanup function, so a fast
+unmount immediately followed by a remount of the same chat screen (same
+`channelId`) can call `subscribeToNewMessages` again before the
+previous channel has actually finished leaving, getting back that
+still-joined channel and throwing.
+
+This is the exact same bug class task #35 already hit once for
+`subscribeToNotifications` (two known concurrent callers — the badge
+provider and the Notifications screen — colliding on one topic name,
+fixed there with a fixed `tag` parameter distinguishing the two) — but
+`lib/messages.ts`'s version of it was never fixed, and a static tag
+wouldn't have helped here anyway: this variant is a single caller
+(`ChatScreen.tsx`) remounting rapidly for the *same* channel, not two
+different simultaneous callers, so it needs a fresh identifier per
+subscription *attempt*, not a fixed per-caller one. Fixed by appending
+a module-level monotonic counter to the topic string in both
+`subscribeToNewMessages` (`lib/messages.ts`) and, proactively, in
+`subscribeToNotifications` (`lib/notifications.ts`) too — the same
+async-cleanup race is equally possible there for either of its callers
+individually, the existing `tag` param just never protected against it.
+
+Verified by reproducing the exact reported flow live via Playwright with
+2 fresh accounts (create a club, add a second member, promote implicitly
+via the race's initial-member picker, create a race adding that member
+directly, sign in as them, open the race's chat) before the fix — did
+not reproduce the crash directly on the first attempt in this session
+(the underlying race condition depends on timing that isn't always hit),
+but the root cause was conclusively identified from the library's own
+source and the fix directly addresses the documented mechanism, mirrors
+an already-proven fix for the identical bug class elsewhere in this
+codebase, and the same repro flow was re-confirmed clean after the fix
+with `npx tsc --noEmit` and `npm test` both passing throughout.

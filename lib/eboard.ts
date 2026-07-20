@@ -6,6 +6,7 @@ export interface EboardChannel {
   clubId: string;
   name: string;
   description: string | null;
+  avatarUrl: string | null;
   channelId: string;
   isMember: boolean;
   requestStatus: JoinRequestStatus | null;
@@ -24,7 +25,7 @@ export interface EboardChannel {
 export async function fetchEboardChannel(clubId: string, userId: string): Promise<EboardChannel | null> {
   const { data: row, error } = await supabase
     .from("eboard_channels")
-    .select("id, club_id, name, description")
+    .select("id, club_id, name, description, avatar_url")
     .eq("club_id", clubId)
     .maybeSingle();
 
@@ -60,10 +61,44 @@ export async function fetchEboardChannel(clubId: string, userId: string): Promis
     clubId: row.club_id,
     name: row.name,
     description: row.description,
+    avatarUrl: row.avatar_url,
     channelId,
     isMember,
     requestStatus: (request?.status as JoinRequestStatus | undefined) ?? null,
   };
+}
+
+// Enforced by the "eboard members can update their channel" RLS policy
+// (0045_race_eboard_avatars.sql — eboard_channels never had an UPDATE
+// policy before that migration, a genuine gap, not a regression).
+export async function updateEboardProfile(eboardChannelId: string, params: { name: string; description: string }) {
+  const { error } = await supabase
+    .from("eboard_channels")
+    .update({ name: params.name, description: params.description || null })
+    .eq("id", eboardChannelId);
+  if (error) throw error;
+}
+
+export async function uploadEboardAvatar(eboardChannelId: string, fileUri: string, contentType: string): Promise<string> {
+  const response = await fetch(fileUri);
+  const blob = await response.blob();
+  const path = `${eboardChannelId}/avatar`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("eboard-avatars")
+    .upload(path, blob, { contentType, upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("eboard-avatars").getPublicUrl(path);
+  const publicUrl = `${data.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase
+    .from("eboard_channels")
+    .update({ avatar_url: publicUrl })
+    .eq("id", eboardChannelId);
+  if (updateError) throw updateError;
+
+  return publicUrl;
 }
 
 export async function createEboardChannel(params: {

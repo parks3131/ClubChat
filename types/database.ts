@@ -196,6 +196,7 @@ export interface Database {
           info_description: string | null;
           location_link: string | null;
           hotel_link: string | null;
+          avatar_url: string | null;
           created_by: string;
           created_at: string;
         };
@@ -244,6 +245,7 @@ export interface Database {
           club_id: string;
           name: string;
           description: string | null;
+          avatar_url: string | null;
           created_by: string;
           created_at: string;
         };

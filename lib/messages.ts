@@ -279,9 +279,24 @@ export async function toggleReaction(messageId: string, userId: string, emoji: s
   }
 }
 
+// A monotonic per-call suffix keeps each subscription's topic unique.
+// supabase.channel(topic) reuses an existing channel object for an
+// identical topic string, and `removeChannel()`'s cleanup is async
+// (unsubscribe() awaits a server round-trip before removing/tearing down
+// the old channel) — React's effect cleanup doesn't await it, so a fast
+// unmount+remount of the same chat screen (same channelId) can call this
+// again before the old channel has actually finished leaving, getting
+// back that still-"joined" channel and throwing "cannot add
+// postgres_changes callbacks ... after subscribe()". lib/notifications.ts
+// hit the same underlying issue (a fixed `tag` param there, since it only
+// ever has 2 known concurrent callers) — this needs a fresh id per call
+// instead, since the same single caller can remount rapidly for the same
+// channelId.
+let subscriptionCounter = 0;
+
 export function subscribeToNewMessages(channelId: string, onChange: () => void) {
   const subscription = supabase
-    .channel(`messages:${channelId}`)
+    .channel(`messages:${channelId}:${++subscriptionCounter}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "messages", filter: `channel_id=eq.${channelId}` },

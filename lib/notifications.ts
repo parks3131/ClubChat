@@ -141,10 +141,17 @@ export async function markChannelRead(channelId: string, userId: string): Promis
 // screen's full feed both subscribe for the same userId at once) —
 // supabase-js reuses an existing channel object for an identical topic,
 // and calling `.on()` on one that's already subscribed throws "cannot
-// add postgres_changes callbacks ... after subscribe()".
+// add postgres_changes callbacks ... after subscribe()". The `tag`
+// distinguishes those two known callers, but doesn't protect a single
+// caller against its own fast unmount+remount (removeChannel()'s cleanup
+// is async and React doesn't await it in an effect's cleanup) — see
+// lib/messages.ts's subscribeToNewMessages, which hit exactly that
+// variant live and added a per-call counter for it; append one here too.
+let subscriptionCounter = 0;
+
 export function subscribeToNotifications(userId: string, onChange: () => void, tag: string = "default") {
   const subscription = supabase
-    .channel(`notifications:${userId}:${tag}`)
+    .channel(`notifications:${userId}:${tag}:${++subscriptionCounter}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` },

@@ -30,6 +30,7 @@ export default function RaceChatScreen() {
       channelId={race.channelId}
       isAdmin={race.isManager}
       placeholderName={race.name}
+      avatarUrl={race.avatarUrl}
       memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${race.clubId}/race/${race.raceId}/highlights`}
       backFallback={`/clubs/${race.clubId}/race/${race.raceId}`}

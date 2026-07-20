@@ -1,14 +1,17 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
-import { deleteRace, fetchRaceMembers } from "../../../../../../lib/races";
+import { pickImageOnWeb } from "../../../../../../lib/pickImageOnWeb";
+import { deleteRace, fetchRaceMembers, fetchRaceProfile, uploadRaceAvatar, type RaceProfile } from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
 
 const AVATAR_STACK_SIZE = 4;
+const AVATAR_SIZE = 96;
 
 // Mirrors club-profile/index.tsx's confirmAction — Alert.alert is a no-op
 // on web (SPEC.md section 6), so a destructive action needs an explicit
@@ -42,13 +45,16 @@ export default function RaceProfileScreen() {
   const race = useRace();
   const router = useRouter();
 
+  const [profile, setProfile] = useState<RaceProfile | null>(null);
   const [preview, setPreview] = useState<{ userId: string; fullName: string; avatarUrl: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deletingRace, setDeletingRace] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const reload = useCallback(async () => {
-    const raceMembers = await fetchRaceMembers(race.raceId);
+    const [raceProfile, raceMembers] = await Promise.all([fetchRaceProfile(race.raceId), fetchRaceMembers(race.raceId)]);
+    setProfile(raceProfile);
     setPreview(raceMembers.map((m) => ({ userId: m.userId, fullName: m.fullName, avatarUrl: m.avatarUrl })));
   }, [race.raceId]);
 
@@ -72,6 +78,42 @@ export default function RaceProfileScreen() {
     }, [reload])
   );
 
+  const handleEditPic = async () => {
+    if (!race.isManager) return;
+
+    let asset: { uri: string; mimeType: string } | null;
+    if (Platform.OS === "web") {
+      asset = await pickImageOnWeb();
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        reportError(new Error("Photo library access is required to change the race picture."));
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      asset =
+        result.canceled || !result.assets?.[0]
+          ? null
+          : { uri: result.assets[0].uri, mimeType: result.assets[0].mimeType ?? "image/jpeg" };
+    }
+    if (!asset) return;
+
+    setUploadingAvatar(true);
+    try {
+      const avatarUrl = await uploadRaceAvatar(race.raceId, asset.uri, asset.mimeType);
+      setProfile((p) => (p ? { ...p, avatarUrl } : p));
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleDeleteRace = async () => {
     const proceed = await confirmAction(
       "Delete this race?",
@@ -92,7 +134,7 @@ export default function RaceProfileScreen() {
     return <LoadError message="Couldn't load this race." onRetry={reload} />;
   }
 
-  if (loading) {
+  if (loading || !profile) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={colors.primary} />
@@ -103,8 +145,33 @@ export default function RaceProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.identity}>
-        <Text style={styles.name}>{race.name.toUpperCase()}</Text>
-        <Text style={styles.date}>{formatEventDate(race.eventDate)}</Text>
+        <TouchableOpacity style={styles.avatarWrap} onPress={handleEditPic} disabled={!race.isManager || uploadingAvatar}>
+          {profile.avatarUrl ? (
+            <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Text style={styles.avatarInitial}>{profile.name.charAt(0).toUpperCase() || "?"}</Text>
+            </View>
+          )}
+          {race.isManager && (
+            <View style={styles.editPicButton}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color={colors.onPrimary} />
+              ) : (
+                <MaterialIcons name="edit" size={16} color={colors.onPrimary} />
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{profile.name.toUpperCase()}</Text>
+          {race.isManager && (
+            <TouchableOpacity onPress={() => router.push(`/clubs/${race.clubId}/race/${race.raceId}/edit`)}>
+              <MaterialIcons name="edit-square" size={18} color={colors.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.date}>{formatEventDate(profile.eventDate)}</Text>
       </View>
 
       <View style={styles.grid}>
@@ -159,7 +226,24 @@ export default function RaceProfileScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
-  identity: { alignItems: "center", marginBottom: spacing.stackLg },
+  identity: { alignItems: "center", marginBottom: spacing.stackLg, gap: spacing.stackSm },
+  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: radii.lg },
+  avatarInitial: { ...typography.headlineLg, fontSize: 32, color: colors.primary },
+  editPicButton: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surfaceContainerLowest,
+  },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
   name: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5, textAlign: "center" },
   date: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.unit },
   grid: { gap: spacing.stackSm },

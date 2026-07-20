@@ -9,6 +9,7 @@ export default function ClubChatScreen() {
       channelId={club.channelId}
       isAdmin={club.isAdmin}
       placeholderName={club.name}
+      avatarUrl={club.avatarUrl}
       memberPath={(userId) => `/clubs/${club.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${club.clubId}/highlights`}
       backFallback={`/clubs/${club.clubId}`}

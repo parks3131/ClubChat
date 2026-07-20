@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { createContext, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, typography } from "../../../../../../constants/theme";
@@ -24,6 +24,7 @@ interface RaceContextValue {
   // A real race_members row — required for chat/hub access. A manager
   // who wasn't added still needs this to be true, same as anyone else.
   isMember: boolean;
+  avatarUrl: string | null;
 }
 
 const RaceContext = createContext<RaceContextValue | undefined>(undefined);
@@ -97,6 +98,7 @@ export default function RaceLayout() {
           channelId: raceDetail.channelId,
           isManager,
           isMember,
+          avatarUrl: raceDetail.avatarUrl,
         });
       } catch {
         if (!cancelled) setLoadFailed(true);
@@ -134,7 +136,28 @@ export default function RaceLayout() {
     headerShown: true,
     headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
-      <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/race/${race.raceId}/profile`)}>
+      <TouchableOpacity
+        onPress={() => router.push(`/clubs/${club.clubId}/race/${race.raceId}/profile`)}
+        style={{ flexDirection: "row" as const, alignItems: "center", gap: 8 }}
+      >
+        {race.avatarUrl ? (
+          <Image source={{ uri: race.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+        ) : (
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.surfaceContainerHigh,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ ...typography.labelSm, fontSize: 16, color: colors.primary }}>
+              {race.name.charAt(0).toUpperCase() || "?"}
+            </Text>
+          </View>
+        )}
         <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{race.name}</Text>
       </TouchableOpacity>
     ),
@@ -172,6 +195,13 @@ export default function RaceLayout() {
             ...raceScreenOptions,
             title: race.name,
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+          }}
+        />
+        <Stack.Screen
+          name="edit"
+          options={{
+            title: "Edit Race",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/profile`),
           }}
         />
         <Stack.Screen

@@ -44,6 +44,11 @@ export interface MembersScreenRequest {
 }
 
 interface MembersScreenProps {
+  // Optional — only the main club Members screen passes this, splitting
+  // the Owner out into their own section instead of lumping them into
+  // Admins (which is what happens when this is left unset, e.g. race/
+  // Eboard rosters).
+  ownerRows?: MembersScreenRow[];
   adminRows: MembersScreenRow[];
   memberRows: MembersScreenRow[];
   requests?: MembersScreenRequest[];
@@ -56,6 +61,12 @@ interface MembersScreenProps {
   onRemove: (userId: string) => void;
   onSearch: (query: string) => Promise<{ id: string; fullName: string }[]>;
   onAdd: (userId: string) => void;
+  // Race-only: stages multiple search picks as removable chips before a
+  // single batch confirm, instead of adding one at a time and closing the
+  // search each tap. Club/Eboard rosters leave this unset and keep the
+  // original tap-to-add-immediately flow via onAdd above.
+  multiSelectAdd?: boolean;
+  onAddMultiple?: (userIds: string[]) => void;
   memberPath: (userId: string) => string;
   addPlaceholder: string;
   footer?: React.ReactNode;
@@ -66,6 +77,7 @@ function matchesQuery(row: MembersScreenRow, query: string) {
 }
 
 export default function MembersScreen({
+  ownerRows = [],
   adminRows,
   memberRows,
   requests = [],
@@ -78,6 +90,8 @@ export default function MembersScreen({
   onRemove,
   onSearch,
   onAdd,
+  multiSelectAdd = false,
+  onAddMultiple,
   memberPath,
   addPlaceholder,
   footer,
@@ -90,6 +104,8 @@ export default function MembersScreen({
   const [addQuery, setAddQuery] = useState("");
   const [addResults, setAddResults] = useState<{ id: string; fullName: string }[]>([]);
   const [addSearching, setAddSearching] = useState(false);
+  // multiSelectAdd only — people picked but not yet confirmed.
+  const [stagedAdds, setStagedAdds] = useState<{ id: string; fullName: string }[]>([]);
 
   useEffect(() => {
     if (!showAddSearch) return;
@@ -101,12 +117,22 @@ export default function MembersScreen({
     setAddSearching(true);
     const timeout = setTimeout(() => {
       onSearch(trimmed)
-        .then(setAddResults)
+        .then((results) => {
+          // Exclude anyone already staged — onSearch's own excludeIds
+          // (baked in by the caller) doesn't know about picks staged
+          // here that haven't been added yet.
+          const stagedIds = new Set(stagedAdds.map((s) => s.id));
+          setAddResults(results.filter((r) => !stagedIds.has(r.id)));
+        })
         .finally(() => setAddSearching(false));
     }, 300);
     return () => clearTimeout(timeout);
-  }, [addQuery, showAddSearch, onSearch]);
+  }, [addQuery, showAddSearch, onSearch, stagedAdds]);
 
+  const filteredOwners = useMemo(
+    () => (query.trim() ? ownerRows.filter((r) => matchesQuery(r, query)) : ownerRows),
+    [ownerRows, query]
+  );
   const filteredAdmins = useMemo(
     () => (query.trim() ? adminRows.filter((r) => matchesQuery(r, query)) : adminRows),
     [adminRows, query]
@@ -118,12 +144,32 @@ export default function MembersScreen({
 
   const sections = [
     ...(canManage && requests.length > 0 ? [{ title: "Pending requests", data: [], requests }] : []),
+    ...(filteredOwners.length > 0 ? [{ title: "Owner", data: filteredOwners }] : []),
     ...(filteredAdmins.length > 0 ? [{ title: "Admins", data: filteredAdmins }] : []),
     ...(filteredMembers.length > 0 ? [{ title: "Members", data: filteredMembers }] : []),
   ] as { title: string; data: MembersScreenRow[]; requests?: MembersScreenRequest[] }[];
 
   const handleAdd = (user: { id: string; fullName: string }) => {
+    if (multiSelectAdd) {
+      setStagedAdds((prev) => [...prev, user]);
+      setAddQuery("");
+      setAddResults([]);
+      return;
+    }
     onAdd(user.id);
+    setAddQuery("");
+    setAddResults([]);
+    setShowAddSearch(false);
+  };
+
+  const handleRemoveStaged = (userId: string) => {
+    setStagedAdds((prev) => prev.filter((s) => s.id !== userId));
+  };
+
+  const handleConfirmMultiAdd = () => {
+    if (stagedAdds.length === 0) return;
+    onAddMultiple?.(stagedAdds.map((s) => s.id));
+    setStagedAdds([]);
     setAddQuery("");
     setAddResults([]);
     setShowAddSearch(false);
@@ -163,7 +209,10 @@ export default function MembersScreen({
                 )}
                 <Text style={styles.rowName}>
                   {item.fullName}
-                  {item.role === "owner" ? <Text style={styles.ownerTag}>  Owner</Text> : null}
+                  {/* Redundant once there's a dedicated "Owner" section header for this row */}
+                  {item.role === "owner" && section.title !== "Owner" ? (
+                    <Text style={styles.ownerTag}>  Owner</Text>
+                  ) : null}
                   {item.isSelf ? <Text style={styles.youTag}>  You</Text> : null}
                 </Text>
               </TouchableOpacity>
@@ -217,6 +266,19 @@ export default function MembersScreen({
           <View>
             {canManage && showAddSearch && (
               <View style={styles.addSection}>
+                {multiSelectAdd && stagedAdds.length > 0 && (
+                  <View style={styles.stagedChipRow}>
+                    {stagedAdds.map((person) => (
+                      <Pressable
+                        key={person.id}
+                        style={styles.stagedChip}
+                        onPress={() => handleRemoveStaged(person.id)}
+                      >
+                        <Text style={styles.stagedChipText}>{person.fullName} ✕</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
                 <TextInput
                   style={styles.input}
                   placeholder={addPlaceholder}
@@ -236,6 +298,13 @@ export default function MembersScreen({
                     <Text style={styles.rowName}>{user.fullName}</Text>
                   </Pressable>
                 ))}
+                {multiSelectAdd && stagedAdds.length > 0 && (
+                  <TouchableOpacity style={styles.confirmAddButton} onPress={handleConfirmMultiAdd}>
+                    <Text style={styles.confirmAddButtonText}>
+                      Add {stagedAdds.length} {stagedAdds.length === 1 ? "member" : "members"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
             {footer}
@@ -246,7 +315,12 @@ export default function MembersScreen({
       {canManage && (
         <TouchableOpacity
           style={styles.addMembersButton}
-          onPress={() => setShowAddSearch((v) => !v)}
+          onPress={() => {
+            setShowAddSearch((v) => !v);
+            setStagedAdds([]);
+            setAddQuery("");
+            setAddResults([]);
+          }}
         >
           <MaterialIcons name="person-add" size={18} color={colors.onPrimary} />
           <Text style={styles.addMembersButtonText}>{showAddSearch ? "Close" : "Add members"}</Text>
@@ -398,6 +472,22 @@ const styles = StyleSheet.create({
     padding: spacing.gutter,
   },
   addResultRowHovered: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
+  stagedChipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.stackSm },
+  stagedChip: {
+    backgroundColor: colors.primaryFixed,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm + 4,
+    paddingVertical: spacing.unit + 2,
+  },
+  stagedChipText: { ...typography.labelSm, fontSize: 13, color: colors.primary, textTransform: "none" },
+  confirmAddButton: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingVertical: spacing.stackSm + 4,
+    alignItems: "center",
+    marginTop: spacing.stackSm,
+  },
+  confirmAddButtonText: { ...typography.labelSm, fontSize: 14, color: colors.onPrimary, textTransform: "none" },
   addMembersButton: {
     position: "absolute",
     left: spacing.marginMobile,

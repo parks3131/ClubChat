@@ -79,11 +79,12 @@ export interface RaceDetail {
   // rework). maybeSingle (not single) so that case returns 0 rows instead
   // of throwing.
   channelId: string | null;
+  avatarUrl: string | null;
 }
 
 export async function fetchRace(raceId: string): Promise<RaceDetail> {
   const [{ data: race, error: raceError }, { data: channel, error: channelError }] = await Promise.all([
-    supabase.from("races").select("id, club_id, name, event_date").eq("id", raceId).single(),
+    supabase.from("races").select("id, club_id, name, event_date, avatar_url").eq("id", raceId).single(),
     supabase.from("channels").select("id").eq("race_id", raceId).maybeSingle(),
   ]);
 
@@ -96,7 +97,63 @@ export async function fetchRace(raceId: string): Promise<RaceDetail> {
     name: race.name,
     eventDate: race.event_date,
     channelId: channel?.id ?? null,
+    avatarUrl: race.avatar_url,
   };
+}
+
+export interface RaceProfile {
+  id: string;
+  clubId: string;
+  name: string;
+  eventDate: string;
+  avatarUrl: string | null;
+}
+
+// Separate from fetchRace (which only needs channelId for chat access) —
+// mirrors lib/clubs.ts's fetchClubProfile being its own fetch distinct
+// from the club layout's context, since only the profile screen needs
+// avatarUrl.
+export async function fetchRaceProfile(raceId: string): Promise<RaceProfile> {
+  const { data, error } = await supabase
+    .from("races")
+    .select("id, club_id, name, event_date, avatar_url")
+    .eq("id", raceId)
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    clubId: data.club_id,
+    name: data.name,
+    eventDate: data.event_date,
+    avatarUrl: data.avatar_url,
+  };
+}
+
+// Enforced by the existing "admins can update races" RLS policy
+// (0016_races.sql, now covers Owner too via is_club_admin's redefinition)
+// — a non-manager's call fails at the database, this doesn't add a new gate.
+export async function updateRaceProfile(raceId: string, params: { name: string; eventDate: string }) {
+  const { error } = await supabase.from("races").update({ name: params.name, event_date: params.eventDate }).eq("id", raceId);
+  if (error) throw error;
+}
+
+export async function uploadRaceAvatar(raceId: string, fileUri: string, contentType: string): Promise<string> {
+  const response = await fetch(fileUri);
+  const blob = await response.blob();
+  const path = `${raceId}/avatar`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("race-avatars")
+    .upload(path, blob, { contentType, upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("race-avatars").getPublicUrl(path);
+  const publicUrl = `${data.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase.from("races").update({ avatar_url: publicUrl }).eq("id", raceId);
+  if (updateError) throw updateError;
+
+  return publicUrl;
 }
 
 export interface RaceMemberRow {

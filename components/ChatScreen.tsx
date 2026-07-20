@@ -72,6 +72,11 @@ export interface ChatScreenProps {
   channelId: string;
   isAdmin: boolean;
   placeholderName: string;
+  // Round picture shown before the name in the header, matching the
+  // Clubs list row's existing avatar treatment — null/omitted falls back
+  // to a letter placeholder, same convention as every other avatar in
+  // this app.
+  avatarUrl?: string | null;
   memberPath: (userId: string) => string;
   highlightsPath: string;
   // Custom glass header replaces the native Stack header (see the Stitch
@@ -91,6 +96,7 @@ export default function ChatScreen({
   channelId,
   isAdmin,
   placeholderName,
+  avatarUrl,
   memberPath,
   highlightsPath,
   backFallback,
@@ -501,13 +507,22 @@ export default function ChatScreen({
             <TouchableOpacity style={styles.backButton} onPress={handleBack}>
               <MaterialIcons name="arrow-back" size={20} color={colors.onSurface} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push(titlePath)} style={styles.titleTextWrap}>
-              <Text style={styles.logoText} numberOfLines={1}>
-                {placeholderName}
-              </Text>
-              <View style={styles.subtitleRow}>
-                <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
-                <Text style={styles.subtitleText}>ClubChat</Text>
+            <TouchableOpacity onPress={() => router.push(titlePath)} style={[styles.titleTextWrap, styles.titleTextRow]}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.headerAvatar} />
+              ) : (
+                <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
+                  <Text style={styles.headerAvatarInitial}>{placeholderName.charAt(0).toUpperCase() || "?"}</Text>
+                </View>
+              )}
+              <View style={styles.titleTextColumn}>
+                <Text style={styles.logoText} numberOfLines={1}>
+                  {placeholderName}
+                </Text>
+                <View style={styles.subtitleRow}>
+                  <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+                  <Text style={styles.subtitleText}>ClubChat</Text>
+                </View>
               </View>
             </TouchableOpacity>
           </View>
@@ -668,6 +683,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.05)",
   },
   titleTextWrap: { flex: 1, minWidth: 0 },
+  titleTextRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  titleTextColumn: { flex: 1, minWidth: 0 },
+  headerAvatar: { width: 44, height: 44, borderRadius: 22 },
+  headerAvatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
+  headerAvatarInitial: { ...typography.labelSm, fontSize: 18, color: colors.primary },
   logoText: {
     ...typography.headlineLgMobile,
     fontSize: 22,

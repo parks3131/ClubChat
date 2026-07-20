@@ -196,11 +196,13 @@ export default function ClubMembersScreen() {
     canTransferOwnership: club.isOwner && m.role !== "owner" && m.userId !== session?.user.id,
   });
 
-  const adminRows = members.filter((m) => m.role === "admin" || m.role === "owner").map(toRow);
+  const ownerRows = members.filter((m) => m.role === "owner").map(toRow);
+  const adminRows = members.filter((m) => m.role === "admin").map(toRow);
   const memberRows = members.filter((m) => m.role === "member").map(toRow);
 
   return (
     <MembersScreen
+      ownerRows={ownerRows}
       adminRows={adminRows}
       memberRows={memberRows}
       requests={isAdmin ? requests.map((r) => ({ id: r.id, userId: r.userId, fullName: r.fullName })) : []}

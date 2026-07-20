@@ -1,6 +1,6 @@
 import { Stack, useRouter } from "expo-router";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../../components/LoadError";
 import { colors, typography } from "../../../../../constants/theme";
@@ -85,7 +85,28 @@ export default function EboardLayout() {
     headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () =>
       channel ? (
-        <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/eboard/profile`)}>
+        <TouchableOpacity
+          onPress={() => router.push(`/clubs/${club.clubId}/eboard/profile`)}
+          style={{ flexDirection: "row" as const, alignItems: "center", gap: 8 }}
+        >
+          {channel.avatarUrl ? (
+            <Image source={{ uri: channel.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+          ) : (
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.surfaceContainerHigh,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ ...typography.labelSm, fontSize: 16, color: colors.primary }}>
+                {title.charAt(0).toUpperCase() || "?"}
+              </Text>
+            </View>
+          )}
           <Text style={titleStyle}>{title}</Text>
         </TouchableOpacity>
       ) : (
@@ -165,6 +186,10 @@ export default function EboardLayout() {
         <Stack.Screen
           name="profile"
           options={{ ...headerOptions, title, headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`) }}
+        />
+        <Stack.Screen
+          name="edit"
+          options={{ title: "Edit Eboard & Council", headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/profile`) }}
         />
         <Stack.Screen
           name="roster"

@@ -1,14 +1,17 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
-import { deleteEboardChannel, fetchEboardMembers, type EboardMemberRow } from "../../../../../lib/eboard";
+import { deleteEboardChannel, fetchEboardMembers, uploadEboardAvatar, type EboardMemberRow } from "../../../../../lib/eboard";
+import { pickImageOnWeb } from "../../../../../lib/pickImageOnWeb";
 import { reportError } from "../../../../../lib/reportError";
 import { useEboard } from "./_layout";
 
 const AVATAR_STACK_SIZE = 4;
+const AVATAR_SIZE = 96;
 
 // Mirrors club-profile/index.tsx's confirmAction — Alert.alert is a no-op
 // on web (SPEC.md section 6), so a destructive action needs an explicit
@@ -36,6 +39,7 @@ export default function EboardProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const reload = useCallback(() => {
     if (!eboard.channel) return Promise.resolve();
@@ -61,6 +65,43 @@ export default function EboardProfileScreen() {
       };
     }, [reload])
   );
+
+  const handleEditPic = async () => {
+    if (!eboard.channel?.isMember) return;
+    const eboardChannelId = eboard.channel.id;
+
+    let asset: { uri: string; mimeType: string } | null;
+    if (Platform.OS === "web") {
+      asset = await pickImageOnWeb();
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        reportError(new Error("Photo library access is required to change the Eboard picture."));
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      asset =
+        result.canceled || !result.assets?.[0]
+          ? null
+          : { uri: result.assets[0].uri, mimeType: result.assets[0].mimeType ?? "image/jpeg" };
+    }
+    if (!asset) return;
+
+    setUploadingAvatar(true);
+    try {
+      await uploadEboardAvatar(eboardChannelId, asset.uri, asset.mimeType);
+      await eboard.reload();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!eboard.channel) return;
@@ -98,7 +139,36 @@ export default function EboardProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.identity}>
-        <Text style={styles.name}>{eboard.channel.name.toUpperCase()}</Text>
+        <TouchableOpacity
+          style={styles.avatarWrap}
+          onPress={handleEditPic}
+          disabled={!eboard.channel.isMember || uploadingAvatar}
+        >
+          {eboard.channel.avatarUrl ? (
+            <Image source={{ uri: eboard.channel.avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Text style={styles.avatarInitial}>{eboard.channel.name.charAt(0).toUpperCase() || "?"}</Text>
+            </View>
+          )}
+          {eboard.channel.isMember && (
+            <View style={styles.editPicButton}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color={colors.onPrimary} />
+              ) : (
+                <MaterialIcons name="edit" size={16} color={colors.onPrimary} />
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{eboard.channel.name.toUpperCase()}</Text>
+          {eboard.channel.isMember && (
+            <TouchableOpacity onPress={() => router.push(`/clubs/${eboard.clubId}/eboard/edit`)}>
+              <MaterialIcons name="edit-square" size={18} color={colors.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
+        </View>
         {eboard.channel.description ? <Text style={styles.description}>{eboard.channel.description}</Text> : null}
       </View>
 
@@ -154,7 +224,24 @@ export default function EboardProfileScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
-  identity: { alignItems: "center", marginBottom: spacing.stackLg },
+  identity: { alignItems: "center", marginBottom: spacing.stackLg, gap: spacing.stackSm },
+  avatarWrap: { width: AVATAR_SIZE, height: AVATAR_SIZE },
+  avatar: { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: radii.lg },
+  avatarInitial: { ...typography.headlineLg, fontSize: 32, color: colors.primary },
+  editPicButton: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surfaceContainerLowest,
+  },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
   name: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5, textAlign: "center" },
   description: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.unit, textAlign: "center" },
   grid: { gap: spacing.stackSm },

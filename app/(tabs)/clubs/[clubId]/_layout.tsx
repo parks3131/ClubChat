@@ -1,6 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { createContext, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from "react-native";
 import { makeBackHeaderLeft } from "../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../components/LoadError";
 import { colors, typography } from "../../../../constants/theme";
@@ -12,6 +12,7 @@ interface ClubContextValue {
   clubId: string;
   channelId: string;
   name: string;
+  avatarUrl: string | null;
   inviteCode: string;
   role: ClubRole;
   isCreator: boolean;
@@ -57,7 +58,7 @@ export default function ClubLayout() {
             .eq("club_id", clubId)
             .eq("user_id", session!.user.id)
             .single(),
-          supabase.from("clubs").select("name, invite_code, created_by").eq("id", clubId).single(),
+          supabase.from("clubs").select("name, invite_code, created_by, avatar_url").eq("id", clubId).single(),
           supabase
             .from("channels")
             .select("id")
@@ -78,6 +79,7 @@ export default function ClubLayout() {
           clubId,
           channelId: channelRow.id,
           name: clubRow.name,
+          avatarUrl: clubRow.avatar_url,
           inviteCode: clubRow.invite_code,
           role: membership.role,
           isCreator: clubRow.created_by === session!.user.id,
@@ -111,7 +113,28 @@ export default function ClubLayout() {
     headerShown: true,
     headerStyle: { backgroundColor: colors.surfaceContainerLow },
     headerTitle: () => (
-      <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}>
+      <TouchableOpacity
+        onPress={() => router.push(`/clubs/${club.clubId}/club-profile`)}
+        style={{ flexDirection: "row" as const, alignItems: "center", gap: 8 }}
+      >
+        {club.avatarUrl ? (
+          <Image source={{ uri: club.avatarUrl }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+        ) : (
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.surfaceContainerHigh,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ ...typography.labelSm, fontSize: 16, color: colors.primary }}>
+              {club.name.charAt(0).toUpperCase() || "?"}
+            </Text>
+          </View>
+        )}
         <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{club.name}</Text>
       </TouchableOpacity>
     ),

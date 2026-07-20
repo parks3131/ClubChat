@@ -32,6 +32,7 @@ export default function EboardChatScreen() {
       // — no separate "eboard admin" role needed for pin/announce rights.
       isAdmin
       placeholderName={eboard.channel.name}
+      avatarUrl={eboard.channel.avatarUrl}
       memberPath={(userId) => `/clubs/${eboard.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${eboard.clubId}/eboard/highlights`}
       backFallback={`/clubs/${eboard.clubId}/eboard`}

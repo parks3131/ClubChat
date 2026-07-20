@@ -107,6 +107,20 @@ export default function RaceRosterScreen() {
     }
   };
 
+  // Race-only multi-select add (MembersScreen's multiSelectAdd) — one
+  // reload after every insert instead of one per person, unlike looping
+  // handleAdd above would.
+  const handleAddMultiple = async (userIds: string[]) => {
+    try {
+      for (const userId of userIds) {
+        await addRaceMember(race.raceId, userId);
+      }
+      await reload();
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
   const handleRemove = async (userId: string) => {
     const member = members.find((m) => m.userId === userId);
     if (!member) return;
@@ -168,6 +182,8 @@ export default function RaceRosterScreen() {
       onRemove={handleRemove}
       onSearch={handleSearch}
       onAdd={handleAdd}
+      multiSelectAdd
+      onAddMultiple={handleAddMultiple}
       memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
       addPlaceholder="Search club members by name"
     />
