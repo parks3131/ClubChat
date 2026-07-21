@@ -622,7 +622,25 @@ components/PollDetailScreen.tsx  Task #38 — same extraction, for the vote/
                                  mirroring the same check enforced
                                  server-side so a disabled button never
                                  promises something the RLS layer would
-                                 reject anyway.
+                                 reject anyway. Task #43 — replaced the old
+                                 always-visible inline voter-name list
+                                 (shown under every public option) with a
+                                 per-option eye icon, visible only once
+                                 that option has ≥1 vote and voters are
+                                 visible to the caller (`canSeeVoters`,
+                                 unchanged), opening a `Modal` popup: an X
+                                 close button, a dropdown defaulting to the
+                                 tapped option (switchable to any option,
+                                 each showing its live vote count), and a
+                                 scrollable voter list (avatar + name,
+                                 "No votes yet." empty state) below it. The
+                                 eye button and the option row underneath
+                                 it are nested `TouchableOpacity`s — the
+                                 inner one calls `e.stopPropagation?.()` so
+                                 tapping it opens the popup without also
+                                 firing the outer row's vote toggle
+                                 (verified live: vote count stayed stable
+                                 across repeated popup opens).
 components/PollCreateScreen.tsx  Task #38 — same extraction, for the
                                  create form. New "Ends" section (duration
                                  chips: 1 Day/3 Days/1 Week/Custom/No
@@ -632,6 +650,18 @@ components/PollCreateScreen.tsx  Task #38 — same extraction, for the
                                  the list screen's badge implied one
                                  exists, so this was planned via
                                  `AskUserQuestion` before being designed.
+                                 Task #43 — the "Custom" chip's field
+                                 changed from a bare "days from now" number
+                                 input to an amount input plus a compact
+                                 Min/Hrs/Days unit-chip row (defaults to
+                                 Hrs), so a founder can end a poll in
+                                 minutes or hours, not just whole days;
+                                 `closesAt` is computed as
+                                 `amount * UNIT_TO_MS[unit]` from now.
+                                 `lib/dates.ts`'s existing `formatCountdown`
+                                 already degraded gracefully for
+                                 sub-hour deadlines ("ENDING SOON") and
+                                 needed no changes.
 components/LegalDocument.tsx     Task #32 — shared renderer for a
                                  title + `{heading, body}[]` sections
                                  array (see lib/legalContent.ts), used by
@@ -758,11 +788,20 @@ lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
                                  ACTIVITY_LABELS/ACTIVITY_ICONS
-lib/polls.ts                     Task #24, extended task #38 — fetchPolls /
-                                 createPoll / fetchPoll / fetchPollVoters
-                                 (only called when eligible to see voters) /
-                                 castVote (wraps the cast_vote RPC) /
-                                 setPollClosed / deletePoll. Task #38 added
+lib/polls.ts                     Task #24, extended task #38, #43 —
+                                 fetchPolls / createPoll / fetchPoll /
+                                 fetchPollVoters (only called when eligible
+                                 to see voters) / castVote (wraps the
+                                 cast_vote RPC) / setPollClosed /
+                                 deletePoll. Task #43 added a `PollVoter`
+                                 interface (`userId`/`fullName`/
+                                 `avatarUrl`) and had `fetchPollVoters`
+                                 also select `profiles.avatar_url` (already
+                                 a public URL, no signing needed — same
+                                 convention as every other avatar read in
+                                 the app) so the new voters popup can show
+                                 an avatar per voter, not just a name.
+                                 Task #38 added
                                  a `PollScope` discriminated union (club /
                                  race / eboard, each carrying its own id +
                                  clubId) threaded through fetchPolls/
@@ -1380,6 +1419,7 @@ supabase/migrations/
 | 40 | Eboard member removal + Delete Club/Race/Eboard | ✅ Done — migrations `0039_eboard_members_delete.sql`/`0040_club_eboard_delete.sql`. Closed the same class of gap task #36 found for `race_members` (insert/select policies since launch, no delete policy) on `eboard_channel_members`; added Delete Club (creator-only, given the cascade wipes every member's chat/races/Eboard/polls/notifications permanently — deliberately not "any admin") and Delete Eboard channel (existing-members-only, mirroring 0017's own asymmetry). `lib/clubs.ts`'s `deleteClub`, `lib/eboard.ts`'s `deleteEboardChannel`/`removeEboardMember`, `lib/races.ts`'s `deleteRace` are the client-side entry points. (Backfilled into this table during task #41's own migration-numbering review — shipped in an earlier session that didn't update SPEC.md at the time.) |
 | 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see task #41 in `docs/HISTORY.md`. Founder request tightening admin access from implicit (`is_club_admin` checks, no real roster row) to explicit: creating a race or the Eboard channel now adds *every* current club admin as a real, removable `race_members`/`eboard_channel_members` row (`handle_new_race`/`handle_new_eboard_channel` re-created again, also fixing a latent channel-creation-ordering bug that silently swallowed the "joined" system message/notification for those rows); promoting a member to admin immediately adds them to Eboard and every *upcoming* race, demoting reverses both (past races untouched); removing a non-admin race member is still any-admin, but removing an admin from a race, or removing anyone from Eboard, is now creator-only (`is_club_creator`/`is_race_club_creator`/`is_eboard_club_creator` helpers), mirroring task #40's Delete Club precedent — a deliberate narrowing of task #40's own `0039` "any existing member" rule. `lib/calendarFeed.ts` now shows every club member every race as soon as it's created, not just ones they already have access to. Planned via `EnterPlanMode` after an `advisor` consult flagged two under-specified points (which "calendar" the founder meant, and what "owner" meant for kick rights) that were then resolved via `AskUserQuestion` before any code was written — see section 6 lesson-style narrative in `docs/HISTORY.md` for the full ordering-bug discovery. |
 | 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — migrations `0042_club_role_owner_enum.sql`/`0043_club_role_owner.sql`/`0044_race_channel_rework.sql` (the enum-add split into its own file after a real `supabase db reset` failure — see task #42 in `docs/HISTORY.md`). A from-scratch founder spec (explicit permission matrix: promote/demote symmetric for Owner+Admin, remove_member Owner+Admin, remove_admin/transfer_ownership Owner-only) planned via `EnterPlanMode` after resolving 3 open questions the founder flagged themselves via `AskUserQuestion` (outgoing-Owner-becomes-Admin, eBoard cleanup scope, race approval authority) — all three answers matched the recommended default. Real three-tier `club_role` enum (`owner`/`admin`/`member`), one Owner per club enforced by a DB-level partial unique index, `transfer_ownership()` RPC, and a client-wide `club.isAdmin`/`club.isOwner` derived-boolean refactor (~20 call sites that used to compare `role === "admin"` directly). Explicitly billed as replacing task #41's race-related auto-membership, not extending it: a club Admin/Owner no longer gets automatic race-chat access without a real `race_members` row — "even the Owner must request or be added," per the founder's own spec text — while race *management* authority (approve requests, add/remove members) stayed essentially unchanged, since it was already "any club Admin/Owner." Two verification techniques used well beyond `tsc`/`npm test`: (1) empirical Postgres experiments against a scratch DB before writing policy SQL, which reversed an initial wrong assumption (FK `ON DELETE CASCADE` turned out to bypass RLS on the child table entirely, verified directly rather than inferred, which simplified the Delete Club design); (2) full RLS-impersonation testing (`set local role authenticated` + `request.jwt.claim.sub`) against a `pg_dump`-restored copy of live data for every permission-matrix branch and the full race request/approve flow, before ever touching the real DB — caught two real bugs this way (`request_join_race` silently no-oping for a manager instead of filing a real request; `is_user_race_participant` still allowing car-group assignment without real race access) that a UI click-through alone likely wouldn't have surfaced. Confirmed again live end-to-end via Playwright with 3 real accounts after applying both migrations to the local dev DB: promote → demote → remove-admin (blocked as Admin, allowed as Owner) → transfer ownership (single system message, correct Eboard sync, no duplicate) → create a race → confirm the new Owner is *not* auto-added → sees "Request to join" + "Manage roster" (not the full hub) → requests → approved by the other Admin → full chat access granted. |
+| 43 | Polls: voter-view popup (avatar + name per option) + minute/hour/day custom deadlines | ✅ Done — no migration, UI/lib-only. Two founder asks bundled together. (1) `PollDetailScreen.tsx`'s always-visible inline voter-name text (shown under every public option) replaced with a per-option eye icon — visible only once that option has ≥1 vote and the caller can see voters (`canSeeVoters`, unchanged from task #24/#38) — opening a `Modal` with an X close button, a dropdown defaulting to the tapped option but switchable to any option (each showing its own live vote count), and a scrollable voter list (avatar + name via `lib/polls.ts`'s `fetchPollVoters`, now also selecting `profiles.avatar_url`; "No votes yet." empty state). Planned via two `AskUserQuestion` rounds (eye-icon-on-the-row vs. a below-list "View voters" button; inline names removed vs. kept alongside the popup) before implementing. One real cross-platform risk caught before it could ship as a bug: the eye button and its parent option row are nested `TouchableOpacity`s, and react-native-web's `Touchable` wires `onPress` to a DOM `onClick`, which bubbles — tapping the icon would have also fired the row's own vote toggle. Fixed with `e.stopPropagation?.()` in the inner handler; verified live via Playwright that repeatedly opening the popup left the vote count unchanged. (2) `PollCreateScreen.tsx`'s "Custom" deadline field changed from a bare "days from now" number input to an amount field plus a compact Min/Hrs/Days unit-chip row (defaults to Hrs) — `closesAt` computed as `amount * UNIT_TO_MS[unit]`. `lib/dates.ts`'s existing `formatCountdown` already degraded gracefully under an hour ("ENDING SOON") and needed no changes. Verified live end-to-end via Playwright (fresh test club + poll each time, cleaned up via Delete Club after): eye icon absent at 0 votes, appears after voting, dropdown switches options and shows the "No votes yet." empty state correctly, X closes without affecting the vote; a 5-minute custom deadline correctly showed "ENDING SOON" on the detail screen. `tsc --noEmit` and `npm test` clean throughout. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 identified in a founder-requested audit, four are done (photo
@@ -1422,7 +1462,10 @@ Member hierarchy and an explicit permission matrix, and reversed #41's
 race auto-membership behavior back to creator/admin-controlled with a
 request-to-join flow — the "creator" authority #40/#41 leaned on
 (`clubs.created_by`) is now superseded by the transferable Owner role
-wherever it mattered (Delete Club, remove-from-Eboard).
+wherever it mattered (Delete Club, remove-from-Eboard). Most recently,
+task #43 added a per-option voter-view popup (eye icon → avatar+name
+list, switchable by option via a dropdown) to Poll detail, and let a
+poll's custom deadline be set in minutes or hours, not just whole days.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
