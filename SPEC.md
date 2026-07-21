@@ -8,9 +8,12 @@ architectural decisions or resuming work in a new session.
 it into every session's context. Full task-by-task build narrative (every
 bug hit, every root cause, every fix, in full detail) lives in
 `docs/HISTORY.md`, which is *not* auto-loaded — Read it directly when a
-one-line status-table summary below isn't enough, e.g. resuming a task
-that had a subtle bug already solved once. Add new detailed entries to
-`docs/HISTORY.md` as work progresses; keep this file's summaries short.
+one-line status-table summary below isn't enough detail. Section 4 below
+follows the same rule: it documents current architecture only, not how
+each file got there — for the build story behind any file, check
+`docs/HISTORY.md`'s entry for the task named in section 5's status table.
+Add new detailed entries to `docs/HISTORY.md` as work progresses; keep
+this file's summaries short.
 
 ## 1. Product vision (in the founder's own words)
 
@@ -87,7 +90,14 @@ User (auth.users + profiles)
      │        on a private poll, everyone on a public one — a voter
      │        always sees their own vote either way. Close/reopen/delete
      │        are creator-only, mirroring EboardMeeting rather than
-     │        Race/RoutineWorkout's "any club admin" pattern.)
+     │        Race/RoutineWorkout's "any club admin" pattern. task #45 —
+     │        a `closing_soon_notified_at` dedup timestamp backs a
+     │        `poll_closing_soon` notification, fanned out to everyone
+     │        who can access the poll [creator included, unlike
+     │        creation notifications] once it's within 10 minutes of its
+     │        own `closes_at` — the app's first scheduled job, via
+     │        pg_cron, since nothing else in the schema changes at that
+     │        moment for a trigger to react to.)
      │   ├─ PollOption (text, position, vote_count)
      │   └─ PollVote (poll_id, option_id, user_id — unique per option per
      │       user; cast/toggled/moved via the cast_vote RPC)
@@ -204,66 +214,59 @@ that channel (opening the Notifications tab itself never touches it).
 
 ## 4. Repo layout
 
+Current-state architecture reference only. For how any of this came to
+be — bugs found, scope changes, verification narrative — see the
+matching task number in section 5's status table and its writeup in
+`docs/HISTORY.md`.
+
 ```
 app/                          Expo Router file-based routes
   _layout.tsx                 Root layout: auth-guard redirect logic
   (auth)/sign-in.tsx          Supabase Auth sign-in form
   (auth)/sign-up.tsx          Supabase Auth sign-up form (handles
-                               email-confirmation-required state). Task
-                               #32 — a consent line below the password
-                               field links to privacy-policy/terms.
-  (auth)/privacy-policy.tsx    Task #32 — signed-out-reachable Privacy
-  (auth)/terms.tsx              Policy/Terms, thin wrappers around the
-                               shared components/LegalDocument.tsx.
-                               Exist as their own pair (not shared with
-                               the (tabs)/profile/ versions below)
-                               because app/_layout.tsx's auth guard
-                               redirects by top-level route group — a
-                               single route can't serve both a
-                               signed-out and signed-in visitor without
-                               getting bounced.
+                               email-confirmation-required state); a
+                               consent line below the password field
+                               links to privacy-policy/terms.
+  (auth)/privacy-policy.tsx    Signed-out-reachable Privacy Policy/Terms,
+  (auth)/terms.tsx              thin wrappers around
+                               components/LegalDocument.tsx. Exist as
+                               their own pair (not shared with
+                               (tabs)/profile/'s versions) because
+                               app/_layout.tsx's auth guard redirects by
+                               top-level route group — one route can't
+                               serve both a signed-out and signed-in
+                               visitor without getting bounced.
   (tabs)/_layout.tsx           Bottom tabs: Clubs, Notifications, Profile
-                                 (task #35 added the Notifications tab —
-                                 bell icon + a native `tabBarBadge`
-                                 sourced from `useNotifications()`)
-  (tabs)/notifications.tsx      Task #35 — the Notifications feed, a
-                                 single top-level screen (no nested
-                                 stack — every row just `router.push`es
-                                 elsewhere). Merges `notifications` rows
-                                 with live per-channel unread-chat
-                                 summaries into one reverse-chronological
-                                 list (`lib/notifications.ts`'s
-                                 `fetchNotificationFeed`, mirroring
-                                 `lib/calendarFeed.ts`'s "merge
-                                 heterogeneous sources" pattern from task
-                                 #23), paginated 20-at-a-time via
-                                 `FlatList`'s `onEndReached` (mirrors
-                                 task #28's chat "load earlier", simpler
-                                 here since appending older items at the
-                                 *bottom* of a newest-first list needs no
-                                 scroll-position-preservation dance). On
-                                 focus, marks every visible discrete
-                                 notification read (badge clears) but
-                                 never touches chat-unread rows — those
-                                 only clear by actually opening that
-                                 chat. A resolved join-request shows a
-                                 small "Approved"/"Denied" pill instead
-                                 of disappearing (a founder follow-up
-                                 right after initial ship — see task #35
-                                 in `docs/HISTORY.md`).
+                               — bell icon + a native `tabBarBadge`
+                               sourced from `useNotifications()`.
+  (tabs)/notifications.tsx      The Notifications feed, a single
+                                 top-level screen (no nested stack — every
+                                 row just `router.push`es elsewhere).
+                                 Merges `notifications` rows with live
+                                 per-channel unread-chat summaries into
+                                 one reverse-chronological list
+                                 (`lib/notifications.ts`'s
+                                 `fetchNotificationFeed`), paginated
+                                 20-at-a-time via `FlatList`'s
+                                 `onEndReached`. On focus, marks every
+                                 visible discrete notification read
+                                 (badge clears) but never touches
+                                 chat-unread rows — those only clear by
+                                 actually opening that chat. A resolved
+                                 join-request shows an "Approved"/
+                                 "Denied" pill instead of disappearing.
   (tabs)/profile/_layout.tsx    Stack: profile view + edit modal +
-                                 (task #32) privacy-policy/terms.
-                                 `‹` headerLeft, fallback -> /clubs
+                                 privacy-policy/terms. `‹` headerLeft,
+                                 fallback -> /clubs
   (tabs)/profile/index.tsx      Profile view — avatar (tap pencil overlay
                                  to upload), name/email, bio, "Your clubs"
                                  (tap -> club hub), Privacy Policy/Terms
-                                 links (task #32), sign out, delete
-                                 account (task #30)
+                                 links, sign out, delete account
   (tabs)/profile/edit.tsx        Self-only edit form (name, bio, city,
                                  date of birth, school) — modal
-  (tabs)/profile/privacy-policy.tsx  Task #32 — signed-in-reachable
-  (tabs)/profile/terms.tsx            counterparts to the (auth)/ pair
-                                 above, same shared LegalDocument content.
+  (tabs)/profile/privacy-policy.tsx  Signed-in-reachable counterparts to
+  (tabs)/profile/terms.tsx            the (auth)/ pair above, same shared
+                                 LegalDocument content.
   (tabs)/clubs/_layout.tsx      Stack: clubs list + club detail
   (tabs)/clubs/index.tsx        List of the user's clubs (role badge),
                                  tap -> club hub (`/clubs/${id}`)
@@ -273,11 +276,13 @@ app/                          Expo Router file-based routes
                                  (debounced search-by-name + join/request)
   (tabs)/clubs/[clubId]/_layout.tsx
                                 Fetches club + this user's role once,
-                                exposes via `useClub()` context. Registers
-                                index/chat/calendar/routines/polls/races/
-                                highlights/club-profile/member/event/race as Stack
-                                screens, sharing one `clubScreenOptions`
-                                object (tappable club-name headerTitle ->
+                                exposes via `useClub()` context
+                                (`isAdmin`/`isOwner` derived booleans).
+                                Registers index/chat/calendar/routines/
+                                polls/races/highlights/club-profile/
+                                member/event/race as Stack screens,
+                                sharing one `clubScreenOptions` object
+                                (tappable club-name headerTitle ->
                                 club-profile, admin-only invite-code
                                 headerRight) plus per-screen `headerLeft`
                                 via `makeBackHeaderLeft` (see
@@ -290,31 +295,21 @@ app/                          Expo Router file-based routes
                                 when entering a club. Handles `?from=profile`
                                 cross-tab back-history special case (section 6).
   (tabs)/clubs/[clubId]/chat.tsx
-                                Thin wrapper around the shared
-                                components/ChatScreen.tsx (task #16 —
-                                extracted so race chat could reuse it
-                                without duplicating ~250 lines): messages
-                                (sender avatar, tappable -> member/[userId]),
-                                timestamps, multi-emoji reactions, admin
-                                pin/announce, realtime, auto-scroll-to-
-                                bottom, pinned-message sticky strip
-                                (-> highlights) + persistent "Highlights"
-                                header button. Passes the admin invite code
-                                as `extraHeaderRight` (club-only, race chat
-                                has no equivalent).
+                                Thin wrapper around shared
+                                components/ChatScreen.tsx, passing the
+                                admin invite code as `extraHeaderRight`
+                                (club-only, race chat has none).
   (tabs)/clubs/[clubId]/calendar.tsx
-                                Task #23 — merges calendar_events with
-                                races the caller has access to and Eboard
-                                meetings the caller is a member of (see
-                                lib/calendarFeed.ts) into one Upcoming/Past
-                                list, sorted by date/time, each row tagged
-                                with a badge (event type / "Race/Meet" /
-                                "Eboard Meeting") and tapping navigates to
-                                the real event/race/meeting screen.
+                                Merges calendar_events with races/Eboard
+                                meetings/polls the caller has access to
+                                (see lib/calendarFeed.ts) into one
+                                Upcoming/Past list, sorted by date/time,
+                                each row badged by type and tapping
+                                navigates to the real event/race/
+                                meeting/poll screen.
   (tabs)/clubs/[clubId]/highlights.tsx
-                                Thin wrapper around the shared
-                                components/HighlightsScreen.tsx (same
-                                task #16 extraction as chat.tsx) — Pinned /
+                                Thin wrapper around shared
+                                components/HighlightsScreen.tsx — Pinned/
                                 Announcements tabs over the same message
                                 data chat already fetches.
   (tabs)/clubs/[clubId]/routines/
@@ -322,54 +317,48 @@ app/                          Expo Router file-based routes
                                 `index.tsx`: Mon-Sun view for a real
                                 calendar week (not a repeating template),
                                 `‹`/`›` week paging, only today+future days
-                                shown (`‹` disabled at the current week),
-                                per-day workout cards or "Rest day",
-                                admin-only "+ Add workout".
+                                shown, per-day workout cards or "Rest
+                                day", admin-only "+ Add workout".
                                 `activity-type.tsx`: admin-only picker, 10
-                                types (list lives in lib/routines.ts's
-                                `ACTIVITY_TYPES`).
-                                `workout/create.tsx`: admin-only
-                                create/edit — just title + description
-                                (deliberately no exercise builder).
-                                `workout/[workoutId].tsx`: detail view,
-                                read-only for members, Edit/Delete for
-                                admins. No completion tracking.
+                                types (`lib/routines.ts`'s
+                                `ACTIVITY_TYPES`). `workout/create.tsx`:
+                                admin-only create/edit — title +
+                                description only, deliberately no
+                                exercise builder. `workout/[workoutId]
+                                .tsx`: detail view, read-only for members,
+                                Edit/Delete for admins. No completion
+                                tracking.
   (tabs)/clubs/[clubId]/polls/
-                                Task #24, redesigned + generalized task #38
-                                — own nested Stack (same shape as races/).
-                                As of task #38 all 3 screens are thin
-                                wrappers around shared components/
-                                PollsListScreen.tsx / PollDetailScreen.tsx /
-                                PollCreateScreen.tsx (same
-                                ChatScreen/HighlightsScreen-style
-                                extraction as task #16), passing
-                                `scope: { type: "club", clubId }` — race/
-                                (below) and eboard/ (below) mount the exact
-                                same components with their own scope
-                                instead of forking two more copies.
-                                `index.tsx`: "Community Voice / Active
-                                Conversations" header, ALL POLLS/MY VOTES
-                                segmented tabs (replaced the old Active/
-                                Closed section grouping — status is now
-                                shown per-card instead, hero-style card for
-                                an open poll incl. a countdown badge when
-                                `closesAt` is set, muted "CLOSED" card
-                                otherwise), "Have a new idea?" prompt card +
-                                FAB, both `canCreate`-gated. `create.tsx`:
+                                Own nested Stack (same shape as races/).
+                                All 3 screens are thin wrappers around
+                                shared components/PollsListScreen.tsx /
+                                PollDetailScreen.tsx / PollCreateScreen.tsx,
+                                passing `scope: { type: "club", clubId }`
+                                — race/ and eboard/ (below) mount the same
+                                components with their own scope instead of
+                                forking two more copies. `index.tsx`:
+                                ALL POLLS/MY VOTES segmented tabs, hero
+                                card for an open poll (countdown badge
+                                when `closesAt` is set) vs. a muted
+                                "CLOSED" card, "Have a new idea?" prompt +
+                                FAB (`canCreate`-gated). `create.tsx`:
                                 question + 2-10 free-text options + two
                                 Switch toggles (allow-multiple, private
-                                vote) + task #38's new "Ends" row (duration
-                                chips: 1 Day/3 Days/1 Week/Custom/No
-                                deadline, computed into `closesAt` client-
-                                side at submit time — no date-picker
-                                dependency added). `[pollId].tsx`: vote by
-                                tapping an option (toggles off if already
-                                selected, moves the vote on a single-
-                                choice poll), counts always shown, voter
-                                names per option shown only when public or
-                                viewing as the creator; creator-only
-                                Close/Reopen/Delete; voting UI disabled
-                                once `isPollEffectivelyClosed`.
+                                vote) + an "Ends" row (duration chips: 1
+                                Day/3 Days/1 Week/Custom/No deadline,
+                                Custom taking an amount + Min/Hrs/Days
+                                unit chip — computed into `closesAt`
+                                client-side at submit time).
+                                `[pollId].tsx`: vote by tapping an option
+                                (toggles off if already selected, moves
+                                the vote on a single-choice poll), counts
+                                always shown, per-option eye icon (once
+                                that option has ≥1 vote and the caller
+                                can see voters) opens a popup with a
+                                switchable per-option voter list
+                                (avatar + name); creator-only Close/
+                                Reopen/Delete; voting disabled once
+                                `isPollEffectivelyClosed`.
   (tabs)/clubs/[clubId]/club-profile/
                                 Club identity (avatar, name, description,
                                 admin-only edit) + full member roster
@@ -382,311 +371,218 @@ app/                          Expo Router file-based routes
     [eventId].tsx                Event detail (admin: Edit/Delete)
     create.tsx                   Admin-only create/edit, `?eventId=` = edit
   (tabs)/clubs/[clubId]/races/
-                                Task #16 — "Races & Meets" list, its own
-                                nested Stack (same shape as routines/).
-                                `index.tsx`: Upcoming/Finished grouped list
-                                (mirrors calendar.tsx); each row shows a
-                                chevron (enter) for admins/approved members,
-                                "Requested" for a pending request, or a
-                                "Request to join" button otherwise — always
+                                "Races & Meets" list, own nested Stack
+                                (same shape as routines/). `index.tsx`:
+                                Upcoming/Finished grouped list (mirrors
+                                calendar.tsx); each row shows a chevron
+                                (enter) for members/managers, "Requested"
+                                for a pending request, or a "Request to
+                                join" button otherwise — always
                                 request-based, no "open" policy.
-                                `create.tsx`: admin-only, name + event_date
-                                only (`YYYY-MM-DD`, same convention as
-                                calendar/DOB fields) — standalone, not tied
-                                to a calendar event (see section 1's
-                                deviation note).
+                                `create.tsx`: admin-only, name +
+                                event_date only (`YYYY-MM-DD`) —
+                                standalone, not tied to a calendar event.
   (tabs)/clubs/[clubId]/race/[raceId]/
-                                Task #16 — a race's own space, own nested
-                                Stack (was a `Tabs` layout with only
-                                placeholder screens before this task).
-                                `_layout.tsx`: fetches the race + this
-                                user's access once (`useRace()` context) —
-                                club admins always have access; a regular
-                                member needs an approved `race_members` row,
-                                checked *before* fetching the race's channel
-                                (fetching first would throw via RLS for a
-                                non-member and never reach the redirect —
-                                a real bug caught live during this task's
-                                own verification pass, fixed by reordering).
-                                Anyone without access is redirected to the
-                                races list rather than shown a locked hub.
-                                `index.tsx`: hub — 3 rows (Chat, Meet
-                                Information, Car Assignments & Groups).
-                                Originally 5 rows (Location & Accommodation
-                                and Photos/Result Link were separate) — task
-                                #22 merged the latter two into the former
-                                and renamed it "Meet Information" right
-                                after both shipped (see task #22 in
-                                docs/HISTORY.md). No placeholder screens
-                                left anywhere under Race.
-                                `chat.tsx`/`highlights.tsx`: thin wrappers
-                                around the same shared components club
-                                chat uses — full feature parity for free.
+                                A race's own space, own nested Stack.
+                                `_layout.tsx` fetches the race + this
+                                user's access once (`useRace()` context),
+                                exposing `isManager` (club Admin/Owner —
+                                management authority: approve requests,
+                                add/remove roster, edit Meet Information)
+                                separately from `isMember` (a real
+                                `race_members` row, required for chat/hub
+                                access — as of task #42/#44, even the
+                                Owner needs to request or be added, no
+                                more automatic chat access). A manager
+                                who isn't a member sees "Request to join"
+                                + a "Manage roster" entry point, not the
+                                full hub; anyone with neither is
+                                redirected to the races list. `index.tsx`:
+                                hub — 3 rows (Chat, Meet Information, Car
+                                Assignments & Groups). `chat.tsx`/
+                                `highlights.tsx`: thin wrappers around the
+                                same shared components club chat uses —
+                                full feature parity for free, gated on
+                                `isMember` with a direct-URL guard.
                                 `location.tsx` ("Meet Information", route
-                                name unchanged even though the display
-                                label isn't "location" anymore): 5 fields —
-                                description, race/event location link,
-                                hotel link, photos link, result link — all
-                                on `races`, no new table, edited together
-                                as one combined form with a single Save.
-                                Empty-state deliberately differs per field:
-                                description/location/hotel are hidden
-                                entirely (no placeholder) when empty, while
-                                photos/results keep the "No photos/result
-                                link added yet — stay tuned!" placeholder
-                                text they originally shipped with in the
-                                separate photos.tsx/results.tsx screens
-                                (task #20, now deleted). Any club admin can
-                                edit all 5 fields.
-                                `carpool.tsx`: task #19 — Car Assignments &
-                                Groups, from a founder wireframe. Admin-only
-                                "+ Add Group" creates an auto-numbered group
-                                immediately (no naming prompt, matching the
-                                wireframe exactly); each group card lists
-                                members with an inline admin-only "+ Add
-                                member" search (scoped to who already has
-                                race access — roster + club admins, see
-                                `searchRaceParticipantsToAdd` — and
-                                excluding anyone already in *any* group for
-                                this race, since membership is one-group-
-                                per-person); per-member "Make/Remove
-                                Incharge" and "Remove" buttons, admin-only.
-                                A per-group admin-only "Delete" button
-                                (confirm-gated, same web/native branch as
-                                event/[eventId].tsx's delete) was added
-                                right after initial ship, once the founder
-                                actually tried to clean up a group they'd
-                                created — members cascade-delete via the
-                                existing FK, no extra cleanup code needed.
-                                Regular race members see the same cards
-                                read-only, Incharge tag included. Hit a real
-                                infinite-render bug during its own
-                                Playwright pass — see task #19 in
-                                `docs/HISTORY.md`.
-                                `polls/{index,create,[pollId]}.tsx`: task
-                                #38 — thin wrappers around the same shared
+                                name unchanged though the label isn't
+                                "location" anymore): 5 fields — description,
+                                race/event location link, hotel link,
+                                photos link, result link — all on
+                                `races`, no new table, edited together as
+                                one combined form. Empty-state deliberately
+                                differs per field: description/location/
+                                hotel are hidden entirely (no placeholder)
+                                when empty, photos/results keep a "stay
+                                tuned" placeholder. Any manager can edit
+                                all 5 fields. `carpool.tsx`: Car
+                                Assignments & Groups — admin-only
+                                "+ Add Group" creates an auto-numbered
+                                group immediately (no naming prompt); each
+                                group card lists members with an inline
+                                admin-only "+ Add member" search (scoped
+                                to who already has real race access —
+                                roster + managers who are actual members —
+                                excluding anyone already in any group for
+                                this race, one-group-per-person); per-
+                                member "Make/Remove Incharge" and
+                                "Remove" buttons, admin-only; a per-group
+                                admin-only "Delete" button (confirm-
+                                gated). Regular race members see the same
+                                cards read-only, Incharge tag included.
+                                `polls/{index,create,[pollId]}.tsx`: thin
+                                wrappers around the same shared
                                 components/PollsListScreen.tsx/etc. club
-                                polls uses, `scope: { type: "race", clubId,
-                                raceId }`. `canCreate = race.isAdmin`
-                                (any club admin, matching every other race-
-                                management action). Reached via a "Polls"
-                                row on the race hub, sibling to Chat/Meet
-                                Information/Car Assignments & Groups.
-                                `roster.tsx`: reached by tapping the race
-                                name in the header (same "tap the name for
-                                membership" pattern as club-profile) —
+                                polls uses, `scope: { type: "race",
+                                clubId, raceId }`. `canCreate =
+                                race.isManager && race.isMember` (task
+                                #46 — race polls now require a real
+                                roster row to see or create at all,
+                                matching Eboard's model; a manager who
+                                hasn't joined the race can't reach this
+                                even via direct URL, since the RLS layer
+                                itself blocks it, not just the client
+                                gate). Reached via a "Polls" row on the
+                                race hub (already only shown once
+                                `race.isMember`, so this brought Polls in
+                                line with every other hub row instead of
+                                being the one exception). `roster.tsx`: reached by
+                                tapping the race name in the header —
                                 pending-requests approve/deny, add-member
-                                (search scoped to this club's own roster,
-                                not every profile), and the member list,
-                                each row admin-only "Remove"-able (task
-                                #36 — `race_members` had insert/select
-                                policies and an add-member UI since task
-                                #16 but no delete policy and no way to
-                                remove someone at all, a genuine gap rather
-                                than a regression, closed by
-                                `0037_race_members_delete.sql`).
-                                No separate "race admin" role; a club
-                                admin already has full access to every
-                                race under their club.
+                                (search scoped to this club's own roster),
+                                member list with admin-only "Remove"
+                                (removing a member who is also a club
+                                admin/owner is Owner-only, see task #41/
+                                #42's permission matrix). No separate
+                                "race admin" role — club Admin/Owner
+                                already has management authority over
+                                every race under their club, but must
+                                still join to chat.
   (tabs)/clubs/[clubId]/eboard/
-                                Task #17 — "Eboard & Council", a private
-                                mini-club for club admins only, exactly
-                                one per club (no list, unlike races/).
-                                Own nested Stack: `_layout.tsx` gates on
-                                club.role === "admin" (redirects a
-                                non-admin hitting the URL directly) and
-                                fetches the club's eboard channel (if any)
-                                + this user's membership/request status,
-                                exposed via `useEboard()`. `index.tsx`
-                                branches on that: no channel yet -> admin
-                                sees a "+ Create" prompt; channel exists
-                                but not a member -> name/description +
-                                Request-to-join/Requested; a member -> hub
-                                with Chat/Meetings rows. `create.tsx`:
-                                name + description (no date field, unlike
-                                races). `chat.tsx`/`highlights.tsx`: thin
+                                "Eboard & Council", a private mini-club
+                                for club admins only, exactly one per
+                                club (no list, unlike races/). Own nested
+                                Stack: `_layout.tsx` gates on club.isAdmin
+                                (redirects a non-admin hitting the URL
+                                directly) and fetches the club's eboard
+                                channel (if any) + this user's membership/
+                                request status, exposed via `useEboard()`.
+                                `index.tsx` branches on that: no channel
+                                yet -> admin sees a "+ Create" prompt;
+                                channel exists but not a member -> name/
+                                description + Request-to-join/Requested;
+                                a member -> hub with Chat/Meetings rows.
+                                `create.tsx`: name + description (no date
+                                field). `chat.tsx`/`highlights.tsx`: thin
                                 wrappers around the same shared components
                                 club/race chat use. `meetings.tsx`:
-                                task #18 — Upcoming/Past list (same shape
-                                as calendar.tsx), any member can create.
+                                Upcoming/Past list (same shape as
+                                calendar.tsx), any member can create.
                                 `meeting/create.tsx`: title, description,
-                                date+time (same plain YYYY-MM-DD + HH:MM
-                                fields as event/create.tsx — the
-                                wireframe's calendar-grid/AM-PM-stepper
-                                widget was explicitly flagged as UI polish
-                                for later), link (Zoom/Meet/etc, optional);
+                                date+time (plain YYYY-MM-DD + HH:MM
+                                fields), link (Zoom/Meet/etc, optional);
                                 redirects away if a non-creator hits an
                                 edit URL directly. `meeting/[meetingId].tsx`:
                                 detail view; Edit/Delete only render for
-                                the creator (two founder follow-ups after
-                                task #18 shipped — RLS enforces both, the
-                                buttons are also hidden client-side),
-                                "Added by <name>", tappable link opens via
-                                `Linking.openURL`.
-                                `polls/{index,create,[pollId]}.tsx`: task
-                                #38 — thin wrappers around the same shared
+                                the creator, "Added by <name>", tappable
+                                link opens via `Linking.openURL`.
+                                `polls/{index,create,[pollId]}.tsx`: thin
+                                wrappers around the same shared
                                 components/PollsListScreen.tsx/etc. club/
                                 race polls use, `scope: { type: "eboard",
                                 clubId, eboardChannelId }`. `canCreate` is
-                                unconditionally true here (any Eboard
-                                member, mirroring Eboard Meetings' own
-                                "any member can create" rule) — every
-                                wrapper screen gates on `eboard.channel
-                                ?.isMember` first with the same direct-URL
-                                redirect guard `chat.tsx` already has, so
-                                the component itself never needs to know
-                                about that check. Reached via a "Polls" row
-                                on the Eboard hub, sibling to Chat/Meetings.
-                                `roster.tsx`: pending requests + add-member
-                                (search scoped to this club's own admins),
-                                both gated on the *caller* already being a
-                                member — not on club-admin status the way
-                                races/roster.tsx gates on it.
+                                unconditionally true (any Eboard member,
+                                mirroring Eboard Meetings' own rule).
+                                `roster.tsx`: pending requests + add-
+                                member (search scoped to this club's own
+                                admins), gated on the *caller* already
+                                being a member — not on club-admin status
+                                the way races/roster.tsx gates on it.
+                                Removing a member who is also a club
+                                admin/owner is Owner-only (task #41/#42).
 
 components/BackHeaderButton.tsx  makeBackHeaderLeft(router, fallback) —
                                  shared `‹` headerLeft factory
                                  (canGoBack() ? back() : replace(fallback))
                                  used by every club-scoped Stack layout.
-components/ChatScreen.tsx       Task #16 — chat UI/logic (messages,
-                                 reactions, pin/announce, pinned strip,
-                                 Highlights button, auto-scroll) extracted
-                                 out of the club chat screen so race chat
-                                 could reuse it verbatim instead of forking
-                                 a second ~250-line copy. Parametrized by
+components/ChatScreen.tsx       Chat UI/logic (messages, reactions, pin/
+                                 announce, pinned strip, Highlights
+                                 button, auto-scroll) shared by club/race/
+                                 Eboard chat. Parametrized by
                                  `channelId`/`isAdmin`/`memberPath`/
-                                 `highlightsPath`, plus an optional
+                                 `highlightsPath`/`titlePath`/
+                                 `backFallback`, plus an optional
                                  `extraHeaderRight` (club chat's admin
-                                 invite code — race chat has none). Task
-                                 #29 added a 📷 picker button + inline
-                                 photo rendering + tap-to-fullscreen
-                                 Modal viewer. Task #31 added per-message
+                                 invite code only). Custom glass-blur
+                                 header (`expo-blur`) with a tappable
+                                 title (jumps to club-profile/race
+                                 roster/eboard roster), Highlights pill,
+                                 current-user avatar. 📷 picker button +
+                                 inline photo rendering + tap-to-
+                                 fullscreen Modal viewer. Per-message
                                  Delete (sender or channel admin) and
-                                 Report (anyone else) actions, and a
-                                 "This message was deleted" tombstone
-                                 render (body/photo/actions all replaced)
-                                 when `deletedAt` is set. Task #34 replaced
-                                 the native Stack header entirely with a
-                                 custom glass-blur header (`expo-blur`) —
-                                 tappable title (now the actual club/race/
-                                 eboard name, not literal "ClubChat") that
-                                 jumps to club-profile/race roster/eboard
-                                 roster (`titlePath` prop), Highlights
-                                 pill, current-user avatar, `backFallback`
-                                 prop replacing the old per-screen
-                                 `headerLeft`. Sent-message bubbles use an
-                                 `expo-linear-gradient` fill; the pinned
-                                 strip became a floating overlaid card
-                                 (locally dismissible, doesn't unpin); the
-                                 announcement card gained a left accent
-                                 bar + faint background watermark; the
-                                 old full-width "Send as announcement"
-                                 banner (blocked the message list) is now
-                                 a compact megaphone toggle in the input
-                                 row; `extraHeaderRight` was removed
-                                 (no longer has anywhere to render); a
-                                 real scroll-to-bottom regression (new
-                                 messages landing short of the true
-                                 bottom) was fixed by wrapping
-                                 `scrollToEnd` in `requestAnimationFrame`.
-components/HighlightsScreen.tsx  Task #16 — same extraction, for the
-                                 Pinned/Announcements screen. Task #29
-                                 added photo-message rendering. Task #31
-                                 added a third, admin-only "Reports (N)"
-                                 tab (`isAdmin` prop, default false) —
-                                 report count, Delete message, Dismiss.
-                                 Task #34 added the same custom glass
-                                 header as ChatScreen (`backFallback` prop,
-                                 native header hidden); tab/row styling
-                                 was already Stitch-derived and untouched.
-components/PollsListScreen.tsx   Task #38 — same ChatScreen/HighlightsScreen-
-                                 style extraction, for the redesigned Polls
-                                 list ("Stitch Poll" export, re-skinned with
-                                 constants/theme.ts tokens, not the export's
-                                 raw hex). ALL POLLS/MY VOTES segmented
-                                 tabs, hero card for an open poll (countdown
-                                 badge via lib/dates.ts's formatCountdown
-                                 when `closesAt` is set) vs. a muted
-                                 "CLOSED" card, "Have a new idea?" prompt +
-                                 FAB (both `canCreate`-gated). Props:
-                                 `scope: PollScope`, `canCreate`,
-                                 `createPath`, `pollPath(id)` — parametrized
-                                 the same way ChatScreen is by
-                                 `channelId`/`isAdmin`/etc., so club/race/
-                                 Eboard polls (route wrappers under
-                                 clubs/[clubId]/polls/, race/[raceId]/
-                                 polls/, eboard/polls/) mount the identical
-                                 component instead of forking three copies.
-components/PollDetailScreen.tsx  Task #38 — same extraction, for the vote/
-                                 detail screen. Voting disabled once
-                                 `isPollEffectivelyClosed` (lib/polls.ts),
-                                 mirroring the same check enforced
-                                 server-side so a disabled button never
-                                 promises something the RLS layer would
-                                 reject anyway. Task #43 — replaced the old
-                                 always-visible inline voter-name list
-                                 (shown under every public option) with a
-                                 per-option eye icon, visible only once
-                                 that option has ≥1 vote and voters are
-                                 visible to the caller (`canSeeVoters`,
-                                 unchanged), opening a `Modal` popup: an X
-                                 close button, a dropdown defaulting to the
-                                 tapped option (switchable to any option,
-                                 each showing its live vote count), and a
-                                 scrollable voter list (avatar + name,
-                                 "No votes yet." empty state) below it. The
-                                 eye button and the option row underneath
-                                 it are nested `TouchableOpacity`s — the
-                                 inner one calls `e.stopPropagation?.()` so
-                                 tapping it opens the popup without also
-                                 firing the outer row's vote toggle
-                                 (verified live: vote count stayed stable
-                                 across repeated popup opens).
-components/PollCreateScreen.tsx  Task #38 — same extraction, for the
-                                 create form. New "Ends" section (duration
-                                 chips: 1 Day/3 Days/1 Week/Custom/No
-                                 deadline) computes `closesAt` client-side
-                                 at submit time — the Stitch create-poll
-                                 mockup had no deadline field at all, only
-                                 the list screen's badge implied one
-                                 exists, so this was planned via
-                                 `AskUserQuestion` before being designed.
-                                 Task #43 — the "Custom" chip's field
-                                 changed from a bare "days from now" number
-                                 input to an amount input plus a compact
-                                 Min/Hrs/Days unit-chip row (defaults to
-                                 Hrs), so a founder can end a poll in
-                                 minutes or hours, not just whole days;
-                                 `closesAt` is computed as
-                                 `amount * UNIT_TO_MS[unit]` from now.
-                                 `lib/dates.ts`'s existing `formatCountdown`
-                                 already degraded gracefully for
-                                 sub-hour deadlines ("ENDING SOON") and
-                                 needed no changes.
-components/LegalDocument.tsx     Task #32 — shared renderer for a
-                                 title + `{heading, body}[]` sections
-                                 array (see lib/legalContent.ts), used by
-                                 both the (auth)/ and (tabs)/profile/
+                                 Report (anyone else), with a "This
+                                 message was deleted" tombstone render
+                                 when `deletedAt` is set. Sent-message
+                                 bubbles use an `expo-linear-gradient`
+                                 fill; the pinned strip is a floating,
+                                 locally-dismissible overlay (doesn't
+                                 unpin); announcement toggle is a compact
+                                 megaphone icon in the input row (not a
+                                 full-width banner).
+components/HighlightsScreen.tsx  Same extraction, for the Pinned/
+                                 Announcements screen — Pinned/
+                                 Announcements/admin-only "Reports (N)"
+                                 (`isAdmin` prop) tabs, photo-message
+                                 rendering, same custom glass header as
+                                 ChatScreen (`backFallback` prop).
+components/PollsListScreen.tsx   Shared Polls list ("Stitch Poll"
+                                 design, theme.ts tokens). ALL POLLS/MY
+                                 VOTES segmented tabs, hero card for an
+                                 open poll (countdown badge via
+                                 lib/dates.ts's formatCountdown) vs. a
+                                 muted "CLOSED" card, "Have a new idea?"
+                                 prompt + FAB (both `canCreate`-gated).
+                                 Props: `scope: PollScope`, `canCreate`,
+                                 `createPath`, `pollPath(id)` — club/
+                                 race/Eboard polls all mount this one
+                                 component instead of forking three
+                                 copies.
+components/PollDetailScreen.tsx  Shared vote/detail screen. Voting
+                                 disabled once `isPollEffectivelyClosed`
+                                 (lib/polls.ts), mirroring the same check
+                                 enforced server-side. Per-option eye
+                                 icon (visible once that option has ≥1
+                                 vote and `canSeeVoters`) opens a `Modal`
+                                 voter-list popup, switchable by option;
+                                 nested-`TouchableOpacity` tap calls
+                                 `e.stopPropagation?.()` so opening the
+                                 popup doesn't also toggle the vote.
+components/PollCreateScreen.tsx  Shared create form. "Ends" section:
+                                 duration chips (1 Day/3 Days/1 Week/
+                                 Custom/No deadline); Custom takes an
+                                 amount plus a Min/Hrs/Days unit-chip row
+                                 (defaults to Hrs). `closesAt` computed
+                                 client-side at submit time.
+components/LegalDocument.tsx     Shared renderer for a title +
+                                 `{heading, body}[]` sections array (see
+                                 lib/legalContent.ts), used by both the
+                                 (auth)/ and (tabs)/profile/
                                  privacy-policy.tsx/terms.tsx pairs.
-components/ThemedSwitch.tsx      Task #34 — wraps RN's `Switch` with
-                                 explicit `trackColor`/`thumbColor`/
+components/ThemedSwitch.tsx      Wraps RN's `Switch` with explicit
+                                 `trackColor`/`thumbColor`/
                                  `activeThumbColor`/`ios_backgroundColor`
-                                 defaults from the theme. Exists because
-                                 react-native-web's `Switch` silently
-                                 defaults its "on" thumb to teal
-                                 (`#009688`, `defaultActiveThumbColor` in
-                                 its source) unless `activeThumbColor` is
-                                 set explicitly — caught live when a
-                                 toggle "turned green" unexpectedly.
-                                 `activeThumbColor`/`ios_backgroundColor`
-                                 aren't in RN's own bundled type
-                                 declarations even though react-native-web
-                                 supports them at runtime, hence the
-                                 `Switch as ComponentType<any>` cast.
+                                 defaults from the theme — react-native-
+                                 web's `Switch` otherwise defaults its
+                                 "on" thumb to teal regardless of the
+                                 app's own primary color. `Switch as
+                                 ComponentType<any>` cast since those
+                                 props aren't in RN's bundled types even
+                                 though react-native-web supports them.
 contexts/AuthProvider.tsx      Wraps supabase.auth session state
-contexts/NotificationsProvider.tsx  Task #35 — same shape as
-                                 AuthProvider, nested inside it in
-                                 app/_layout.tsx since it needs the
-                                 session's userId. Holds a live
+contexts/NotificationsProvider.tsx  Same shape as AuthProvider, nested
+                                 inside it in app/_layout.tsx since it
+                                 needs the session's userId. Holds a live
                                  `unreadCount`, subscribed via realtime,
                                  exposed app-wide via `useNotifications()`
                                  so the tab-bar badge and ChatScreen's
@@ -697,195 +593,190 @@ lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
                                  searchClubs / joinOrRequestClub /
                                  fetchClubProfile / updateClubProfile /
-                                 uploadClubAvatar
+                                 uploadClubAvatar / deleteClub
 lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
                                  number; before?: string}) — no-args call
                                  (used by HighlightsScreen) fetches full
-                                 history unchanged; a limit fetches only
-                                 the newest N (task #27, used by
-                                 ChatScreen's initial load/realtime
-                                 reload, merged not replaced into state —
-                                 see task #28); limit+before fetches the
-                                 next older page before that cursor (task
-                                 #28, powers ChatScreen's scroll-up-to-
-                                 load-more via FlatList's onStartReached)
-                                 / sendMessage / reactions / realtime
-                                 subscription — chat backend,
-                                 channel-agnostic (works for a club's main
-                                 channel or a race's channel unchanged).
-                                 Task #29: sendPhotoMessage (upload to the
-                                 private message-photos bucket, then
-                                 insert) + DisplayMessage.photoUrl,
-                                 resolved as a batched short-lived signed
-                                 URL per fetch (not a stored public URL —
-                                 the bucket isn't public). Task #31:
-                                 deleteMessage (soft — see task #30's
-                                 anonymize-not-hard-delete precedent;
-                                 sets deleted_at + clears body/media_url
-                                 via the existing UPDATE RLS policy, not
-                                 a real DELETE) / reportMessage (silently
-                                 no-ops on a repeat report, its unique
-                                 constraint's 23505) / fetchReportedMessages
-                                 / dismissReports / DisplayMessage.deletedAt.
+                                 history; a limit fetches only the newest
+                                 N (ChatScreen's initial load/realtime
+                                 reload, merged not replaced into state);
+                                 limit+before fetches the next older page
+                                 before that cursor, powering ChatScreen's
+                                 scroll-up-to-load-more via FlatList's
+                                 onStartReached / sendMessage / reactions
+                                 / realtime subscription — chat backend,
+                                 channel-agnostic. sendPhotoMessage
+                                 (upload to the private message-photos
+                                 bucket, then insert) + DisplayMessage
+                                 .photoUrl, resolved as a batched
+                                 short-lived signed URL per fetch.
+                                 deleteMessage (soft — sets deleted_at +
+                                 clears body/media_url via the existing
+                                 UPDATE RLS policy, not a real DELETE) /
+                                 reportMessage (no-ops on a repeat
+                                 report) / fetchReportedMessages /
+                                 dismissReports / DisplayMessage.deletedAt.
+                                 subscribeToNewMessages appends a
+                                 module-level monotonic counter to its
+                                 realtime topic string, so a fast
+                                 unmount+remount of the same chat screen
+                                 can't collide with a not-yet-torn-down
+                                 previous subscription (same bug class
+                                 fixed once already in notifications.ts).
 lib/calendar.ts                 fetchEvents / fetchEvent / createEvent /
                                  updateEvent / deleteEvent
-lib/calendarFeed.ts              Task #23, extended task #39 — fetchCalendarFeed
-                                 (clubId, userId, isClubAdmin) merges calendar.ts's
-                                 fetchEvents (always), races.ts's fetchRaces
-                                 (filtered to access !== "none"), and
-                                 eboard.ts's fetchEboardChannel+fetchMeetings
-                                 (only if isMember) into one sorted
-                                 CalendarFeedItem[] — no new tables/RLS,
-                                 every read already goes through each
-                                 feature's own existing policies. Task #39
-                                 added polls.ts's fetchPolls as a 4th source
+lib/calendarFeed.ts              fetchCalendarFeed(clubId, userId,
+                                 isClubAdmin) merges calendar.ts's
+                                 fetchEvents (always), races.ts's
+                                 fetchRaces (every race is now shown to
+                                 every club member, not just those with
+                                 access — tapping through without access
+                                 still redirects), eboard.ts's
+                                 fetchEboardChannel+fetchMeetings (only
+                                 if isMember), and polls.ts's fetchPolls
                                  (club polls always, race polls per
-                                 accessible race, Eboard polls only if
-                                 isMember — same visibility rules as the
-                                 other 3 sources). CalendarFeedItem gained
+                                 race, Eboard polls only if isMember)
+                                 into one sorted CalendarFeedItem[] — no
+                                 new tables/RLS, every read already goes
+                                 through each feature's own existing
+                                 policies. CalendarFeedItem carries
                                  `isOpen?: boolean` (poll-only, via
-                                 isPollEffectivelyClosed) since a poll has
-                                 no fixed date the way an event/race/
-                                 meeting does — Upcoming/Past bucketing for
-                                 a poll item uses isOpen, not a raw date
-                                 compare against atIso (which is
-                                 closesAt ?? createdAt).
+                                 isPollEffectivelyClosed) since a poll
+                                 has no fixed date the way an event/race/
+                                 meeting does — Upcoming/Past bucketing
+                                 for a poll item uses isOpen, not a raw
+                                 date compare against atIso (closesAt ??
+                                 createdAt).
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest
 lib/profile.ts                   fetchProfile / updateProfile /
                                  uploadAvatar / formatDateOfBirth /
-                                 deleteAccount (task #30 — wraps the
-                                 delete_account() RPC; caller must still
-                                 call supabase.auth.signOut() right after,
+                                 deleteAccount (wraps the delete_account()
+                                 RPC; caller must still call
+                                 supabase.auth.signOut() right after,
                                  since the RPC only blocks *future* auth)
-lib/legalContent.ts              Task #32 — PRIVACY_POLICY_SECTIONS /
-                                 TERMS_SECTIONS content data (see
-                                 components/LegalDocument.tsx). Explicitly
-                                 flagged in-file as a first draft, not
-                                 legal advice — needs real review before
-                                 a genuine public launch.
-lib/pickImageOnWeb.ts             Task #34 — `pickImageOnWeb()`, a raw
+lib/legalContent.ts              PRIVACY_POLICY_SECTIONS / TERMS_SECTIONS
+                                 content data (see
+                                 components/LegalDocument.tsx). Flagged
+                                 in-file as a first draft, not legal
+                                 advice — needs real review before a
+                                 genuine public launch.
+lib/pickImageOnWeb.ts             `pickImageOnWeb()`, a raw
                                  `<input type=file>` + real `.click()`
                                  helper that bypasses expo-image-picker's
-                                 web shim entirely for the 3 in-app
-                                 picker call sites (profile avatar, club
-                                 avatar, chat photo). Exists because that
-                                 shim (`ExponentImagePicker.web.ts`) opens
-                                 its hidden input via
-                                 `dispatchEvent(new MouseEvent("click"))`
-                                 rather than `.click()` — the DOM spec
-                                 treats these as equivalent for firing
-                                 listeners, but some real (non-automated)
-                                 browser configurations don't treat a
-                                 dispatched event as sufficient user
-                                 activation to actually show the native
-                                 file dialog, so the picker silently does
-                                 nothing. Native platforms are unaffected
-                                 (real native module, not this web DOM
-                                 shim) and still go through
+                                 web shim for the 3 in-app picker call
+                                 sites (profile avatar, club avatar, chat
+                                 photo) — that shim dispatches a
+                                 synthetic click event, which some real
+                                 browser configurations don't treat as
+                                 sufficient user activation to open the
+                                 native file dialog. Native platforms are
+                                 unaffected and still go through
                                  expo-image-picker directly.
 lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
                                  ACTIVITY_LABELS/ACTIVITY_ICONS
-lib/polls.ts                     Task #24, extended task #38, #43 —
-                                 fetchPolls / createPoll / fetchPoll /
-                                 fetchPollVoters (only called when eligible
-                                 to see voters) / castVote (wraps the
-                                 cast_vote RPC) / setPollClosed /
-                                 deletePoll. Task #43 added a `PollVoter`
-                                 interface (`userId`/`fullName`/
-                                 `avatarUrl`) and had `fetchPollVoters`
-                                 also select `profiles.avatar_url` (already
-                                 a public URL, no signing needed — same
-                                 convention as every other avatar read in
-                                 the app) so the new voters popup can show
-                                 an avatar per voter, not just a name.
-                                 Task #38 added
-                                 a `PollScope` discriminated union (club /
-                                 race / eboard, each carrying its own id +
-                                 clubId) threaded through fetchPolls/
-                                 createPoll instead of a bare clubId;
-                                 fetchPolls gained `closesAt`/`hasVoted` per
-                                 item (the latter via one extra query,
-                                 powers the redesigned list's MY VOTES tab);
-                                 createPoll gained `closesAt`; new exported
-                                 `isPollEffectivelyClosed(poll)` (`isClosed
-                                 || closesAt has passed`) so the list/detail
-                                 screens can't drift on what "closed" means
-                                 client-side, independent of the same check
-                                 enforced server-side (is_poll_closed).
-lib/races.ts                     Task #16 — fetchRaces (per-race access +
-                                 request status for the current user) /
-                                 createRace / requestJoinRace / fetchRace /
-                                 fetchRaceMembers / fetchPendingRaceRequests /
+lib/polls.ts                     fetchPolls / createPoll / fetchPoll /
+                                 fetchPollVoters (only called when
+                                 eligible to see voters; also selects
+                                 profiles.avatar_url) / castVote (wraps
+                                 the cast_vote RPC) / setPollClosed /
+                                 deletePoll. `PollScope` discriminated
+                                 union (club / race / eboard, each
+                                 carrying its own id + clubId) threaded
+                                 through fetchPolls/createPoll instead of
+                                 a bare clubId. fetchPolls returns
+                                 `closesAt`/`hasVoted` per item (powers
+                                 the list's MY VOTES tab); createPoll
+                                 takes `closesAt`. Exported
+                                 `isPollEffectivelyClosed(poll)`
+                                 (`isClosed || closesAt has passed`) so
+                                 client screens can't drift from the
+                                 server-side `is_poll_closed` check.
+                                 `PollVoter` interface (`userId`/
+                                 `fullName`/`avatarUrl`).
+lib/races.ts                     fetchRaces (per-race access + request
+                                 status for the current user) /
+                                 createRace / requestJoinRace / fetchRace
+                                 (`channelId: string | null`, since a
+                                 manager who isn't a member can't read
+                                 the race's channel row) /
+                                 fetchRaceMembers / removeRaceMember /
+                                 fetchPendingRaceRequests /
                                  decideRaceJoinRequest / addRaceMember /
-                                 searchClubMembersToAdd / fetchRaceLocationInfo /
-                                 updateRaceLocationInfo ("Meet Information",
-                                 tasks #20/#21/#22 — one combined
-                                 fetch/update covering all 5 fields
-                                 [description, location, hotel, photos,
-                                 results]; the original separate
-                                 fetchRaceLinks/updateRacePhotosLink/
-                                 updateRaceResultsLink from task #20 were
-                                 deleted once task #22 merged everything
-                                 into fetchRaceLocationInfo/updateRaceLocationInfo)
-lib/eboard.ts                     Task #17 — fetchEboardChannel (null if
-                                 none created yet; membership/request
-                                 status checked with an explicit
-                                 eq("user_id", userId), since — unlike
-                                 races — presence of a roster row isn't a
-                                 valid "am I a member" proxy here, any
-                                 club admin can read the full roster) /
-                                 createEboardChannel / requestJoinEboardChannel /
-                                 fetchEboardMembers / fetchPendingEboardRequests /
-                                 decideEboardJoinRequest / addEboardMember /
-                                 searchClubAdminsToAdd / fetchMeetings /
-                                 fetchMeeting / createMeeting / updateMeeting /
-                                 deleteMeeting (task #18)
-lib/carGroups.ts                 Task #19 — fetchCarGroups (groups with
-                                 members + incharge name attached) /
-                                 createCarGroup (name computed by the
-                                 caller as `Group ${groups.length + 1}`,
-                                 no server-side naming) / deleteCarGroup /
-                                 addCarGroupMember / removeCarGroupMember /
-                                 setCarGroupIncharge / searchRaceParticipantsToAdd
-                                 (race roster ∪ club admins, excluding
-                                 anyone already in any group for the race)
-lib/notifications.ts             Task #35 — fetchNotificationFeed
-                                 (merges `notifications` rows with
+                                 searchClubMembersToAdd /
+                                 fetchRaceLocationInfo /
+                                 updateRaceLocationInfo ("Meet
+                                 Information" — one combined fetch/update
+                                 covering all 5 fields: description,
+                                 location, hotel, photos, results) /
+                                 deleteRace
+lib/eboard.ts                     fetchEboardChannel (null if none
+                                 created yet; membership/request status
+                                 checked with an explicit eq("user_id",
+                                 userId), since presence of a roster row
+                                 isn't a valid "am I a member" proxy here
+                                 — any club admin can read the full
+                                 roster) / createEboardChannel /
+                                 requestJoinEboardChannel /
+                                 fetchEboardMembers / removeEboardMember /
+                                 fetchPendingEboardRequests /
+                                 decideEboardJoinRequest / addEboardMember
+                                 / searchClubAdminsToAdd / fetchMeetings /
+                                 fetchMeeting / createMeeting /
+                                 updateMeeting / deleteMeeting /
+                                 deleteEboardChannel
+lib/carGroups.ts                 fetchCarGroups (groups with members +
+                                 incharge name attached) / createCarGroup
+                                 (name computed by the caller as `Group
+                                 ${groups.length + 1}`, no server-side
+                                 naming) / deleteCarGroup /
+                                 addCarGroupMember / removeCarGroupMember
+                                 / setCarGroupIncharge /
+                                 searchRaceParticipantsToAdd (real race
+                                 roster only as of task #44 — a manager
+                                 without an actual race_members row no
+                                 longer qualifies, excludes anyone
+                                 already in any group for the race)
+lib/notifications.ts             fetchNotificationFeed (merges
+                                 `notifications` rows with
                                  `fetch_unread_channel_summaries()` RPC
                                  results, paginated via `limit`/`before`
                                  mirroring fetchMessages) /
-                                 fetchUnreadBadgeCount / markAllNotificationsRead
-                                 (bulk-marks discrete notifications read,
-                                 never touches channel_reads) /
-                                 markChannelRead (upserts channel_reads,
-                                 called from ChatScreen on mount) /
+                                 fetchUnreadBadgeCount /
+                                 markAllNotificationsRead (bulk-marks
+                                 discrete notifications read, never
+                                 touches channel_reads) / markChannelRead
+                                 (upserts channel_reads, called from
+                                 ChatScreen on mount) /
+                                 markNotificationsReadForPath (mirrors
+                                 markChannelRead's shape — exact-match
+                                 UPDATE by target_path, called from
+                                 club-profile/members.tsx, race roster,
+                                 and eboard roster on focus; the 3
+                                 pending-join-request-inbox types are
+                                 excluded from markAllNotificationsRead's
+                                 bulk UPDATE and only ever clear via this
+                                 function, same "only clears once you
+                                 look" guarantee as chat-unread rows) /
                                  subscribeToNotifications (mirrors
                                  subscribeToNewMessages; takes a `tag`
-                                 param so independent subscribers — the
-                                 badge provider and the Notifications
-                                 screen — don't collide on the same
-                                 realtime channel topic, a real bug hit
-                                 live during verification)
+                                 param plus a monotonic per-attempt
+                                 counter so independent subscribers, and
+                                 a rapid remount of the same subscriber,
+                                 don't collide on the same realtime
+                                 channel topic).
 types/database.ts               Hand-written Supabase Database type (see
                                  section 6 gotcha about required shape)
-constants/theme.ts               Task #34 — "Kinetic Performance System"
-                                 design tokens (colors/radii/spacing/
-                                 typography), recovered from a git
-                                 worktree that had already implemented a
-                                 same-day Stitch redesign but never made
-                                 it back into `main` (see task #34 in
-                                 docs/HISTORY.md for the recovery story).
-                                 `primary`/`surfaceTint` are overridden to
-                                 `#ff4d00` ("Energetic Orange") per
-                                 explicit founder preference over the
-                                 Stitch export's own `#aa3000` frontmatter
-                                 value, applied app-wide. Fonts (Anton,
-                                 Archivo Narrow, Inter) loaded via
-                                 `@expo-google-fonts/*` + `expo-font` in
-                                 `app/_layout.tsx`.
+constants/theme.ts               "Kinetic Performance System" design
+                                 tokens (colors/radii/spacing/typography).
+                                 `primary`/`surfaceTint` = `#ff4d00`
+                                 ("Energetic Orange") per explicit
+                                 founder preference, applied app-wide.
+                                 Fonts (Anton, Archivo Narrow, Inter)
+                                 loaded via `@expo-google-fonts/*` +
+                                 `expo-font` in `app/_layout.tsx`.
 
 supabase/migrations/
   0001_init.sql                 profiles, clubs, club_members,
@@ -915,557 +806,455 @@ supabase/migrations/
   0016_races.sql                   races, race_members, race_join_requests
                                  + RLS; generalizes is_channel_member/
                                  is_channel_admin to branch on channels'
-                                 new nullable race_id (so messages/
-                                 message_reactions RLS didn't need to
-                                 change at all); adds is_race_admin/
-                                 is_race_member/is_race_club_member
-                                 helpers; fixes three existing trigger
-                                 functions (0008/0012) whose channel
-                                 lookup assumed one channel per club —
-                                 no longer true once race channels exist,
-                                 re-`create or replace`d in place rather
-                                 than reversing 0008/0012 themselves;
+                                 new nullable race_id (messages/
+                                 message_reactions RLS unchanged); adds
+                                 is_race_admin/is_race_member/
+                                 is_race_club_member helpers; re-patches
+                                 the 0008/0012 membership-message trigger
+                                 functions (channel lookup previously
+                                 assumed one channel per club);
                                  request_join_race / decide_race_join_request
-                                 RPCs (mirrors 0006's club join-request
-                                 shape, but always request-based — no
-                                 "open" branch)
-  0017_eboard.sql                  Task #17 — eboard_channels (unique per
-                                 club) / eboard_channel_members /
+                                 RPCs (mirrors 0006's shape, always
+                                 request-based, no "open" branch)
+  0017_eboard.sql                  eboard_channels (unique per club) /
+                                 eboard_channel_members /
                                  eboard_channel_join_requests + RLS;
-                                 channels.eboard_channel_id (nullable),
-                                 which required re-scoping the existing
-                                 "one main channel per club" partial
-                                 unique index (it only excluded
-                                 `race_id is null`, which an eboard
-                                 channel's row also satisfies) and
-                                 re-patching the three membership-system-
-                                 message trigger functions a second time
-                                 (0016 already had to do this once for
-                                 races) since their "find the club's one
-                                 main channel" lookup would otherwise match
-                                 2 rows once an eboard channel exists;
-                                 is_channel_member/is_channel_admin gain a
-                                 third branch; request_join_eboard_channel /
-                                 decide_eboard_join_request RPCs, decided
-                                 by an existing eboard member rather than
-                                 by "any club admin" (see task #17 in
-                                 docs/HISTORY.md for the full access-model
-                                 reasoning)
-  0018_eboard_meetings.sql         Task #18 — eboard_meetings (title,
-                                 description, meeting_link, meeting_at) +
-                                 RLS: any existing eboard_channel_member
-                                 can select/insert/update/delete, no
-                                 separate role, same as the rest of this
-                                 feature
+                                 channels.eboard_channel_id (nullable) —
+                                 required re-scoping the "one main
+                                 channel per club" partial unique index
+                                 and re-patching the membership-message
+                                 trigger functions a second time;
+                                 is_channel_member/is_channel_admin gain
+                                 a third branch; request_join_eboard_channel
+                                 / decide_eboard_join_request RPCs,
+                                 decided by an existing eboard member
+                                 rather than "any club admin"
+  0018_eboard_meetings.sql         eboard_meetings (title, description,
+                                 meeting_link, meeting_at) + RLS: any
+                                 existing eboard_channel_member can
+                                 select/insert/update/delete
   0019_eboard_meetings_creator_edit.sql
-                                 Founder follow-up right after task #18
-                                 shipped: replaces the update policy so
-                                 only the meeting's creator (created_by =
-                                 auth.uid()) can edit it
+                                 Founder follow-up: only the meeting's
+                                 creator can edit it
   0020_eboard_meetings_creator_delete.sql
-                                 Second follow-up, same session: delete
-                                 also restricted to the creator — every
-                                 other eboard member is now view-only on
-                                 a meeting
-  0021_race_car_groups.sql         Task #19 — race_car_groups /
-                                 race_car_group_members (unique(race_id,
-                                 user_id) enforces one group per person per
-                                 race — race_id is denormalized onto the
-                                 membership table just for this constraint)
-                                 + RLS: view for anyone with race access,
-                                 write admin-only. New helper
-                                 is_user_race_participant(race_id, user_id)
-                                 scopes the add-member pool to the race's
-                                 own roster + club admins, not the whole
-                                 club. A trigger clears incharge_user_id if
-                                 that member is removed from the group;
-                                 set_car_group_incharge RPC validates the
-                                 target is a current group member before
-                                 setting it.
-  0022_race_car_groups_delete.sql  Founder follow-up right after task #19
-                                 shipped ("if I added the group I wanna
-                                 delete the group"): adds the admin-only
-                                 delete policy on race_car_groups that 0021
-                                 didn't include — members cascade-delete
-                                 via the existing FK.
-  0023_race_links.sql              Task #20 — adds photos_link and
-                                 results_link (both nullable text) directly
-                                 to races. No new RLS: the existing
-                                 "admins can update races" policy from
-                                 0016_races.sql already covers any column
-                                 on the row, and any admin (not just the
-                                 one who created the race or added the
-                                 link) can edit or delete either.
-  0024_race_location_info.sql      Task #21 — adds info_description,
-                                 location_link, hotel_link (all nullable
-                                 text) directly to races. Same no-new-RLS
-                                 reasoning as 0023 — the existing admin
-                                 update policy already covers these
-                                 columns too. Closes out the last of
-                                 Race's 4 originally-placeholder sections.
-  0025_polls.sql                   Task #24 — polls / poll_options /
-                                 poll_votes + RLS; poll_options.vote_count
-                                 is denormalized and trigger-maintained so
-                                 counts stay public even on a private poll
-                                 whose individual poll_votes rows are RLS-
-                                 gated to the creator; cast_vote RPC casts/
-                                 toggles/moves a vote, deliberately plain
-                                 security-invoker (not security-definer)
-                                 and never uses INSERT...RETURNING (see
-                                 section 6's chicken-and-egg gotcha).
-                                 Close/reopen/delete are creator-only,
-                                 unlike races'/routines' any-admin pattern.
-  0026_indexes.sql                 Task #27 — six `create index`
-                                 statements for FK columns filtered on
+                                 Second follow-up: delete also
+                                 creator-only
+  0021_race_car_groups.sql         race_car_groups / race_car_group_members
+                                 (unique(race_id, user_id) enforces one
+                                 group per person per race) + RLS: view
+                                 for anyone with race access, write
+                                 admin-only. New is_user_race_participant
+                                 helper scopes the add-member pool to the
+                                 race's own roster + club admins. Trigger
+                                 clears incharge_user_id if that member
+                                 is removed; set_car_group_incharge RPC
+                                 validates current membership first.
+  0022_race_car_groups_delete.sql  Founder follow-up: admin-only delete
+                                 policy on race_car_groups (0021 didn't
+                                 include one) — members cascade-delete.
+  0023_race_links.sql              races.photos_link, results_link
+                                 (nullable text) — no new RLS, existing
+                                 admin update policy already covers them.
+  0024_race_location_info.sql      races.info_description, location_link,
+                                 hotel_link (nullable text) — same
+                                 no-new-RLS reasoning as 0023.
+  0025_polls.sql                   polls / poll_options / poll_votes +
+                                 RLS; poll_options.vote_count is
+                                 denormalized/trigger-maintained so
+                                 counts stay public even on a private
+                                 poll whose poll_votes rows are RLS-
+                                 gated to the creator; cast_vote RPC
+                                 casts/toggles/moves a vote, plain
+                                 security-invoker (not security-definer),
+                                 never uses INSERT...RETURNING (see
+                                 section 6). Close/reopen/delete
+                                 creator-only.
+  0026_indexes.sql                 6 indexes for FK columns filtered
                                  directly (`.eq(...)`) with no existing
-                                 PK/unique-constraint coverage:
-                                 races.club_id, eboard_meetings
-                                 .eboard_channel_id, race_car_groups
-                                 .race_id, polls.club_id, poll_options
-                                 .poll_id, and a (poll_id, user_id)
-                                 composite on poll_votes. No RLS/table
-                                 changes. Confirmed via EXPLAIN that the
-                                 planner actually picks each one up.
-  0027_message_photos_storage.sql  Task #29 — private (not public,
-                                 unlike avatars/club-avatars) 'message-
-                                 photos' Storage bucket + RLS scoped via
+                                 PK/unique coverage: races.club_id,
+                                 eboard_meetings.eboard_channel_id,
+                                 race_car_groups.race_id, polls.club_id,
+                                 poll_options.poll_id, and a (poll_id,
+                                 user_id) composite on poll_votes.
+  0027_message_photos_storage.sql  Private (not public) 'message-photos'
+                                 Storage bucket + RLS scoped via
                                  is_channel_member on the object path's
                                  first segment (${channelId}/${uuid}.ext).
-  0028_account_deletion.sql        Task #30 — security definer
-                                 delete_account() RPC: anonymizes the
-                                 caller's own profiles row and sets
+  0028_account_deletion.sql        security definer delete_account()
+                                 RPC: anonymizes the caller's own
+                                 profiles row and sets
                                  auth.users.banned_until (+100 years) to
                                  permanently block future sign-in. No
-                                 hard delete, no cascade surgery — see
-                                 task #30 in docs/HISTORY.md for why.
-  0029_message_reports.sql         Task #31 — message_reports (message_id,
-                                 channel_id [denormalized, same reasoning
-                                 as race_car_group_members.race_id in
-                                 0021], reporter_id,
-                                 unique(message_id, reporter_id)) + RLS:
-                                 any channel member can insert a report,
-                                 only a channel admin can read/delete
-                                 (dismiss) them.
-  0030_message_soft_delete.sql     Task #31 — adds messages.deleted_at.
-                                 deleteMessage now UPDATEs (clears body/
-                                 media_url, stamps deleted_at) through
-                                 the existing sender-or-admin UPDATE
-                                 policy instead of hard-DELETEing, so a
-                                 deleted message tombstones ("This
-                                 message was deleted") instead of
-                                 silently vanishing from other members'
-                                 chat history. The DELETE policy is left
-                                 in place, unused.
-  0031_notifications_core.sql      Task #35 — notification_type enum,
-                                 notifications table + RLS (recipient-
-                                 only select/update, no insert policy —
-                                 every row comes from a security-definer
-                                 trigger) + added to supabase_realtime;
+                                 hard delete, no cascade surgery.
+  0029_message_reports.sql         message_reports (message_id,
+                                 channel_id, reporter_id, unique(message_id,
+                                 reporter_id)) + RLS: any channel member
+                                 can insert a report, only a channel
+                                 admin can read/delete (dismiss) them.
+  0030_message_soft_delete.sql     messages.deleted_at. deleteMessage now
+                                 UPDATEs (clears body/media_url, stamps
+                                 deleted_at) through the existing
+                                 sender-or-admin UPDATE policy instead of
+                                 hard-DELETEing, so a deleted message
+                                 tombstones instead of vanishing from
+                                 other members' history.
+  0031_notifications_core.sql      notification_type enum, notifications
+                                 table + RLS (recipient-only select/
+                                 update, no insert policy — every row
+                                 comes from a security-definer trigger)
+                                 + added to supabase_realtime;
                                  channel_reads table + RLS; the
-                                 fetch_unread_channel_summaries() RPC
-                                 (one round trip per caller, reuses
-                                 is_channel_member so channel-access
-                                 logic isn't duplicated a third time).
+                                 fetch_unread_channel_summaries() RPC.
   0032_notification_triggers_membership.sql
-                                 Task #35 — re-creates (create or
-                                 replace, same technique 0016/0017 used
-                                 twice already) log_member_added/
-                                 log_member_removed/log_member_role_changed/
-                                 log_race_member_added/log_eboard_member_added
-                                 to also insert a notifications row;
-                                 extends decide_join_request/
+                                 Re-creates log_member_added/
+                                 log_member_removed/
+                                 log_member_role_changed/
+                                 log_race_member_added/
+                                 log_eboard_member_added to also insert a
+                                 notifications row; extends
+                                 decide_join_request/
                                  decide_race_join_request/
-                                 decide_eboard_join_request to explicitly
-                                 insert request_approved/request_denied
-                                 notifications, guarded by a transaction-
-                                 local clubchat.skip_add_notify Postgres
-                                 setting so an approval's membership
-                                 insert doesn't also fire a redundant
-                                 "added by" notification from the
-                                 log_*_member_added triggers above.
+                                 decide_eboard_join_request to insert
+                                 request_approved/request_denied
+                                 notifications, guarded by a
+                                 transaction-local
+                                 clubchat.skip_add_notify setting so an
+                                 approval doesn't also fire a redundant
+                                 "added by" notification.
   0033_notification_triggers_requests.sql
-                                 Task #35 — 3 new triggers (club/race/
+                                 3 new triggers (club/race/
                                  eboard_channel join_requests, on insert
                                  or update of status ... when pending)
                                  fanning out admin/eboard-member-inbox
                                  notifications; eboard requests go only
-                                 to current eboard members, not every
-                                 club admin, matching 0017's existing
-                                 approval-rights asymmetry.
+                                 to current eboard members.
   0034_notification_triggers_creation.sql
-                                 Task #35 — new after-insert triggers on
-                                 polls/calendar_events/races/
-                                 eboard_meetings (creator excluded from
-                                 the fan-out) and on messages filtered to
-                                 message_type = 'announcement' (a plain
-                                 pin — a later update of the separate
-                                 pinned boolean — never fires this).
+                                 New after-insert triggers on polls/
+                                 calendar_events/races/eboard_meetings
+                                 (creator excluded) and on messages
+                                 filtered to message_type = 'announcement'.
   0035_notifications_persistent_requests.sql
-                                 Task #35 founder follow-up, right after
-                                 initial ship: adds
-                                 notifications.resolved_outcome
+                                 Adds notifications.resolved_outcome
                                  ('approved' | 'denied') and changes the
                                  3 decide_*_join_request functions from
                                  DELETEing a decided admin-inbox
                                  notification to UPDATEing it in place —
-                                 decided requests now stay visible as
-                                 history (tagged with the outcome) rather
-                                 than disappearing.
+                                 decided requests stay visible as
+                                 history, tagged with the outcome.
   0036_fix_announcement_notify_race_cast.sql
-                                 Task #36 — fixes a real bug: announcing in
-                                 a race channel always 400'd. `notify_
-                                 announcement()`'s race branch (0034) was
-                                 the only one of its 3 scope branches using
-                                 `select distinct ... from (... union
-                                 ...)`, which forces the 'announcement'
-                                 literal to resolve as `text` before it
-                                 reaches the notification_type column,
-                                 defeating Postgres's implicit unknown-
-                                 literal-to-enum cast on INSERT...SELECT.
-                                 Fixed with an explicit `::notification_type`
-                                 cast on all 3 branches (only the race one
-                                 was actually broken, the other two were
-                                 cast defensively too).
-  0037_race_members_delete.sql     Task #36 — race_members had insert/
-                                 select policies since 0016_races.sql but
-                                 no delete policy at all, so there was no
-                                 way to remove someone from a race roster —
-                                 a genuine gap, not a regression. Adds the
-                                 missing admin-only delete policy, same
-                                 pattern as 0022_race_car_groups_delete.sql.
+                                 Fixes a real bug: announcing in a race
+                                 channel always 400'd.
+                                 notify_announcement()'s race branch was
+                                 the only one of its 3 scope branches
+                                 using `select distinct ... from (...
+                                 union ...)`, which forces the
+                                 'announcement' literal to resolve as
+                                 `text` before it reaches the
+                                 notification_type column, defeating
+                                 Postgres's implicit unknown-literal-to-
+                                 enum cast on INSERT...SELECT. Fixed with
+                                 an explicit `::notification_type` cast
+                                 on all 3 branches.
+  0037_race_members_delete.sql     race_members had insert/select
+                                 policies since 0016 but no delete policy
+                                 at all — a genuine gap, not a
+                                 regression. Adds the missing admin-only
+                                 delete policy.
   0038_polls_scope_and_deadline.sql
-                                 Task #38 — polls gains closes_at (nullable
+                                 polls gains closes_at (nullable
                                  timestamptz), race_id, eboard_channel_id
-                                 (both nullable, club_id stays not null
-                                 always — mirrors channels.club_id's shape
-                                 exactly). can_access_poll and the polls
-                                 INSERT policy become 3-way branches
-                                 (race/eboard/club); is_poll_closed and
-                                 cast_vote's inline check both extended to
-                                 `is_closed or closes_at < now()` — no
-                                 cron, computed live. polls' own SELECT
-                                 policy is written as an inline 3-way CASE
-                                 on the row's own columns, deliberately
-                                 *not* routed through can_access_poll(id) —
-                                 see SPEC.md section 6 for the real
-                                 INSERT...RETURNING bug that shape caused
-                                 and why. notify_poll_created (0034) is
-                                 also re-created here with the same 3-way
-                                 scope-aware audience as notify_announcement
-                                 (it previously fanned out every poll,
-                                 including private Eboard ones, to the
-                                 entire club) — including the same
-                                 `::notification_type` cast fix from
-                                 0036, since its own race branch hit the
-                                 identical DISTINCT+UNION trap in this
-                                 same migration.
-  0039_eboard_members_delete.sql   Task #40 — same class of gap as 0037:
+                                 (club_id stays not null always, mirrors
+                                 channels.club_id). can_access_poll and
+                                 the polls INSERT policy become 3-way
+                                 branches (race/eboard/club);
+                                 is_poll_closed and cast_vote's inline
+                                 check both extended to `is_closed or
+                                 closes_at < now()` — no cron, computed
+                                 live. polls' own SELECT policy is an
+                                 inline 3-way CASE on the row's own
+                                 columns, deliberately *not* routed
+                                 through can_access_poll(id) — see
+                                 section 6's second RLS gotcha.
+                                 notify_poll_created re-created with the
+                                 same 3-way scope-aware audience as
+                                 notify_announcement (previously fanned
+                                 out every poll, including private
+                                 Eboard ones, to the entire club),
+                                 including the same `::notification_type`
+                                 cast fix from 0036.
+  0039_eboard_members_delete.sql   Same class of gap as 0037:
                                  eboard_channel_members had insert/select
-                                 policies since 0017_eboard.sql but no
-                                 delete policy at all. Adds a delete
-                                 policy scoped to existing eboard members
-                                 (mirrors 0017's own add/decide-request
-                                 asymmetry, not is_club_admin), self-
-                                 removal blocked at the RLS layer itself
-                                 (superseded by 0041 below — see task #41).
-  0040_club_eboard_delete.sql      Task #40 — Delete Club, creator-only
-                                 (`created_by = auth.uid()`, deliberately
-                                 not "any admin" given the blast radius —
-                                 cascades wipe chat/members/races/Eboard/
-                                 polls/notifications for every member,
+                                 policies since 0017 but no delete
+                                 policy. Adds one scoped to existing
+                                 eboard members (self-removal blocked at
+                                 the RLS layer — superseded by 0041/0043
+                                 below).
+  0040_club_eboard_delete.sql      Delete Club, creator-only (cascades
+                                 wipe chat/members/races/Eboard/polls/
+                                 notifications for every member,
                                  permanently) + Delete Eboard channel,
                                  existing-members-only (mirrors 0017's
-                                 asymmetry: club-admin status alone
-                                 doesn't grant Eboard rights). Race delete
-                                 already existed (0016's admin-only
-                                 policy); `lib/clubs.ts`'s `deleteClub` /
-                                 `lib/eboard.ts`'s `deleteEboardChannel` /
-                                 `lib/races.ts`'s `deleteRace` are the
-                                 corresponding client calls.
+                                 asymmetry).
   0041_admin_race_eboard_membership_sync.sql
-                                 Task #41 — founder follow-up tightening
-                                 admin access to Race/Eboard from implicit
-                                 (is_club_admin/is_race_admin checks, no
-                                 real roster row for most admins) to
-                                 explicit, individually-manageable
-                                 membership. `handle_new_race`/
-                                 `handle_new_eboard_channel` (0016/0017)
-                                 re-created a third/second time to
-                                 bulk-add *every* current club admin, not
-                                 just created_by — and, found while
-                                 tracing this, fixed a latent ordering bug
-                                 where the channel was created *after* the
-                                 members insert, so `log_race_member_added`
-                                 /`log_eboard_member_added`'s own channel
-                                 lookup always found nothing and silently
-                                 skipped the "joined" system message +
-                                 notification for whichever rows were
-                                 inserted here (harmless with one row, the
-                                 creator; would have swallowed every newly
-                                 auto-added admin's notification
-                                 otherwise). New trigger
-                                 `handle_admin_role_membership_sync` on
-                                 `club_members` role changes: promoting to
+                                 handle_new_race/handle_new_eboard_channel
+                                 re-created to bulk-add every current
+                                 club admin (not just created_by), also
+                                 fixing a latent ordering bug where the
+                                 channel was created *after* the members
+                                 insert, silently swallowing the
+                                 "joined" system message/notification
+                                 for those rows. New trigger
+                                 handle_admin_role_membership_sync on
+                                 club_members role changes: promoting to
                                  admin auto-joins Eboard (if it exists)
-                                 and every *upcoming* race
-                                 (`event_date >= current_date`); demoting
-                                 reverses both for upcoming races only —
-                                 past races are left untouched. New
-                                 `is_club_creator`/`is_race_club_creator`/
-                                 `is_eboard_club_creator` helpers back two
-                                 replaced DELETE policies: removing a
-                                 *non-admin* race member is still any-
-                                 admin (unchanged), but removing an
+                                 and every *upcoming* race (event_date >=
+                                 current_date); demoting reverses both
+                                 for upcoming races only. New
+                                 is_club_creator/is_race_club_creator/
+                                 is_eboard_club_creator helpers back two
+                                 replaced DELETE policies: removing an
                                  *admin* from a race, or removing anyone
-                                 from Eboard (every member there is
-                                 already guaranteed an admin), is now
-                                 creator-only — a deliberate narrowing of
-                                 0039's "any existing member" rule,
-                                 mirroring 0040's Delete Club precedent.
-                                 `lib/calendarFeed.ts`'s race branch lost
-                                 its `access !== "none"` filter, so every
-                                 club member sees a race on the unified
-                                 Calendar as soon as it's created (tapping
-                                 through without access still redirects to
-                                 the Races & Meets list, unchanged).
-  0042_club_role_owner_enum.sql    Task #42 — split out of what's below
-                                 into its own migration file after a real
-                                 `supabase db reset` failure: `alter type
-                                 ... add value` can't be used later in the
-                                 *same* transaction when the enum type
-                                 already existed before that transaction
-                                 started — only safe if the enum itself
-                                 was also created fresh in the same
-                                 transaction. `supabase db reset` runs each
-                                 migration file as one transaction (unlike
-                                 a plain `psql -f` apply, which is
-                                 autocommit-per-statement and masked this
-                                 the first time it was "verified"). Just
+                                 from Eboard, is now creator-only.
+                                 lib/calendarFeed.ts's race branch lost
+                                 its access-filter, so every club member
+                                 sees every race on Calendar immediately.
+                                 (Superseded for races by 0044 below —
+                                 admin auto-membership in races was
+                                 reversed one task later; the Eboard half
+                                 and the calendar-visibility change
+                                 stayed.)
+  0042_club_role_owner_enum.sql    Split into its own migration after a
+                                 real `supabase db reset` failure:
+                                 `alter type ... add value` can't be
+                                 used later in the *same* transaction
+                                 when the enum type already existed
+                                 before that transaction started. Just
                                  one statement: `alter type public.
                                  club_role add value 'owner'`.
-  0043_club_role_owner.sql        Task #42 — introduces a real three-tier
-                                 role hierarchy, Owner > Admin > Member,
-                                 replacing the implicit, non-transferable
-                                 `clubs.created_by` "creator" concept 0040/
-                                 0041 leaned on for a few high-blast-radius
-                                 policies. `club_role` gains an `'owner'`
-                                 enum value (verified directly against
-                                 local Postgres that `alter type ... add
-                                 value` is usable later in the same
-                                 transaction/migration file); every club's
-                                 creator is backfilled to Owner, enforced
-                                 going forward by a partial unique index
-                                 (`one_owner_per_club`, one Owner per club
-                                 at the DB level, not just app logic).
-                                 `is_club_admin()` redefined to
-                                 `role in ('admin','owner')` — a one-line
-                                 change that makes Owner inherit every
-                                 existing admin-gated policy across the app
-                                 for free. New `transfer_ownership()` RPC
-                                 (security definer, mirrors
-                                 `decide_join_request`'s pattern): demotes
-                                 the caller to Admin *before* promoting the
-                                 target to Owner, since the unique index is
-                                 checked per-statement and the reverse order
-                                 would momentarily create two Owner rows.
-                                 `club_members` UPDATE/DELETE policies
-                                 rewritten into the full permission matrix
-                                 (promote/demote symmetric for Owner+Admin;
-                                 remove_member Owner+Admin; remove_admin
-                                 Owner-only; self-leave blocked for the
-                                 Owner specifically — an inferred safety
-                                 default, not explicitly requested, to
-                                 preserve "exactly one Owner"). `handle_
-                                 admin_role_membership_sync` (0041)
+  0043_club_role_owner.sql        Real three-tier role hierarchy, Owner >
+                                 Admin > Member, replacing the implicit,
+                                 non-transferable `clubs.created_by`
+                                 "creator" concept 0040/0041 leaned on.
+                                 Every club's creator backfilled to
+                                 Owner, enforced going forward by a
+                                 partial unique index (`one_owner_per_club`).
+                                 `is_club_admin()` redefined to `role in
+                                 ('admin','owner')`. New
+                                 `transfer_ownership()` RPC (security
+                                 definer): demotes the caller to Admin
+                                 *before* promoting the target to Owner
+                                 (the unique index is checked
+                                 per-statement). `club_members` UPDATE/
+                                 DELETE policies rewritten into the full
+                                 permission matrix (promote/demote
+                                 symmetric for Owner+Admin; remove_member
+                                 Owner+Admin; remove_admin Owner-only;
+                                 self-leave blocked for the Owner).
+                                 `handle_admin_role_membership_sync`
                                  rewritten to compare admin-*tier*
-                                 membership (`role in ('admin','owner')`)
-                                 before/after instead of a binary
-                                 `role = 'admin'` check, so an ownership
-                                 transfer (owner↔admin) is correctly a
-                                 no-op for Eboard sync rather than looking
-                                 like a demotion+promotion; also drops this
-                                 function's race-sync half entirely (moved
-                                 to 0044 below — race membership stops
-                                 being automatic). New `club_members` AFTER
-                                 DELETE trigger closes a found-not-caused
-                                 gap: removing someone from the club
-                                 outright never cleaned up their race/
-                                 Eboard rows at all (only role *demotion*
-                                 was handled). `is_club_creator`/`is_
-                                 eboard_club_creator` dropped in favor of
-                                 `is_club_owner`/`is_eboard_club_owner` —
-                                 ownership is transferable now, so "the
-                                 original creator" is the wrong authority
-                                 for Delete Club / remove-from-Eboard.
-                                 Verified empirically (not just via `tsc`)
-                                 against a full pg_dump-restored copy of
-                                 live data, impersonating each role via
-                                 `set local role authenticated` +
-                                 `request.jwt.claim.sub`: promote/demote/
-                                 remove-member/remove-admin-as-admin
-                                 [blocked]/remove-admin-as-owner [allowed]/
-                                 owner-can't-leave/transfer-ownership (incl.
-                                 correct Eboard sync + exactly one system
-                                 message, not two) all behaved exactly as
-                                 designed before ever touching the real DB.
-  0044_race_channel_rework.sql    Task #42 — reverses 0041's race-related
-                                 auto-membership behavior (this was an
-                                 explicit founder request to replace, not
-                                 extend, that logic): `handle_new_race`
-                                 drops its bulk-add-every-admin block
-                                 (creator auto-add is unrelated, kept).
-                                 `is_channel_member`'s race branch becomes
-                                 `is_race_member(race_id)` only — a club
-                                 Admin/Owner no longer gets automatic chat
-                                 access without a real roster row, matching
-                                 "even the Owner must request or be added."
-                                 `is_channel_admin`'s race branch becomes
-                                 `is_race_member AND is_race_admin` (pin/
-                                 announce needs both). `race_members`
-                                 DELETE simplifies back to one policy (any
-                                 manager removes anyone) — 0041's owner-only
-                                 carve-out for races wasn't requested here
-                                 and only ever applied to the club-wide
-                                 `remove_admin` action. Race management
-                                 authority itself (approve requests, add/
-                                 remove members) barely changed — it was
-                                 already "any club Admin/Owner" via
-                                 `is_race_admin`, which is exactly what the
-                                 founder asked for. Two related latent bugs
-                                 caught live while testing this migration
-                                 against a copy of real data, both fixed in
-                                 the same file: `request_join_race` still
-                                 short-circuited to `'joined'` for any club
-                                 admin without ever inserting a real
-                                 `race_members` row (correct under the old
-                                 auto-access model, silently broken under
-                                 the new one — a manager's own join request
-                                 would no-op); and `is_user_race_participant`
-                                 (backs Car Assignment group membership,
-                                 0021) still let any club admin be assigned
-                                 to a car group for a race they'd never
-                                 actually joined, the same stale assumption
-                                 in a third place. `race/[raceId]/_layout.tsx`'s
-                                 `RaceContext` splits its old single
-                                 `isAdmin` into `isManager` (club Admin/
-                                 Owner, management authority) and `isMember`
-                                 (real roster row, required for chat/hub
-                                 access) — mirrors `eboard/_layout.tsx`'s
-                                 already-existing "visible to managers,
-                                 membership is separate" pattern exactly,
-                                 down to `index.tsx`'s branching and
-                                 `chat.tsx`/`highlights.tsx`/`gallery.tsx`'s
-                                 direct-URL member guards. `lib/races.ts`'s
-                                 `fetchRace` returns `channelId: string |
-                                 null` (`maybeSingle` not `single`) since a
-                                 manager who isn't a member can no longer
-                                 read the race's channel row at all.
-                                 Verified live end-to-end via Playwright
-                                 with three real accounts covering the
-                                 exact scenario the spec called out: an
-                                 Owner not added to a race sees "Request to
-                                 join" + a "Manage roster" entry point
-                                 (not the full hub), can approve *other*
-                                 people's requests without being a member
-                                 themself, and gets full chat access only
-                                 after their own request is approved.
+                                 membership before/after (not a binary
+                                 role=admin check), and drops its
+                                 race-sync half entirely (moved to 0044).
+                                 New `club_members` AFTER DELETE trigger
+                                 closes a gap: removing someone outright
+                                 never cleaned up their race/Eboard rows
+                                 (only demotion was handled).
+                                 `is_club_creator`/`is_eboard_club_creator`
+                                 dropped in favor of `is_club_owner`/
+                                 `is_eboard_club_owner`.
+  0044_race_channel_rework.sql    Reverses 0041's race auto-membership
+                                 (explicit founder request to replace,
+                                 not extend, that behavior):
+                                 handle_new_race drops its bulk-add-
+                                 every-admin block (creator auto-add
+                                 kept). is_channel_member's race branch
+                                 becomes is_race_member(race_id) only — a
+                                 club Admin/Owner no longer gets
+                                 automatic chat access without a real
+                                 race_members row. is_channel_admin's
+                                 race branch becomes is_race_member AND
+                                 is_race_admin. race_members DELETE
+                                 simplifies back to one policy (any
+                                 manager removes anyone) — 0041's
+                                 owner-only carve-out only ever applied
+                                 to the club-wide remove_admin action.
+                                 Two related latent bugs fixed in the
+                                 same file: request_join_race still
+                                 short-circuited to 'joined' for any
+                                 club admin without inserting a real
+                                 race_members row; is_user_race_participant
+                                 still let any club admin be assigned to
+                                 a car group without real race access.
+                                 race/[raceId]/_layout.tsx's RaceContext
+                                 splits isAdmin into isManager (club
+                                 Admin/Owner) and isMember (real roster
+                                 row, required for chat/hub access).
+  0045_race_eboard_avatars.sql     races.avatar_url, eboard_channels
+                                 .avatar_url + a dedicated public Storage
+                                 bucket; adds the eboard_channels UPDATE
+                                 policy that never existed.
+  0046_fix_club_join_request_target_path.sql
+                                 club_join_request's target_path fixed
+                                 to club-profile/members (was pointing
+                                 at the now-identity-only club-profile
+                                 route); notify_club_join_request/
+                                 notify_race_join_request fixed from
+                                 `role = 'admin'` to `role in
+                                 ('admin','owner')` — silently dropped
+                                 every join-request notification for a
+                                 club with a lone Owner ever since 0043.
+  0047_poll_closing_soon_enum.sql  Adds 'poll_closing_soon' to
+                                 notification_type, alone in its own
+                                 file per section 6's enum-transaction
+                                 lesson.
+  0048_poll_closing_soon_notify.sql
+                                 Task #45 — polls.closing_soon_notified_at
+                                 (dedup guard); create extension pg_cron
+                                 (confirmed already preloaded on this
+                                 Postgres image); notify_polls_closing_soon(),
+                                 a non-trigger function looping over every
+                                 poll within 10 minutes of closes_at,
+                                 audience computed with the same 3-way
+                                 branch shape notify_poll_created (0038)
+                                 already established; scheduled via a
+                                 named cron.schedule job, every 1 minute
+                                 (upserts by name — safe across `supabase
+                                 db reset`). Also re-creates
+                                 notify_announcement and
+                                 notify_poll_created — both still had
+                                 `role = 'admin'` on their race branch, a
+                                 3rd/4th instance of 0046's exact bug,
+                                 found while writing this migration's own
+                                 audience query.
+  0049_race_polls_member_only.sql
+                                 Task #46 — race-scoped polls now require
+                                 a real race_members row to see or
+                                 create, matching Eboard's model exactly:
+                                 can_access_poll()/the polls SELECT
+                                 policy's race branch drops the
+                                 is_race_admin fallback down to
+                                 is_race_member only (this alone also
+                                 fixes poll_options/poll_votes RLS, both
+                                 already routed through can_access_poll);
+                                 the INSERT policy's race branch becomes
+                                 is_race_member AND is_race_admin
+                                 (mirrors is_channel_admin's pin/announce
+                                 rule — creation deliberately stays
+                                 admin-gated, not opened to every race
+                                 participant, unlike Eboard's "any
+                                 member" which only works there because
+                                 Eboard membership already implies club-
+                                 admin status). notify_poll_created/
+                                 notify_polls_closing_soon's race
+                                 branches narrow from "race_members ∪
+                                 club admins" to race_members only.
+  0050_race_announcement_member_only.sql
+                                 Same-session founder follow-up to #46:
+                                 notify_announcement's race branch had
+                                 the identical "race_members ∪ club
+                                 admins" audience pattern (confirmed via
+                                 a repo-wide grep that it was the last
+                                 remaining instance) — a non-member
+                                 manager still got notified about a race
+                                 chat announcement they couldn't actually
+                                 open, since chat access itself has been
+                                 race_members-only since task #44. No RLS
+                                 change (chat access was already
+                                 correct) — audience only, narrowed to
+                                 race_members.
 ```
 
 ## 5. Current status
+
+All 46 numbered tasks below are done. Full build narrative for any task
+— bugs found, scope changes, verification steps — lives in
+`docs/HISTORY.md` under that task's own heading; this table intentionally
+only summarizes.
 
 | # | Task | Status |
 |---|------|--------|
 | 1 | Expo scaffold + Expo Router navigation shell | ✅ Done |
 | 2 | Supabase schema + RLS (migrations 0001-0005) | ✅ Done |
 | 3 | Auth flow (sign up/in/out, session persistence, route guard) | ✅ Done |
-| 4 | Club creation, invite-code join, admin/member roles | ✅ Done, verified live end-to-end |
-| 5 | Club group chat | ✅ Done — messages, reactions, pin/announce, realtime. Photo attachments **not** built yet. |
-| 6 | Club calendar | ✅ Done — CRUD, Upcoming/Past list, detail + admin create/edit. No realtime (refetch-on-focus instead — events change rarely). Plain text date/time fields, no date-picker lib. |
-| 7 | Members list + promote/remove/add | ✅ Done — lives in `club-profile/index.tsx`, no standalone Members screen. |
-| 8 | Search-by-name club join + join policy | ✅ Done — `open`/`request` policies, autosuggest search, admin approve/deny. Verified live with 3 test users. |
-| 9 | Chat system messages for membership changes | ✅ Done — DB triggers post join/leave/add/remove messages, rendered as centered italic lines. |
-| 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done — see task #10 in `docs/HISTORY.md`'s status table for the web image-picker user-activation gotcha. |
-| 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done — see task #11 in `docs/HISTORY.md`'s status table for the UTC date-off-by-one bug + fix (`formatDateOfBirth`). |
-| 12 | Club profile screen, chat sender avatars, Members tab removed | ✅ Done — see task #12 in `docs/HISTORY.md`'s status table for two follow-up back-button fixes (cross-tab history). |
+| 4 | Club creation, invite-code join, admin/member roles | ✅ Done |
+| 5 | Club group chat — messages, reactions, pin/announce, realtime | ✅ Done |
+| 6 | Club calendar — CRUD, Upcoming/Past list, detail + admin create/edit | ✅ Done |
+| 7 | Members list + promote/remove/add (lives in `club-profile/index.tsx`) | ✅ Done |
+| 8 | Search-by-name club join + join policy (`open`/`request`) | ✅ Done |
+| 9 | Chat system messages for membership changes | ✅ Done |
+| 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done |
+| 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done |
+| 12 | Club profile screen, chat sender avatars | ✅ Done |
 | — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred |
-| 13 | Club navigation restructure (hub screen replaces bottom Tabs) + chat avatar → profile link | ✅ Done — see task #13 in `docs/HISTORY.md`'s status table (and its own "Task #13 detail" section further down) for the full plan and the `headerLeft`-everywhere gotcha it surfaced. |
-| 14 | Chat: pinned-messages sticky strip, Highlights screen, per-message timestamps, auto-scroll-to-bottom | ✅ Done — see task #14 in `docs/HISTORY.md`'s status table for two post-ship fixes (no-pinned-messages dead-end, strip sizing). |
-| 15 | Weekly routines | ✅ Done, through several founder-driven scope changes (dated weeks not templates; exercise builder added then fully removed for simplicity; Run/Swim-only expanded to all 10 activity types; past days filtered out). Full narrative incl. an `Intl.toLocaleDateString` formatting bug: see task #15 in `docs/HISTORY.md`'s status table. |
-| 16 | Race sub-flow: "Races & Meets" section, request/approve membership, race chat | ✅ Done, from a hand-drawn founder wireframe (`Races & Meets` hub row → Upcoming/Finished list with an admin-only "Create Race Channel" → a race's own space with Chat/Location & Accommodation/Car Assignments & Groups/Photos/Result Link). **Deviation from the original plan** (see section 1): races are created standalone (name + date), not spawned from a calendar event. Access is always request-based, no "open" policy — a club member requests, any club admin approves/denies or adds directly; there's no separate "race admin" role, club admins already have full access to every race under their club. Migration `0016_races.sql` adds `races`/`race_members`/`race_join_requests` and, per an explicit founder ask ("mimic the same features of chat above"), generalizes the existing `is_channel_member`/`is_channel_admin` helpers to branch on a new nullable `channels.race_id` — this means race chat got pins/reactions/announcements/realtime/system-messages for free with **zero changes** to the messages/message_reactions RLS policies, exactly what task the original domain model note ("channels is deliberately generic... will grow a nullable race_id later") was written for. On the UI side, `chat.tsx`/`highlights.tsx` were extracted into shared `components/ChatScreen.tsx`/`components/HighlightsScreen.tsx` so race chat didn't fork a second ~250-line copy of the reaction/pin/highlights logic — club chat's screens are now thin wrappers passing `channelId`/`isAdmin`/etc. Location & Accommodation/Car Assignments & Groups/Photos/Result Link are placeholder screens for now, content to be scoped later per an explicit founder note. `race/[raceId]` was also converted from a `Tabs` layout (with only placeholder screens) to a `Stack` (matching every other club-scoped area since task #13). **Bug caught during this task's own Playwright verification pass**: the race layout's access guard called `fetchRace` (which reads the race's channel) in parallel with the membership check, but a non-member's `fetchRace` call gets blocked by RLS and throws — since that throw happened before the guard's "not authorized, redirect" branch ever ran, an unauthorized visitor hitting a race URL directly saw a permanent spinner instead of being bounced to the races list. Fixed by checking membership first and only calling `fetchRace` after confirming access. Verified live end-to-end with two accounts (admin + a second member joined by invite code): created a race, confirmed the admin was auto-added to its roster and a dedicated channel was auto-created; as the second member, saw "Request to join" on the race row, requested, and confirmed direct URL access to the race was correctly blocked (post-fix) while the request was still pending; approved the request as admin from the race's roster screen (reached by tapping the race name, same pattern as club-profile); confirmed the member then had full access — chat parity (message send, reactions, pin, admin-only announce toggle, Highlights screen, the "X was added by Y" system message) and a chevron instead of "Requested" on the races list. Separately verified the other half of the access-control mechanism — the admin-direct-add path, which the founder's own request explicitly called out ("or admin can directly add them") — with a third account: joined the club via invite code, then, without ever filing a request, was added straight into the race from the roster's "Add a member" search box (scoped to this club's own roster, not every profile in the system); confirmed immediate chat access with the correct "was added by Admin Ann" system message and no request/approval step in the path at all. Regression-checked club chat after the `ChatScreen`/`HighlightsScreen` extraction: sent a message, pinned it, confirmed the pinned strip + badge + Highlights screen + admin invite-code header all rendered identically to before, from both the admin's and a plain member's perspective. `npx tsc --noEmit` clean throughout. |
-
-| 17 | Eboard & Council: private admin-only mini-club, one per club | ✅ Done — see task #17 in `docs/HISTORY.md` for the full access-model reasoning and two bugs caught live during its own verification pass. |
-| 18 | Eboard & Council: Meetings (date+time, title, description, link) | ✅ Done — see task #18 in `docs/HISTORY.md`. Any eboard member can create; only the creator can edit or delete (two founder follow-ups, migrations 0019/0020) — everyone else is view-only, detail view shows "Added by \<name\>". Plain-text date/time fields, same convention as calendar events, per an explicit founder note that the fancier calendar-grid/AM-PM-stepper widget he sketched can be built later as UI polish. |
-| 19 | Race: Car Assignments & Groups | ✅ Done — see task #19 in `docs/HISTORY.md`. Admin-only auto-numbered groups, membership scoped to race participants (roster + club admins) and capped at one group per person per race, one designated Incharge per group (visible to everyone with race access, not just admins), admin-only group delete (migration 0022, added right after initial ship). Caught and fixed a real infinite-render bug (unmemoized array in a `useEffect` dependency list) during its own Playwright pass. |
-| 20 | Race: Photos + Result Link | ✅ Done, then merged into task #22 — see below. Originally its own screen (each a single optional URL directly on `races`, "stay tuned" placeholder when empty); the screen itself no longer exists as of task #22, but the underlying columns/behavior live on inside "Meet Information." |
-| 21 | Race: Location & Accommodation | ✅ Done, then merged into task #22 — see below. Originally its own screen (description + 2 links, combined edit form, fields hidden entirely when empty); superseded by task #22's "Meet Information," which folded Photos/Result Link into this screen and renamed it. |
-| 22 | Race: consolidate Photos/Result Link into Location & Accommodation → "Meet Information" | ✅ Done — see task #22 in `docs/HISTORY.md`. Founder follow-up right after #20 and #21 both shipped: fewer hub rows (3 instead of 5), one combined 5-field edit form. No new migration needed — all 5 columns already existed on `races`. Kept a deliberate per-field empty-state split: description/location/hotel hidden entirely, photos/results keep their original "stay tuned" placeholder. `photos.tsx`/`results.tsx` deleted along with their now-dead lib functions. **This was the last of Race's 4 originally-placeholder sections (task #16) — all 3 rows on the race hub are now fully built.** |
-| 23 | Unified club Calendar (events + races + Eboard meetings) | ✅ Done — see task #23 in `docs/HISTORY.md`. `lib/calendarFeed.ts` merges calendar_events (always), races the caller has access to, and Eboard meetings the caller is a member of into one date/time-sorted list — no new tables/RLS, pure aggregation over existing reads. Explicitly verified live that a regular club member (not an Eboard member) sees an Eboard meeting's calendar entry correctly absent, while still seeing calendar events and any race they have access to. |
-| 24 | Polls: admin-created, single/multi-select voting, public/private voter visibility | ✅ Done — see task #24 in `docs/HISTORY.md`. New standalone "Polls" hub row (`polls`/`poll_options`/`poll_votes`, migration `0025_polls.sql`), structurally mirroring `races/`. Per-poll toggles for allow-multiple and private voting; vote counts are always public via a denormalized `poll_options.vote_count` trigger, while voter identity is RLS-gated to the creator (private polls) or everyone (public polls) — a voter always sees their own vote either way. Close/reopen/delete are **creator-only** (mirrors `eboard_meetings`, not the races/routines "any admin" pattern) — verified live that this holds at the RLS layer itself (a raw PATCH by a non-creator admin returned 0 rows updated), not just via hidden buttons. |
-| 25 | Code-quality audit + standardized error handling on data loads | ✅ Done — see task #25 in `docs/HISTORY.md`. A whole-codebase audit (no automated tests/CI/lint, missing FK indexes, no pagination, inconsistent error UX, zero accessibility labels, hand-written DB types) found that most screens' initial data fetch had no failure handling at all — worst case, the 3 club-scoped context layouts (`clubs/[clubId]`, `race/[raceId]`, `eboard`) could hang on a permanent spinner forever if their load query failed, with no escape. Fixed across ~24 files: a new shared `lib/reportError.ts` (deduped from 6 copies) and `components/LoadError.tsx` (message + retry), applied consistently — context layouts get a full-screen retry, list/detail screens get a real error state instead of silently rendering as if empty, edit-form prefill fetches no longer risk saving blank data over a real record, and transient actions (vote/close/delete) surface failures via alert. Verified live: a deliberately-broken load (nonexistent club UUID) now shows "Couldn't load this club." with a working retry instead of hanging. |
-| 26 | Add automated tests + CI | ✅ Done — see task #26 in `docs/HISTORY.md`. `jest-expo` + a first real (not token) test suite: `lib/dates.ts` — extracted from 2-3 duplicated per-screen copies of `toDateKey`/`getMonday`/`addDays`/`splitIso`/`combineToIso` (mirroring the `reportError` dedup from task #25) — plus `formatDateOfBirth` (locks in the task #11 UTC-off-by-one fix as a real regression test) and `fetchCalendarFeed` (mocked dependencies, covers task #23's access-filtering/sort-order rules that were previously only verified live by hand). `.github/workflows/ci.yml` runs `tsc --noEmit` + `npm test` on every push/PR. |
-| 27 | DB indexes + chat pagination cap | ✅ Done — see task #27 in `docs/HISTORY.md`. Migration `0026_indexes.sql` adds 6 indexes for genuinely-missing FK lookups found by cross-referencing every `.eq(...)` filter in `lib/*.ts` against existing PK/unique-constraint coverage (most tables turned out already covered): `races.club_id`, `eboard_meetings.eboard_channel_id`, `race_car_groups.race_id`, `polls.club_id`, `poll_options.poll_id`, and a `(poll_id, user_id)` composite on `poll_votes`. Verified via `EXPLAIN` that the planner actually picks up each new index, not just that the DDL ran. `lib/messages.ts`'s `fetchMessages` gained an additive `options?: { limit?: number }` (no-args behavior, used by `components/HighlightsScreen.tsx`, is untouched — it still needs full history for pinned/announcement lookups); `components/ChatScreen.tsx`'s initial load and every realtime-triggered reload now cap to the latest 50 and replace state, instead of fetching a channel's entire history on every load/reaction/pin. Deliberately **not** cursor-based "Load earlier" pagination — the founder explicitly chose the simpler cap-and-replace scope over a fuller merge-by-id + "Load earlier" design (which the advisor had flagged as solving a problem this app's current traffic doesn't have yet); the accepted tradeoff is that a user scrolled up into older messages gets their view reset to the latest 50 if a realtime event fires while they're up there. Verified live: seeded 60 messages via script, confirmed only the latest 50 (`Message 11`-`Message 60`) rendered initially, sending a new message correctly slid the window (oldest dropped, newest appended) without losing realtime pin/reaction updates on visible messages, and Highlights still surfaced pins on messages well outside the 50-window (`Message 3`, `Message 60`) via its untouched unbounded fetch. |
-| 28 | Chat: scroll-triggered "Load earlier" pagination | ✅ Done — see task #28 in `docs/HISTORY.md`. Founder follow-up right after task #27 shipped: older messages (anything before the latest-50 cap) weren't reachable in the UI at all — asked for scroll-up-to-load-more instead. `fetchMessages` gained an additive `before?: string` cursor alongside `limit`; `ChatScreen.tsx`'s `reload()` (realtime-triggered) and a new `handleLoadEarlier()` both **merge** fetched pages into state by message id (`mergeMessages`) instead of replacing, so a loaded older page survives unrelated realtime activity. Uses `FlatList`'s `onStartReached` (confirmed supported in `react-native-web`'s vendored `VirtualizedList`, not just native) to trigger loading automatically as the user scrolls up — no tap-a-button UI, per explicit founder correction mid-build ("as i scroll up the old messages load"). Scroll position is preserved across a prepend via `scrollToIndex` wrapped in `requestAnimationFrame` (a first attempt without the `rAF` landed on the wrong message — traced to `VirtualizedList`'s frame-metrics cache needing a layout pass after the prepend before `scrollToIndex` can compute a correct offset; confirmed via advisor consultation this is a real cross-platform FlatList behavior, not web-specific). Hit one investigation dead-end worth recording: a live re-test appeared to show messages "disappearing" (100 → 10) after a pin action, which looked like real data loss; adding temporary debug logging around `mergeMessages`/`reload` proved the merge was correct every time (`resultLen` stayed 100), and the apparent loss was purely `VirtualizedList`'s windowed rendering (only the near-viewport range exists in the DOM at any moment) being misread by a DOM-leaf-scraping verification script as "how many messages are loaded" — a real limitation of that verification technique on a virtualized list, not a bug in the feature. Verified live: seeded 100 messages, confirmed the initial screen shows only the latest 50, confirmed scrolling to the top (via a raw `scrollTop = 0` + dispatched `scroll` event, simulating a real scroll) auto-fetched and prepended older pages with no button/tap involved, confirmed pinning both an in-window message and the true oldest message (`Message 1`) still updates the pinned strip live and shows correctly in Highlights (cross-checked against the DB directly, not just the UI, after the earlier false alarm). |
-| 29 | Photo attachments in chat | ✅ Done — see task #29 in `docs/HISTORY.md`. First of a "ship this as a real application" audit's six follow-up tasks. Private `message-photos` Storage bucket (unlike the public `avatars`/`club-avatars` buckets — Eboard chat's photos need to stay genuinely private), signed URLs resolved per-fetch since the bucket isn't public. Reused `messages.media_url`/`message_type = 'photo'`, both unused since task #7. Verified live: uploaded a real file through the web picker, pinned it, confirmed it renders in both the pinned strip and Highlights. |
-| 30 | Self-service account deletion | ✅ Done — see task #30 in `docs/HISTORY.md`. Second of the six tasks — required for app store approval. Advisor caught that a literal hard-delete would fail outright (~15 FKs into `profiles` have no `on delete` behavior) before any migration was written; founder chose **anonymize, not hard-delete** via `AskUserQuestion`. New `security definer` `delete_account()` RPC scrubs PII and sets `auth.users.banned_until` (confirmed against the actual running Postgres, not assumed, that this column/privilege exist). Verified live: deleted account correctly blocked with "User is banned" on re-sign-in; a second member saw the deleter's old message correctly reattributed to "Deleted user". |
-| 31 | Chat moderation — message delete + report | ✅ Done — see task #31 in `docs/HISTORY.md`. Third of the six tasks. Message delete was already RLS-permitted, just needed UI. New `message_reports` table + an admin-only "Reports" tab in Highlights. Founder explicitly chose **report + delete only, no "block a user"** via `AskUserQuestion` — block is ambiguous in a shared club chat. **Real bug caught during live verification**: a hard `DELETE` left task #28's merge-by-id `reload()` unable to ever notice the message was gone (it just kept showing, forever, until a full remount). Founder additionally flagged that a message silently vanishing is worse UX regardless — **switched to soft-delete** (`messages.deleted_at`, tombstoned as "This message was deleted") instead of patching the merge logic. |
-| 32 | Privacy Policy + Terms of Service (in-app) | ✅ Done — see task #32 in `docs/HISTORY.md`. Fourth of the six tasks. Content drafted from SPEC.md's actual data model (not boilerplate) into `lib/legalContent.ts`, rendered by a shared `components/LegalDocument.tsx`. Needed two separate route trees — `app/(auth)/privacy-policy.tsx`+`terms.tsx` (signed-out, linked from sign-up) and `app/(tabs)/profile/privacy-policy.tsx`+`terms.tsx` (signed-in, linked from Profile) — since `app/_layout.tsx`'s auth guard redirects based on top-level route group and a single shared route would get bounced in one direction or the other. **Not a substitute for real legal review** before a genuine public launch — flagged in-file and to the founder. |
-| 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — see task #33 in `docs/HISTORY.md`. Fifth of the six tasks. `app.json` now has `ios.bundleIdentifier`/`android.package` = `com.parkstechusa.clubchat` (founder-chosen, via `AskUserQuestion` — effectively permanent once published) and a hand-written `eas.json` with development/preview/production build profiles. **Still needs**: `eas login` + `eas init` (interactive, requires the founder's own Expo account) to get full EAS project linkage — not attempted autonomously. |
-| 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see task #34 in `docs/HISTORY.md`. A same-day founder session had already implemented a full Stitch-based redesign (new `constants/theme.ts` tokens, Anton/Archivo Narrow/Inter fonts) inside an isolated `.claude/worktrees/` git worktree, but it never made it back into `main` — recovered and merged in (confirmed a clean superset, zero conflicts) rather than rebuilt from scratch. On top of the recovery: a from-scratch chat redesign (custom glass-blur header via `expo-blur`, gradient sent-bubble via `expo-linear-gradient`, floating pinned notice, editorial announcement card) from a second, same-day Stitch export; the same visual language then extended to Highlights, and to every Races/Eboard screen (hubs, lists, forms, rosters) to match the already-redesigned club hub. Global `primary` color overridden to a brighter `#ff4d00` per explicit founder preference (SPEC's own DESIGN.md tokens said `#aa3000`). Two real, independently-shippable bugs surfaced and fixed along the way: `expo-image-picker`'s web shim opens its file input via `dispatchEvent(new MouseEvent("click"))` instead of `.click()`, which silently no-ops in some real (non-automated) browser configurations — worked around with `lib/pickImageOnWeb.ts`, applied at all 3 photo-picker call sites; and react-native-web's `Switch` defaults its "on" thumb to teal (`#009688`) unless `activeThumbColor` is set explicitly — fixed app-wide via a new shared `components/ThemedSwitch.tsx`. Also: every "search-result-row + separate Add button" (carpool/roster/club-profile add-member flows) converted to a single `Pressable` row with an orange hover highlight; chat header's title made tappable again (club-profile / race roster / eboard roster) and swapped to show the actual name instead of the literal "ClubChat" brand text; a real scroll-to-bottom regression (new messages landing ~44% short of the true bottom) fixed by wrapping `scrollToEnd` in `requestAnimationFrame`; and the "Send as announcement" full-width banner (was blocking the message list) replaced with a compact megaphone toggle icon in the input row. |
-| 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see task #35 in `docs/HISTORY.md`. A from-scratch founder request (not a wireframe this time), planned via `EnterPlanMode` + two rounds of `AskUserQuestion` before any code, since almost every design axis was a genuine open question. New 3rd bottom tab with a bell + native `tabBarBadge`; a flat reverse-chronological feed merging discrete `notifications` rows (join requests, membership changes, poll/event/race/meeting creation, announcements) with live-computed "N unread messages in Club X chat" rows (`fetch_unread_channel_summaries()` RPC, backed by a new `channel_reads` table — no read/unread concept existed anywhere in the schema before this). Admin/Eboard-member inbox for pending join requests (Eboard requests fan out only to current Eboard members, not all club admins, matching task #17's existing approval-rights asymmetry); personal notifications for added/removed/promoted/demoted/approved/denied; creation fan-out excluding the actor; announcements notify, a plain pin never does (falls out for free — `message_type = 'announcement'` is an `INSERT`-time value, structurally separate from the `pinned` boolean's later `UPDATE`). Opening the tab clears discrete-item unread state but never a chat's unread count — that only clears by actually opening the chat. 3 real bugs found and fixed during initial live verification (a realtime channel-topic collision between the badge provider and the feed screen; decided requests never leaving the admin inbox; an ambiguous PL/pgSQL column reference causing a silent 400 on approve/deny). 3 more founder follow-ups shipped right after, triaged via a third `AskUserQuestion` round: decided requests now persist as tagged history ("Approved"/"Denied") instead of disappearing — deliberately reversing one of the 3 bug fixes above, per explicit founder direction; scroll-to-load-more pagination on the feed (mirrors task #28's chat pattern, simpler here since a newest-first list appends older pages at the bottom, no scroll-position-preservation needed); and the club roster's "Joined Nm ago" text removed (no real presence tracking exists yet to back an "active" label). |
-| 36 | Bug fixes: race-chat announcements silently failing + race roster missing "Remove" | ✅ Done — see task #36 in `docs/HISTORY.md`. Two founder-reported bugs, both root-caused live rather than guessed at. (1) Announcing in a race channel always 400'd, draft silently lost: `notify_announcement()`'s race branch (task #35) was the only one of its 3 scope branches using `select distinct ... from (... union ...)`, which forces the `'announcement'` literal to resolve as `text` before reaching the `notification_type` column, defeating Postgres's implicit unknown-literal-to-enum cast on `INSERT...SELECT` — club/Eboard chat never hit it since neither branch uses `DISTINCT`. Fixed with an explicit `::notification_type` cast (`0036_fix_announcement_notify_race_cast.sql`). (2) `race_members` had insert/select policies but no delete policy and no `removeRaceMember` function at all — never built, not a regression (`0037_race_members_delete.sql` + `lib/races.ts`/`race/[raceId]/roster.tsx`). Both migrations applied directly via `docker exec ... psql` against the live local DB (not `supabase db reset`, which would have wiped the founder's real club data) and registered in `supabase_migrations.schema_migrations` by hand. |
-| 37 | Header styling consistency fix — Routines/Polls/Races/Eboard/Race never got the "Kinetic Performance System" header treatment | ✅ Done — see task #37 in `docs/HISTORY.md`. Founder-reported: Eboard's header showed plain black text while the club hub's showed the orange Anton title. Root cause: task #34's header restyle (orange Anton title, `colors.surfaceContainerLow` background) was only ever applied to `[clubId]/_layout.tsx` — five sibling nested-stack layouts (`routines/_layout.tsx`, `polls/_layout.tsx`, `races/_layout.tsx`, `eboard/_layout.tsx`, `race/[raceId]/_layout.tsx`) each define their own header options and never inherited it. Two of them still had the literal pre-redesign `#2563eb` blue hardcoded for the invite-code text. Fixed all five to match the reference layout exactly. |
-| 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see task #38 in `docs/HISTORY.md`. Three founder asks bundled into one `EnterPlanMode` pass (advisor-reviewed before planning): apply a new "Stitch Poll" export's list/create-screen design using this app's own theme tokens, not its raw hex; add an optional poll deadline; and let a poll be created inside a Race or inside Eboard & Council, not just at the club level. 4 `AskUserQuestion` answers shaped the plan: relative duration chips (1 Day/3 Days/1 Week/Custom) over an absolute date field; auto-close computed live (`is_closed OR now() > closes_at`, no cron); Race polls admin-only / Eboard polls any-member (mirrors each scope's own existing pattern), close/delete stays creator-only everywhere; and each scope's Polls list is siloed, not merged with the club's. Schema: nullable `race_id`/`eboard_channel_id` on `polls` (`club_id` stays always-populated, mirrors `channels`), 3-way `can_access_poll`/INSERT-policy branches, `is_poll_closed` extended for the deadline (`0038_polls_scope_and_deadline.sql`). UI: extracted `components/PollsListScreen.tsx`/`PollDetailScreen.tsx`/`PollCreateScreen.tsx` (same reuse payoff as `ChatScreen`'s task #16 extraction) so Race/Eboard polls are thin wrapper routes, not forked copies. **Two real, freshly-discovered RLS bugs caught live during this task's own verification, both documented in the migration file for future sessions**: (1) the exact `SELECT DISTINCT ... UNION` → enum-cast trap from task #36 recurred in this task's own new code (`notify_poll_created`'s race branch) — same fix, same session, worth a second explicit callout since it repeated. (2) A genuinely new variant of SPEC.md section 6's chicken-and-egg gotcha: routing `polls`' own SELECT policy through `can_access_poll(id)` (a security-definer function that re-queries `polls` by id) caused `INSERT...RETURNING` to fail even though a plain `INSERT` and a manual follow-up `SELECT` both succeeded — a self-referential subquery back into the table being inserted into is materially riskier than an inline column-bound check, unlike the `is_channel_member`-inside-`channels`-SELECT-policy precedent this was modeled on (which, it turns out, has never actually been exercised through a client `.insert().select()` in this codebase). Fixed by writing the 3-way branch inline on the row's own columns instead of through the function. See section 6 below for the general lesson. |
-| 39 | Polls in the unified Calendar | ✅ Done — see task #39 in `docs/HISTORY.md`. Founder follow-up right after task #38 shipped: "if any poll is created, if the person is in the club, race, or eboard channel he should see it in the calendar." `lib/calendarFeed.ts`'s `fetchCalendarFeed` gained a 4th merged source — club polls (always), race polls (only for races the caller has access to, one `fetchPolls` call per accessible race), Eboard polls (only if a member) — reusing the exact same per-scope visibility rules already established for races/Eboard meetings, no new RLS. A poll has no fixed "when it happens" the way an event/race/meeting does, so a new `CalendarFeedItem.isOpen` field (computed via `lib/polls.ts`'s existing `isPollEffectivelyClosed`, not a fresh date compare) drives Upcoming/Past bucketing for poll items specifically — otherwise an open-ended poll with no deadline would flip to "Past" the instant its own `createdAt` (used as the sort/display date, via `closesAt ?? createdAt`) ticked past "now". Verified live end-to-end creating one poll in each of the 3 scopes through the actual UI (not seeded via SQL) and confirming all 3 appeared in Calendar correctly dated and ordered, each tapping through to the right poll detail screen. |
-| 40 | Eboard member removal + Delete Club/Race/Eboard | ✅ Done — migrations `0039_eboard_members_delete.sql`/`0040_club_eboard_delete.sql`. Closed the same class of gap task #36 found for `race_members` (insert/select policies since launch, no delete policy) on `eboard_channel_members`; added Delete Club (creator-only, given the cascade wipes every member's chat/races/Eboard/polls/notifications permanently — deliberately not "any admin") and Delete Eboard channel (existing-members-only, mirroring 0017's own asymmetry). `lib/clubs.ts`'s `deleteClub`, `lib/eboard.ts`'s `deleteEboardChannel`/`removeEboardMember`, `lib/races.ts`'s `deleteRace` are the client-side entry points. (Backfilled into this table during task #41's own migration-numbering review — shipped in an earlier session that didn't update SPEC.md at the time.) |
-| 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see task #41 in `docs/HISTORY.md`. Founder request tightening admin access from implicit (`is_club_admin` checks, no real roster row) to explicit: creating a race or the Eboard channel now adds *every* current club admin as a real, removable `race_members`/`eboard_channel_members` row (`handle_new_race`/`handle_new_eboard_channel` re-created again, also fixing a latent channel-creation-ordering bug that silently swallowed the "joined" system message/notification for those rows); promoting a member to admin immediately adds them to Eboard and every *upcoming* race, demoting reverses both (past races untouched); removing a non-admin race member is still any-admin, but removing an admin from a race, or removing anyone from Eboard, is now creator-only (`is_club_creator`/`is_race_club_creator`/`is_eboard_club_creator` helpers), mirroring task #40's Delete Club precedent — a deliberate narrowing of task #40's own `0039` "any existing member" rule. `lib/calendarFeed.ts` now shows every club member every race as soon as it's created, not just ones they already have access to. Planned via `EnterPlanMode` after an `advisor` consult flagged two under-specified points (which "calendar" the founder meant, and what "owner" meant for kick rights) that were then resolved via `AskUserQuestion` before any code was written — see section 6 lesson-style narrative in `docs/HISTORY.md` for the full ordering-bug discovery. |
-| 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — migrations `0042_club_role_owner_enum.sql`/`0043_club_role_owner.sql`/`0044_race_channel_rework.sql` (the enum-add split into its own file after a real `supabase db reset` failure — see task #42 in `docs/HISTORY.md`). A from-scratch founder spec (explicit permission matrix: promote/demote symmetric for Owner+Admin, remove_member Owner+Admin, remove_admin/transfer_ownership Owner-only) planned via `EnterPlanMode` after resolving 3 open questions the founder flagged themselves via `AskUserQuestion` (outgoing-Owner-becomes-Admin, eBoard cleanup scope, race approval authority) — all three answers matched the recommended default. Real three-tier `club_role` enum (`owner`/`admin`/`member`), one Owner per club enforced by a DB-level partial unique index, `transfer_ownership()` RPC, and a client-wide `club.isAdmin`/`club.isOwner` derived-boolean refactor (~20 call sites that used to compare `role === "admin"` directly). Explicitly billed as replacing task #41's race-related auto-membership, not extending it: a club Admin/Owner no longer gets automatic race-chat access without a real `race_members` row — "even the Owner must request or be added," per the founder's own spec text — while race *management* authority (approve requests, add/remove members) stayed essentially unchanged, since it was already "any club Admin/Owner." Two verification techniques used well beyond `tsc`/`npm test`: (1) empirical Postgres experiments against a scratch DB before writing policy SQL, which reversed an initial wrong assumption (FK `ON DELETE CASCADE` turned out to bypass RLS on the child table entirely, verified directly rather than inferred, which simplified the Delete Club design); (2) full RLS-impersonation testing (`set local role authenticated` + `request.jwt.claim.sub`) against a `pg_dump`-restored copy of live data for every permission-matrix branch and the full race request/approve flow, before ever touching the real DB — caught two real bugs this way (`request_join_race` silently no-oping for a manager instead of filing a real request; `is_user_race_participant` still allowing car-group assignment without real race access) that a UI click-through alone likely wouldn't have surfaced. Confirmed again live end-to-end via Playwright with 3 real accounts after applying both migrations to the local dev DB: promote → demote → remove-admin (blocked as Admin, allowed as Owner) → transfer ownership (single system message, correct Eboard sync, no duplicate) → create a race → confirm the new Owner is *not* auto-added → sees "Request to join" + "Manage roster" (not the full hub) → requests → approved by the other Admin → full chat access granted. |
-| 43 | Polls: voter-view popup (avatar + name per option) + minute/hour/day custom deadlines | ✅ Done — no migration, UI/lib-only. Two founder asks bundled together. (1) `PollDetailScreen.tsx`'s always-visible inline voter-name text (shown under every public option) replaced with a per-option eye icon — visible only once that option has ≥1 vote and the caller can see voters (`canSeeVoters`, unchanged from task #24/#38) — opening a `Modal` with an X close button, a dropdown defaulting to the tapped option but switchable to any option (each showing its own live vote count), and a scrollable voter list (avatar + name via `lib/polls.ts`'s `fetchPollVoters`, now also selecting `profiles.avatar_url`; "No votes yet." empty state). Planned via two `AskUserQuestion` rounds (eye-icon-on-the-row vs. a below-list "View voters" button; inline names removed vs. kept alongside the popup) before implementing. One real cross-platform risk caught before it could ship as a bug: the eye button and its parent option row are nested `TouchableOpacity`s, and react-native-web's `Touchable` wires `onPress` to a DOM `onClick`, which bubbles — tapping the icon would have also fired the row's own vote toggle. Fixed with `e.stopPropagation?.()` in the inner handler; verified live via Playwright that repeatedly opening the popup left the vote count unchanged. (2) `PollCreateScreen.tsx`'s "Custom" deadline field changed from a bare "days from now" number input to an amount field plus a compact Min/Hrs/Days unit-chip row (defaults to Hrs) — `closesAt` computed as `amount * UNIT_TO_MS[unit]`. `lib/dates.ts`'s existing `formatCountdown` already degraded gracefully under an hour ("ENDING SOON") and needed no changes. Verified live end-to-end via Playwright (fresh test club + poll each time, cleaned up via Delete Club after): eye icon absent at 0 votes, appears after voting, dropdown switches options and shows the "No votes yet." empty state correctly, X closes without affecting the vote; a 5-minute custom deadline correctly showed "ENDING SOON" on the detail screen. `tsc --noEmit` and `npm test` clean throughout. |
+| 13 | Club navigation restructure (hub screen replaces bottom Tabs) | ✅ Done |
+| 14 | Chat: pinned-messages sticky strip, Highlights screen, timestamps, auto-scroll | ✅ Done |
+| 15 | Weekly routines | ✅ Done |
+| 16 | Race sub-flow: "Races & Meets" section, request/approve membership, race chat | ✅ Done — see `docs/HISTORY.md` task #16 for the founder-wireframe deviation from the original calendar-linked plan, the generalized `is_channel_member`/`is_channel_admin` design, and a real access-guard ordering bug caught during its own Playwright pass. |
+| 17 | Eboard & Council: private admin-only mini-club, one per club | ✅ Done |
+| 18 | Eboard & Council: Meetings (date+time, title, description, link) | ✅ Done — any eboard member can create, only the creator can edit/delete. |
+| 19 | Race: Car Assignments & Groups | ✅ Done — admin-only auto-numbered groups, one designated Incharge per group, caught a real infinite-render bug during its own Playwright pass. |
+| 20 | Race: Photos + Result Link | ✅ Done, then merged into task #22. |
+| 21 | Race: Location & Accommodation | ✅ Done, then merged into task #22. |
+| 22 | Race: consolidate Photos/Result Link + Location & Accommodation → "Meet Information" | ✅ Done — founder follow-up right after #20/#21 shipped; last of Race's 4 originally-placeholder sections. |
+| 23 | Unified club Calendar (events + races + Eboard meetings) | ✅ Done — pure aggregation over existing per-feature reads, no new tables/RLS. |
+| 24 | Polls: admin-created, single/multi-select voting, public/private voter visibility | ✅ Done — close/reopen/delete creator-only, mirrors `eboard_meetings` not races/routines. |
+| 25 | Code-quality audit + standardized error handling on data loads | ✅ Done — shared `lib/reportError.ts` + `components/LoadError.tsx` applied across ~24 files. |
+| 26 | Add automated tests + CI | ✅ Done — `jest-expo`, `lib/dates.ts` extracted and tested, `.github/workflows/ci.yml`. |
+| 27 | DB indexes + chat pagination cap | ✅ Done — 6 new indexes, ChatScreen caps to latest 50 messages. |
+| 28 | Chat: scroll-triggered "Load earlier" pagination | ✅ Done — merge-by-id state updates, `onStartReached`, scroll position preserved via `rAF`-wrapped `scrollToIndex`. |
+| 29 | Photo attachments in chat | ✅ Done — private `message-photos` bucket, signed URLs per fetch. |
+| 30 | Self-service account deletion | ✅ Done — anonymize + `auth.users.banned_until`, not hard-delete. |
+| 31 | Chat moderation — message delete + report | ✅ Done — soft-delete tombstone, admin-only Reports tab in Highlights. |
+| 32 | Privacy Policy + Terms of Service (in-app) | ✅ Done — not a substitute for real legal review before public launch. |
+| 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — bundle IDs + build profiles set; still needs the founder's own interactive `eas login`/`eas init`. |
+| 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see `docs/HISTORY.md` task #34 for the worktree-recovery story and two independently-shippable bugs found along the way (web image-picker click, react-native-web Switch color). |
+| 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see `docs/HISTORY.md` task #35 for the two-round `AskUserQuestion` design process and 3 bugs (2 fixed at ship, 1 founder-reported follow-up: decided requests now persist as tagged history instead of disappearing). |
+| 36 | Bug fixes: race-chat announcements silently failing + race roster missing "Remove" | ✅ Done — see `docs/HISTORY.md` task #36. |
+| 37 | Header styling consistency fix (Routines/Polls/Races/Eboard/Race never got the redesign treatment) | ✅ Done |
+| 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see `docs/HISTORY.md` task #38 for two real RLS bugs caught live, including a second variant of section 6's `INSERT...RETURNING` gotcha. |
+| 39 | Polls in the unified Calendar | ✅ Done — see `docs/HISTORY.md` task #39. |
+| 40 | Eboard member removal + Delete Club/Race/Eboard | ✅ Done |
+| 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see `docs/HISTORY.md` task #41 for the `advisor`-caught scope ambiguities and a latent trigger-ordering bug found while tracing existing code. Later reversed for races by task #42/#44. |
+| 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — see `docs/HISTORY.md` task #42 for the full permission-matrix design, the `pg_dump`-restored RLS-impersonation verification technique, an enum-transaction migration failure caught on a later `supabase db reset` (split into 0042/0043/0044), and a founder-reported realtime-channel-reuse crash fixed as a follow-up. |
+| 43 | Polls: voter-view popup (avatar + name per option) + minute/hour/day custom deadlines | ✅ Done — see `docs/HISTORY.md` task #43. No migration, UI/lib-only. |
+| 44 | Notifications: real unread color shading + join-requests behave like chat-unread | ✅ Done — see `docs/HISTORY.md` task #44 for two real bugs found live: `club_join_request`'s stale target_path (fixed to `club-profile/members`), and `notify_club_join_request`/`notify_race_join_request` still filtering `role = 'admin'` post-task-#42, silently dropping notifications for a lone-Owner club. |
+| 45 | Poll-closing-soon notification (10 minutes before `closes_at`) | ✅ Done — see `docs/HISTORY.md` task #45. The app's first scheduled job (pg_cron, confirmed already available on this Postgres image) rather than a trigger, since there's no row-level event to react to. Found and fixed 2 more instances of task #44's `role = 'admin'` bug in `notify_announcement`/`notify_poll_created`'s race branches along the way. |
+| 46 | Race polls + race announcements: member-only access/audience, matching Eboard's model exactly | ✅ Done — see `docs/HISTORY.md` task #46. A club Admin/Owner can no longer see or create a race's polls without an actual `race_members` row — closes the one race feature that didn't already require real membership (`race/[raceId]/index.tsx`'s hub already gated everything else behind `isMember`). Creation deliberately stayed admin-gated (`is_race_member AND is_race_admin`, mirroring `is_channel_admin`'s pin/announce rule) rather than opening to every race participant. Same-session founder follow-up ("it all lives inside the channel") closed the last remaining instance: `notify_announcement`'s race branch also narrowed to `race_members` only, so a non-member manager no longer gets notified about a race chat announcement they can't open. Verified via full RLS impersonation and live seeded-data checks, not just reading the SQL back. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
-identified in a founder-requested audit, four are done (photo
+identified in an earlier founder-requested audit, four are done (photo
 attachments #29, account deletion #30, chat moderation #31, Privacy
 Policy/Terms #32) and one is partially done (bundle ID + `eas.json` #33,
 blocked on the founder's own interactive `eas login`/`eas init`). The
 sixth — an App Store privacy nutrition label / Google Play Data Safety
-form — isn't a coding task; it has to be filled out at actual
-submission time, once the shipped build's behavior is final. Beyond
-those six: the code-quality-audit gaps from task #25 that are still
-open (zero accessibility labels, hand-written `types/database.ts` —
-regenerate once a real hosted Supabase project exists, no error
-monitoring e.g. Sentry), and — surfaced during task #29/#30's live
-testing but not yet its own task — push notifications and OTA updates
-(`expo-updates`) aren't wired up, which matters for real retention on a
-chat app more than for store approval itself. Task #34 also leaves one
-open thread: the Highlights/Races/Eboard visual rollout has no source
-mockup of its own (extrapolated from the club hub's established pattern)
-— worth a founder look to confirm it reads as intended everywhere.
-Task #35's Notifications feature is now the natural place push
-notifications (still unbuilt) would plug into — every fan-out already
-computes a `body`/`target_path`, which is exactly what an
-`expo-notifications` payload would need.
+form — isn't a coding task; it has to be filled out at actual submission
+time, once the shipped build's behavior is final.
 
-Since task #35: two founder-reported bugs fixed (#36 — race-chat
-announcements silently failing, race roster missing "Remove"), the
-header-styling gap from task #34's rollout closed (#37 — five nested-
-stack layouts never got the orange-Anton treatment), and Polls
-redesigned + given an optional deadline + generalized to Race/Eboard
-scopes (#38, from a new "Stitch Poll" founder export). Polls is now
-structurally on par with Chat/Highlights — same 3-scope shape, same
-shared-component extraction — closing the gap where it had been the one
-remaining club-only-only feature among races/eboard/chat/highlights.
-Eboard member removal and Delete Club/Race/Eboard shipped next (#40),
-and admin membership in Race/Eboard moved from implicit access to real,
-auto-synced, individually-removable roster rows, with creator-only
-rights to remove an admin from either (#41). Most recently, task #42
-replaced the two-role `admin`/`member` system with a real Owner > Admin >
-Member hierarchy and an explicit permission matrix, and reversed #41's
-race auto-membership behavior back to creator/admin-controlled with a
-request-to-join flow — the "creator" authority #40/#41 leaned on
-(`clubs.created_by`) is now superseded by the transferable Owner role
-wherever it mattered (Delete Club, remove-from-Eboard). Most recently,
-task #43 added a per-option voter-view popup (eye icon → avatar+name
-list, switchable by option via a dropdown) to Poll detail, and let a
-poll's custom deadline be set in minutes or hours, not just whole days.
+Beyond those six: the code-quality-audit gaps from task #25 that are
+still open (zero accessibility labels, hand-written `types/database.ts`
+— regenerate once a real hosted Supabase project exists, no error
+monitoring e.g. Sentry), and push notifications / OTA updates
+(`expo-updates`) aren't wired up — task #35's Notifications feature
+already computes a `body`/`target_path` per event, exactly what an
+`expo-notifications` payload would need. Task #34 also leaves one open
+thread: the Highlights/Races/Eboard visual rollout has no source mockup
+of its own (extrapolated from the club hub's established pattern) —
+worth a founder look to confirm it reads as intended everywhere.
+
+Most recently: task #42 replaced the two-role `admin`/`member` system
+with a real Owner > Admin > Member hierarchy and reversed task #41's race
+auto-membership back to a request-to-join flow, task #43 added the poll
+voter-view popup and minute/hour/day custom deadlines, task #44 gave
+the Notifications feed real unread color shading plus fixed two live
+bugs — a stale join-request target_path and a role-filter regression
+from task #42 that silently dropped join-request notifications for any
+club with a lone Owner and no separate Admins — and task #45 added a
+poll-closing-soon notification via the app's first scheduled job
+(pg_cron), catching two more instances of that same role-filter bug
+along the way, and task #46 closed the one race feature that still let
+a non-member club Admin/Owner in — race polls now require a real
+`race_members` row to see or create, matching Eboard's access model
+exactly.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
@@ -1768,4 +1557,5 @@ Editor in order (`0001` → ... → latest), and swap the two
    entry to 1-3 sentences and move the full narrative to
    `docs/HISTORY.md`, appended under that task's own heading (e.g.
    `## Task 16`) so it stays available on demand without bloating what
-   loads into context every session.
+   loads into context every session. The same rule applies to section 4
+   — describe current architecture only, not how it got there.

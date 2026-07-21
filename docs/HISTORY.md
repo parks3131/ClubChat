@@ -3641,3 +3641,315 @@ source and the fix directly addresses the documented mechanism, mirrors
 an already-proven fix for the identical bug class elsewhere in this
 codebase, and the same repro flow was re-confirmed clean after the fix
 with `npx tsc --noEmit` and `npm test` both passing throughout.
+
+## Task 43: Polls — voter-view popup + minute/hour/day custom deadlines
+
+Two founder asks bundled together, no migration — UI/lib-only.
+
+**(1) Voter-view popup.** `PollDetailScreen.tsx`'s previous design showed
+every public option's voter names inline, permanently, under the option
+row — cluttered once an option had more than a couple of votes. Planned
+via two `AskUserQuestion` rounds before touching code: first, where the
+trigger should live (an eye icon on the option row itself, chosen over a
+single below-list "View voters" button, since the founder wanted to see
+voters *for a specific option* at a glance); second, whether the inline
+names should stay alongside the new popup or be fully replaced (replaced
+— keeping both was redundant). Final design: a per-option eye icon,
+rendered only once that option has ≥1 vote and the caller is allowed to
+see voters at all (`canSeeVoters`, unchanged from tasks #24/#38 — creator
+on a private poll, everyone on a public one). Tapping it opens a `Modal`:
+an X close button, a dropdown defaulting to the tapped option but
+switchable to any option (each showing its own live vote count), and a
+scrollable voter list underneath (avatar + name, "No votes yet." empty
+state). `lib/polls.ts`'s `fetchPollVoters` gained a `profiles.avatar_url`
+select (already a public URL app-wide, no signing needed) to back the new
+avatars, and a `PollVoter` interface (`userId`/`fullName`/`avatarUrl`).
+
+One real cross-platform bug caught and fixed before it could ship: the
+eye button and the option row underneath it are nested
+`TouchableOpacity`s. react-native-web wires `onPress` to a DOM `onClick`,
+which bubbles by default — tapping the eye icon would also fire the outer
+row's own vote-toggle handler, silently casting or removing a vote every
+time someone just wanted to look at who voted. Fixed with
+`e.stopPropagation?.()` in the inner (eye button) handler. Verified live
+via Playwright: opened the popup repeatedly against a poll with existing
+votes and confirmed the vote count never moved.
+
+**(2) Custom deadline units.** `PollCreateScreen.tsx`'s "Custom" deadline
+chip previously took a bare "days from now" integer — too coarse for a
+founder who wanted to end a poll in, say, 30 minutes. Replaced with an
+amount input plus a compact Min/Hrs/Days unit-chip row (defaults to Hrs).
+`closesAt` is computed client-side at submit time as `amount *
+UNIT_TO_MS[unit]` added to `now()` — no schema change, `closes_at` was
+already a plain `timestamptz` since task #38. `lib/dates.ts`'s existing
+`formatCountdown` already degraded to "ENDING SOON" under an hour and
+needed no changes.
+
+### Verification
+
+Live end-to-end via Playwright, fresh test club + poll each time, cleaned
+up via Delete Club after each run: eye icon absent at 0 votes, appears
+immediately after the first vote, dropdown switches between options and
+shows the "No votes yet." empty state correctly for an unvoted option,
+popup closes via X without affecting the vote; a poll created with a
+5-minute custom deadline correctly showed "ENDING SOON" on the detail
+screen. `npx tsc --noEmit` and `npm test` clean throughout.
+
+## Task 44: Notifications — Strava-style unread shading, join-requests behave like chat-unread
+
+Founder-reported UX gap, from a screenshot of the live Notifications
+feed: every row looked the same regardless of read state (only a subtle
+bold-text + small dot distinguished unread), and *every* notification
+type — including a pending join request nobody had actually reviewed —
+got silently marked read the instant the Notifications tab was opened
+(`useFocusEffect` → `markAllRead()`), so the "unread" look barely had a
+chance to register before flipping to "read."
+
+Scoped through a few rounds of clarification in-thread rather than
+guessed at: the founder settled on keeping the *existing* read-marking
+timing for plain notification types (poll/event/race/meeting created,
+announcements, membership changes, request-approved/denied) — just add
+real color shading — while the 3 pending-join-request-inbox types
+(`club_join_request`/`race_join_request`/`eboard_join_request`) should
+get chat-unread's exact characteristics instead: never cleared by the
+bulk mark-on-focus, only by the recipient actually visiting the
+roster/request screen the notification points at (mirroring
+`markChannelRead`'s "only clears once you actually open the chat"
+guarantee).
+
+**Two real bugs found while implementing and live-verifying this**,
+both fixed in the same migration (`0046_fix_club_join_request_target_path.sql`,
+`create or replace function` on the two affected trigger functions, no
+existing migration file edited):
+
+1. `club_join_request`'s `target_path` (set once in `0033`) has pointed
+   at `/clubs/{clubId}/club-profile` since it was written, but that
+   route is now (an undocumented split that happened at some point after
+   `0033` shipped) just club identity — the actual pending-requests
+   roster moved to `club-profile/members.tsx`. Tapping the notification
+   silently landed on the wrong screen the entire time. Fixed the
+   trigger's target_path to `/clubs/{clubId}/club-profile/members`.
+2. **Found live, mid-verification, when a freshly-created single-Owner
+   test club's join request produced *zero* notifications for the
+   Owner**: `notify_club_join_request` and `notify_race_join_request`
+   (both `0033`) still filter their notification audience with
+   `cm.role = 'admin'`. Task #42 (`0043_club_role_owner.sql`) introduced
+   the 3-tier Owner/Admin/Member role system and already re-patched
+   several other functions bitten by this exact same stale-filter bug
+   (`handle_new_eboard_channel`, `is_club_admin()` itself) but missed
+   these two — so ever since `0043` shipped, a club with a lone Owner
+   and no separate Admins has had *nobody* who gets notified about a
+   pending club or race join request at all. Confirmed directly against
+   the DB (`club_join_requests` row existed with `status='pending'`,
+   zero matching `notifications` rows existed) before fixing. Both
+   functions re-created with `cm.role in ('admin', 'owner')`.
+
+**Implementation**: `lib/notifications.ts`'s `markAllNotificationsRead`
+now excludes the 3 join-request types from its bulk UPDATE. New
+`markNotificationsReadForPath(userId, targetPath)` (mirrors
+`markChannelRead`'s shape) does an exact-match UPDATE by `target_path`,
+called from a new `useFocusEffect` in `club-profile/members.tsx`,
+`race/[raceId]/roster.tsx`, and `eboard/roster.tsx` — a non-admin
+visiting the same path simply matches zero rows, so no extra gating
+needed. `app/(tabs)/notifications.tsx` gained a real `rowUnread` style
+(background `colors.primaryFixed`, a light primary-tinted M3 "unread
+container" token that already existed in `constants/theme.ts` but had
+never been used) applied to any unread `notification`-kind row, and
+unconditionally to every `chat_unread` row (they only ever appear in the
+feed while genuinely unread, by construction).
+
+### Verification
+
+Live end-to-end via Playwright against the local dev DB: created a
+fresh single-Owner test club (`Notif Shade Test`), signed up a second
+account, and requested to join — first attempt produced zero
+notifications, which is what surfaced bug #2 above. After applying the
+fix and re-triggering the request (`update ... set status = status`
+to re-fire the `when (new.status = 'pending')` trigger without a full
+UI re-request), the Owner's feed showed the row with a clearly visible
+peach-tinted background and the tab badge at "1"; navigating away and
+back to the Notifications tab (simulating a second focus) confirmed the
+row stayed tinted and the badge stayed at "1" — the bulk-mark exclusion
+holds. Tapping the row navigated to `club-profile/members` (not the old,
+wrong `club-profile` route) and showed the real pending request there;
+returning to Notifications afterward showed the same row now plain white
+(read) with the badge cleared. No console errors. `npx tsc --noEmit`
+clean. Test club deleted via Delete Club after verification.
+
+## Task 45: Poll-closing-soon notification — the app's first scheduled job
+
+Founder request: everyone who can access a poll gets notified once it's
+within 10 minutes of its own `closes_at` deadline. Every existing
+notification in this app fires off a real row-level INSERT/UPDATE
+trigger — this is the first one with nothing to hang a trigger on at
+all, since "N minutes before a deadline nobody touched" is a pure
+time-based condition. `0038`'s own comment on `is_poll_closed`
+("no cron/background job, matching how this app avoids scheduled jobs
+everywhere else") is worth noting here specifically, since this task is
+exactly the exception to that pattern.
+
+**Feasibility checked before writing any SQL**: confirmed directly
+against the running local Postgres container that `pg_cron` is already
+compiled into `shared_preload_libraries` (`pg_stat_statements, pgaudit,
+plpgsql, plpgsql_check, pg_cron, pg_net, ...`) and `cron.database_name`
+already targets `postgres`, the database this app actually uses — so
+`create extension pg_cron` plus `cron.schedule(...)` was known to work
+before committing to the approach, not assumed.
+
+**Schema** (`0047_poll_closing_soon_enum.sql`, `0048_poll_closing_soon_notify.sql`
+— enum value split into its own file for the same reason
+`0042_club_role_owner_enum.sql` was): adds `'poll_closing_soon'` to
+`notification_type`; adds `polls.closing_soon_notified_at` (dedup guard
+— without it, every 1-minute cron tick inside the 10-minute window would
+re-notify the same poll repeatedly); a new, non-trigger function
+`notify_polls_closing_soon()` that loops over every poll where
+`closes_at is not null and not is_closed and closing_soon_notified_at is
+null and closes_at` falls inside the next 10 minutes, computing audience
+per scope with the exact same three-way branch shape
+`notify_poll_created` (0038) already established (club members / race
+members ∪ club Admin+Owner / eboard channel members) — deliberately
+copying that function's shape rather than re-deriving the "who can see
+this poll" rule a third time. Scheduled via a named `cron.schedule` job
+(`poll-closing-soon-check`, every 1 minute — upserts by name, so safe to
+re-run on every `supabase db reset` without piling up duplicate jobs).
+
+**A third and fourth instance of the exact `role = 'admin'` bug already
+fixed twice in task #44's `0046` migration**, found while writing this
+function's own race-branch audience query and checking for other places
+doing the identical computation: `notify_announcement`'s race branch and
+`notify_poll_created`'s race branch (both dating to before task #42's
+Owner/Admin/Member migration) still filtered `cm.role = 'admin'` instead
+of `cm.role in ('admin', 'owner')`. Concretely, ever since `0043` shipped,
+a club with a lone Owner and no separate Admins never received a race
+announcement notification, and never received a `poll_created`
+notification for a race poll they didn't create themselves. Both
+re-created in `0048` with the fix, verified live below. Deliberately
+**not** expanded into a full repo-wide audit beyond these two matches —
+`0032`'s `if new.role = 'admin' then` is a role-transition check
+(detecting "did this row just become an admin"), not an audience
+computation, and was left alone as out of scope for this pass.
+
+**A real mistake caught before it shipped**: a first draft of the
+`notify_announcement` re-creation was hand-written from memory instead
+of copied from the actual running function, and differed from the real
+one in five separate ways (wrong body wording — "Announcement in X"
+instead of "New announcement in X"; wrong snippet truncation length, 120
+vs the real 80; wrong target_path, `/highlights` instead of `/chat`; a
+redundant/incorrect `message_type` guard duplicating what the trigger's
+own `WHEN` clause already does; and a missing null-channel guard).
+Caught by explicitly querying `pg_proc.prosrc` for the live function
+before writing the replacement, per the general lesson: never
+reconstruct an existing trigger function from memory when a
+`create or replace` is about to overwrite it — always pull the real
+source first and diff the intended change against it.
+
+### Verification
+
+All done live against the real local DB (not just reading the SQL back):
+confirmed `select * from cron.job` shows the job registered and active
+immediately after applying `0048`. Created a fresh single-Owner test
+club (mirroring task #44's exact repro shape) with a club-scoped poll 5
+minutes from closing — `select notify_polls_closing_soon()` produced
+exactly one notification, correctly addressed to the lone Owner, with
+the expected body/target_path; running it again immediately produced no
+duplicate (dedup guard holds). Repeated for a race-scoped poll (a real
+`race_members` row for one user, the club Owner *not* added to that
+race) — both the race member and the Owner (via the `role in
+('admin','owner')` fix) received it, and a second run stayed at 2 rows,
+not 4. Repeated for an Eboard-scoped poll — the sole Eboard member (the
+Owner, auto-joined per task #42/#43's sync trigger) received it.
+Negative case: a poll 30 minutes from closing produced zero
+`poll_closing_soon` rows (confirmed only its unrelated `poll_created`
+notification existed). Client-side: `types/database.ts`'s hand-written
+`NotificationType` (SPEC.md section 6's documented gotcha — not
+generated) needed the new value added by hand, caught because
+`notifications.tsx`'s `ICON_BY_TYPE: Record<NotificationType,
+MaterialIconName>` silently type-checked *before* that addition (proof
+the type didn't know about the new value yet) and only became a real
+exhaustiveness check afterward; added a `timer` icon and confirmed live
+via Playwright that a seeded `poll_closing_soon` notification renders
+correctly with no console errors, then confirmed it uses the *existing*
+mark-read-on-focus timing (not the join-request-style persistent
+shading from task #44 — this type was never added to that exclusion
+list, correctly). Every test club deleted via direct SQL cascade after
+verification. `npx tsc --noEmit` clean throughout.
+
+## Task 46: Race polls — member-only access, matching Eboard's model exactly
+
+Founder follow-up right after discussing task #45's audience logic:
+race-scoped polls should be visible (and creatable) only to actual race
+participants (a real `race_members` row) — never automatically to a club
+Admin/Owner just because of their club-level role, exactly like Eboard
+polls already work (`is_eboard_member`, no club-admin fallback). Under
+the old rule (`is_race_admin(race_id) OR is_race_member(race_id)`, in
+place since task #38), a club manager could see and create a race's
+polls without ever joining that race — a carve-out every *other* race
+feature didn't have: `race/[raceId]/index.tsx`'s hub already gates the
+entire "full hub" view (including the Polls row itself) behind
+`race.isMember`, so this was the one place a non-member manager's access
+extended further than the UI ever surfaced a path to it.
+
+**Every place the rule is enforced had to change together**, per
+SPEC.md section 6: `can_access_poll()` backs `poll_options`/`poll_votes`
+RLS too, so fixing it there needed no separate edits to either of those
+tables — the whole payoff of routing through one shared function.
+`polls`' INSERT policy also had to be updated in the same migration,
+not just SELECT — supabase-js's `.insert().select()` re-checks the
+SELECT policy against the just-inserted row (the exact
+`INSERT...RETURNING` gotcha section 6 already documents, and the same
+one task #38 hit for real in this exact table), so a manager who could
+still INSERT under the old WITH CHECK but no longer passed the new
+SELECT policy would fail immediately on create.
+
+**A deliberate design choice, not just a mechanical fix**: creation
+eligibility did *not* become "any race member" — it became "a race
+member who is *also* a club Admin/Owner"
+(`is_race_member(race_id) and is_race_admin(race_id)`), mirroring
+`is_channel_admin`'s existing race branch exactly (which gates pin/
+announce in race chat the identical way). Considered and rejected: just
+using `is_race_member(race_id)` alone for creation, matching Eboard's
+"any member can create" rule literally — but Eboard's "any member" only
+ever coincides with "any admin" because Eboard membership itself
+requires being a club admin already (closed roster). A race's roster can
+include plain Members, so copying Eboard's rule verbatim would have
+quietly opened poll creation to every race participant, not just
+managers — a real behavior change nobody asked for. `lib/notify_poll_created`'s
+and `notify_polls_closing_soon`'s race-branch notification audiences
+both narrowed from "race_members ∪ club admins" to just `race_members`,
+matching the new access model (a non-member manager can no longer see
+the poll, so notifying them about one is a dead link).
+
+**Client-side**: `race/[raceId]/polls/{index,create}.tsx`'s `canCreate`
+changed from `race.isManager` to `race.isManager && race.isMember`.
+
+### Verification
+
+Full RLS-impersonation testing (`set local role authenticated` +
+`request.jwt.claims`) against real seeded data, not just reading the SQL
+back: a club Admin who wasn't a race member — `select` on an existing
+race poll returned 0 rows, and an `insert` attempt was rejected outright
+by the RLS policy. Adding that same admin to the race roster flipped
+both: `select` returned the row, and `insert...returning` succeeded
+without the RETURNING-recheck failure. Separately verified a plain
+(non-admin) race member could `select` the poll but had their `insert`
+attempt rejected — confirming creation stayed admin-gated, not opened to
+every member. Test data cleaned up. `npx tsc --noEmit` clean.
+
+**Follow-up, same session**: the founder asked to close this for good —
+"for any operation it all lives inside the channel" — rather than leave
+it flagged. `0050_race_announcement_member_only.sql` re-created
+`notify_announcement` with the identical one-line fix (race branch's
+audience query dropped the `union select ... role in ('admin','owner')`
+clause, down to `race_members` only), pulling the exact live function
+source via `pg_proc.prosrc` first rather than reconstructing it from
+memory (see task #45's write-up for why that mattered the first time).
+Confirmed via `select proname from pg_proc where prosrc ilike
+'%race_members%' and prosrc ilike '%union%'` that this was the *only*
+remaining function with this pattern before writing the migration.
+
+Verified live (seeded data, not just re-reading the SQL): a club admin
+who wasn't a race member posted no notification when a *different* race
+member announced something — 0 rows; adding that admin to the race's
+roster and re-announcing produced exactly 1 notification, correctly
+addressed to them. `npx tsc --noEmit` clean, test club cleaned up
+afterward.
