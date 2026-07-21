@@ -748,8 +748,17 @@ lib/notifications.ts             fetchNotificationFeed (merges
                                  markAllNotificationsRead (bulk-marks
                                  discrete notifications read, never
                                  touches channel_reads) / markChannelRead
-                                 (upserts channel_reads, called from
-                                 ChatScreen on mount) /
+                                 (routes through the
+                                 mark_channel_read_and_log RPC — task
+                                 #47, this app's first RPC-driven rather
+                                 than trigger-driven notifications insert
+                                 — so a resolved chat-unread row logs an
+                                 already-read chat_caught_up notification
+                                 before channel_reads advances, and
+                                 persists in the feed as history instead
+                                 of vanishing; called from ChatScreen on
+                                 mount, same exported signature as
+                                 before) /
                                  markNotificationsReadForPath (mirrors
                                  markChannelRead's shape — exact-match
                                  UPDATE by target_path, called from
@@ -1162,11 +1171,30 @@ supabase/migrations/
                                  change (chat access was already
                                  correct) — audience only, narrowed to
                                  race_members.
+  0051_chat_caught_up_enum.sql     Adds 'chat_caught_up' to
+                                 notification_type, alone in its own
+                                 file per section 6's enum-transaction
+                                 lesson.
+  0052_chat_caught_up_notify.sql   Task #47 — mark_channel_read_and_log(
+                                 p_channel_id), a security-definer RPC
+                                 (this app's first RPC-driven, not
+                                 trigger-driven, notifications insert):
+                                 computes the caller's unread count for
+                                 that channel using the same filter shape
+                                 fetch_unread_channel_summaries() (0031)
+                                 uses, and — only if > 0 — inserts an
+                                 already-read chat_caught_up notification
+                                 ("Caught up on N messages in X chat")
+                                 before upserting channel_reads. The live
+                                 unread computation itself is completely
+                                 unchanged; this only adds a persisted,
+                                 already-read historical trace of when it
+                                 got resolved.
 ```
 
 ## 5. Current status
 
-All 46 numbered tasks below are done. Full build narrative for any task
+All 47 numbered tasks below are done. Full build narrative for any task
 — bugs found, scope changes, verification steps — lives in
 `docs/HISTORY.md` under that task's own heading; this table intentionally
 only summarizes.
@@ -1220,6 +1248,7 @@ only summarizes.
 | 44 | Notifications: real unread color shading + join-requests behave like chat-unread | ✅ Done — see `docs/HISTORY.md` task #44 for two real bugs found live: `club_join_request`'s stale target_path (fixed to `club-profile/members`), and `notify_club_join_request`/`notify_race_join_request` still filtering `role = 'admin'` post-task-#42, silently dropping notifications for a lone-Owner club. |
 | 45 | Poll-closing-soon notification (10 minutes before `closes_at`) | ✅ Done — see `docs/HISTORY.md` task #45. The app's first scheduled job (pg_cron, confirmed already available on this Postgres image) rather than a trigger, since there's no row-level event to react to. Found and fixed 2 more instances of task #44's `role = 'admin'` bug in `notify_announcement`/`notify_poll_created`'s race branches along the way. |
 | 46 | Race polls + race announcements: member-only access/audience, matching Eboard's model exactly | ✅ Done — see `docs/HISTORY.md` task #46. A club Admin/Owner can no longer see or create a race's polls without an actual `race_members` row — closes the one race feature that didn't already require real membership (`race/[raceId]/index.tsx`'s hub already gated everything else behind `isMember`). Creation deliberately stayed admin-gated (`is_race_member AND is_race_admin`, mirroring `is_channel_admin`'s pin/announce rule) rather than opening to every race participant. Same-session founder follow-up ("it all lives inside the channel") closed the last remaining instance: `notify_announcement`'s race branch also narrowed to `race_members` only, so a non-member manager no longer gets notified about a race chat announcement they can't open. Verified via full RLS impersonation and live seeded-data checks, not just reading the SQL back. |
+| 47 | Notifications: mark-read-on-blur timing + persisted "caught up" record for chat | ✅ Done — see `docs/HISTORY.md` task #47. Plain notification types now mark read on *leaving* the Notifications tab (not on opening it) so an unread item is actually visible dark for the whole visit, only turning light next time. New `mark_channel_read_and_log()` RPC (this app's first RPC-driven, rather than trigger-driven, `notifications` insert) logs an already-read `chat_caught_up` entry the moment a chat's unread state is cleared, so it persists in the feed as light-shaded history instead of vanishing — the live unread computation itself (`fetch_unread_channel_summaries()`) is unchanged. Same-session founder follow-up fixed a pre-existing `mergeFeedItems` bug (present since task #35, only now visible) that left a stale dark "N unread" row duplicated alongside its own new light "Caught up" entry — `chat_unread` items are no longer paginated, so a page-1 fetch now fully replaces the locally-tracked set instead of only ever adding to it. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 identified in an earlier founder-requested audit, four are done (photo
@@ -1251,10 +1280,14 @@ from task #42 that silently dropped join-request notifications for any
 club with a lone Owner and no separate Admins — and task #45 added a
 poll-closing-soon notification via the app's first scheduled job
 (pg_cron), catching two more instances of that same role-filter bug
-along the way, and task #46 closed the one race feature that still let
+along the way, task #46 closed the one race feature that still let
 a non-member club Admin/Owner in — race polls now require a real
 `race_members` row to see or create, matching Eboard's access model
-exactly.
+exactly — and task #47 fixed the Notifications feed's mark-read timing
+(now on leaving the tab, not opening it, so unread actually stays
+visible) and gave chat-unread rows a persisted, already-read history
+trace once resolved, via this app's first RPC-driven notification
+insert.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

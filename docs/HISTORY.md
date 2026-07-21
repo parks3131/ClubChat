@@ -3953,3 +3953,138 @@ member announced something — 0 rows; adding that admin to the race's
 roster and re-announcing produced exactly 1 notification, correctly
 addressed to them. `npx tsc --noEmit` clean, test club cleaned up
 afterward.
+
+## Task 47: Notifications — mark-read-on-blur timing, and a persisted "caught up" record for chat
+
+Founder walked through the exact end-to-end flow live (3 items in the
+feed: a race-created notification, an unread-messages-in-main-chat row,
+and a poll-created notification) and asked me to verify/fix two things
+found along the way.
+
+**(1) Mark-read timing was wrong for plain notification types.**
+`useFocusEffect` called `markAllRead()` in its *setup* — i.e. the
+instant the Notifications tab gained focus — so a "plain" item
+(poll/race/event/meeting created, announcements, membership changes)
+never actually rendered dark for the user to see: by the time the
+realtime round-trip from that `UPDATE` came back and re-rendered the
+list, it had already flipped to read, often within a second. Founder's
+ask: the *first* time you open the tab and see something new, it should
+stay dark for that whole visit; it should only turn light the *next*
+time you open the tab. Fixed by moving `markAllRead()` from
+`useFocusEffect`'s setup into its **cleanup** (fires on blur — leaving
+the screen — not on focus): `load()` still happens on focus so the true
+current state renders, but nothing gets marked read until the user
+navigates away. Verified live via Playwright, using real tab-bar clicks
+rather than `page.goto` (a raw URL navigation would force a full page
+reload, which doesn't reliably exercise React Navigation's focus/blur
+lifecycle the same way — worth remembering for any future test of this
+kind of behavior): opened Notifications with one real unread
+`race_created` row — stayed dark/tinted with the tab badge still
+showing "1" while sitting on the screen; clicked over to the Clubs tab —
+badge cleared to no number; clicked back to Notifications — the row now
+rendered light, unchanged content otherwise.
+
+**(2) Chat-unread rows should persist as read history, not just vanish.**
+Under the design from task #35 (still correct for the *live* unread
+state — deliberately never stored, computed fresh via
+`fetch_unread_channel_summaries()` so it can't drift out of sync with
+`messages`), once a channel's unread count hit 0 the row disappeared
+from the feed with no trace, unlike a resolved join request which stays
+visible tagged "Approved"/"Denied" (`0035_notifications_persistent_requests.sql`).
+Founder wanted the same persistence here: after opening a chat and
+clearing its unread state, a light-shaded "Caught up on N messages in X
+chat" row should remain in the feed.
+
+This needed a genuinely new mechanism, not just a style change — direct
+client inserts into `notifications` aren't possible at all (0031: "No
+insert policy... every row comes from a security-definer trigger"), and
+there's no table-row event to hang a trigger on for "a channel just
+transitioned from unread to read" (that fact only exists transiently,
+computed the same way `fetch_unread_channel_summaries()` computes it,
+and has to be captured *before* `channel_reads.last_read_at` advances,
+or it's gone). `0051_chat_caught_up_enum.sql` adds a `'chat_caught_up'`
+enum value (its own migration, per section 6's enum-transaction lesson).
+`0052_chat_caught_up_notify.sql` adds `mark_channel_read_and_log(p_channel_id)`
+— a security-definer RPC (this app's first RPC-driven `notifications`
+insert, every prior one is trigger-driven) that computes the caller's
+unread count for that channel using the exact same filter shape
+`fetch_unread_channel_summaries()` uses, and — only if that count is
+greater than 0 — inserts a `chat_caught_up` notification with `read_at`
+already set to `now()` (it's a retrospective log entry, not a pending
+alert, so it never touches the unread badge or interacts with
+`markAllNotificationsRead`), before upserting `channel_reads`.
+`lib/notifications.ts`'s `markChannelRead` now calls this RPC instead of
+a plain `channel_reads` upsert — same exported signature, so
+`ChatScreen.tsx`'s call site needed no changes at all.
+
+One wording fix caught during its own verification: the first draft's
+body text dropped the trailing "chat" word ("Caught up on 3 messages in
+X" instead of "...in X chat"), inconsistent with the live
+`chat_unread` row's own phrasing ("N unread messages in X chat",
+`notifications.tsx`). Fixed to match exactly, including correct
+singular/plural ("1 message" vs "3 messages").
+
+### Verification
+
+All via direct RPC calls under real RLS impersonation, not just reading
+the SQL back. Seeded 3 messages in a fresh channel, called
+`mark_channel_read_and_log` as the recipient — produced exactly one
+`chat_caught_up` row, body "Caught up on 3 messages in Chat Log Test
+Club chat", `read_at` already set. Called it again immediately with
+nothing new unread — confirmed no duplicate/spurious row. Posted 1 more
+message and called it again — confirmed a *second*, independent entry
+("Caught up on 1 message..."), proving a fresh unread cycle logs its own
+correct count rather than merging with or being blocked by the earlier
+entry. `types/database.ts` needed both the new `NotificationType` value
+and a `mark_channel_read_and_log` entry under `Functions` (caught
+immediately by `tsc`, which failed with an unassignable-string error the
+moment the RPC name wasn't declared there — this hand-written type file
+does enumerate every RPC by name, not just the table shapes SPEC.md
+section 6 already warns about). `npx tsc --noEmit` clean, all test data
+cleaned up.
+
+### Follow-up, same session: stale dark row duplicated the new light "caught up" row
+
+Founder screenshotted the live feed right after this shipped: a
+channel's *old* dark "N unread messages" row was still showing,
+sitting right alongside its own brand-new light "Caught up on N
+messages" row for the same chat — two entries for the same event,
+confusing which one to act on.
+
+**Root cause**: `notifications.tsx`'s `mergeFeedItems` — a plain
+union-by-id merge (`ChatScreen.tsx`'s `mergeMessages` pattern, reused
+for this screen since task #35) — only ever adds or overwrites entries
+by id, never removes one. `chat_unread` items are deliberately *not*
+paginated (`fetchNotificationFeed` only fetches them on an uncursored
+page-1 call), so once a channel gets fully read and drops out of
+`fetch_unread_channel_summaries()`'s results, a fresh page-1 fetch
+simply stops mentioning it — but the merge function has no way to tell
+"this id used to exist and is now gone, remove it" from "this id was
+never fetched by this particular page" (the latter is exactly the
+correct, desired behavior for *discrete* notification items loaded via
+older-page pagination, which must never be dropped just because the
+newest page-1 fetch doesn't re-mention them). This bug predates task
+#47 — it's existed since `mergeFeedItems` was written for task #35 —
+but was invisible until now: previously a resolved chat-unread row just
+had no visible replacement at all once it vanished from a real feed
+refetch, so a session where it silently *stayed stuck* in local state
+looked identical to one where it correctly disappeared (both showed
+"nothing new"), until this task gave it something to visibly collide
+with.
+
+**Fix**: `mergeFeedItems` takes a new `replaceChatUnread: boolean`
+parameter. `load()` (both its focus and realtime-triggered calls — the
+only page-1 fetches) passes `true`: before merging, every existing
+`chat_unread`-kind item is dropped from the map, so the incoming page-1
+result becomes the complete, authoritative current set — a resolved
+channel's stale row simply doesn't survive the merge. `handleLoadMore()`
+(the `before`-cursored older-notifications page) passes `false`, since
+that page never includes `chat_unread` items at all and wiping them
+there would incorrectly drop still-genuinely-unread rows for no reason.
+
+Verified live end-to-end via Playwright with 2 real accounts: seeded 2
+unread messages, confirmed the dark "2 unread messages in X chat" row,
+clicked into the chat (firing `mark_channel_read_and_log`), navigated
+back to Notifications — exactly one row remained, "Caught up on 2
+messages in X chat," light-shaded, no leftover dark duplicate. `npx tsc
+--noEmit` clean, no console errors, test data cleaned up.
