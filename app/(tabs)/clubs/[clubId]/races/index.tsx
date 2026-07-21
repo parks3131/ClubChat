@@ -96,8 +96,13 @@ export default function RacesListScreen() {
                 <TouchableOpacity
                   key={race.id}
                   style={[styles.row, section.faded && styles.rowFaded]}
-                  disabled={!canEnter}
-                  onPress={() => canEnter && router.push(`/clubs/${club.clubId}/race/${race.id}`)}
+                  onPress={() =>
+                    router.push(
+                      canEnter
+                        ? `/clubs/${club.clubId}/race/${race.id}`
+                        : `/clubs/${club.clubId}/races/${race.id}`
+                    )
+                  }
                 >
                   <View style={styles.bibChip}>
                     <Text style={styles.bibDay}>{bib.day}</Text>
@@ -116,7 +121,10 @@ export default function RacesListScreen() {
                     <TouchableOpacity
                       style={styles.requestButton}
                       disabled={requesting === race.id}
-                      onPress={() => handleRequest(race.id)}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        handleRequest(race.id);
+                      }}
                     >
                       <Text style={styles.requestButtonText}>
                         {requesting === race.id ? "Requesting…" : "Request"}

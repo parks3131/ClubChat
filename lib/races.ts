@@ -68,6 +68,28 @@ export async function requestJoinRace(raceId: string): Promise<"joined" | "reque
   return data as "joined" | "requested";
 }
 
+export interface RaceAccess {
+  isMember: boolean;
+  requestStatus: JoinRequestStatus | null;
+}
+
+// A single-race version of what fetchRaces computes per-row for the whole
+// list — used by races/[raceId].tsx, the no-access preview screen a plain
+// club member without race_members access lands on instead of being
+// turned away entirely.
+export async function fetchRaceAccess(raceId: string, userId: string): Promise<RaceAccess> {
+  const [{ data: membership, error: membershipError }, { data: request, error: requestError }] = await Promise.all([
+    supabase.from("race_members").select("user_id").eq("race_id", raceId).eq("user_id", userId).maybeSingle(),
+    supabase.from("race_join_requests").select("status").eq("race_id", raceId).eq("user_id", userId).maybeSingle(),
+  ]);
+  if (membershipError) throw membershipError;
+  if (requestError) throw requestError;
+  return {
+    isMember: !!membership,
+    requestStatus: (request?.status as JoinRequestStatus | undefined) ?? null,
+  };
+}
+
 export interface RaceDetail {
   id: string;
   clubId: string;

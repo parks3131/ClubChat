@@ -49,6 +49,14 @@ export default function RacesStackLayout() {
           headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/races`),
         }}
       />
+      <Stack.Screen
+        name="[raceId]"
+        options={{
+          ...clubScreenOptions,
+          title: "Race",
+          headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/races`),
+        }}
+      />
     </Stack>
   );
 }
