@@ -24,9 +24,11 @@ npx jest lib/dates.test.ts   # a single test file
 CI (`.github/workflows/ci.yml`) runs `npx tsc --noEmit` and `npm test` on every push/PR. There is no
 linter or formatter configured in this repo.
 
-For UI/route changes, smoke-test headlessly with `CI=1 npx expo start --web` + Playwright MCP tools
-(see `SPEC.md` section 8). CI mode disables Fast Refresh, so **restart the dev server after any
-route/layout file change** — editing then re-navigating without a restart silently serves the old bundle.
+For UI/route changes, smoke-test headlessly with `CI=1 npx expo start --web` + Playwright MCP tools,
+or live in a real browser via the Claude-in-Chrome extension (see `SPEC.md` section 8 for the
+device-pairing steps and the no-known-password test-account workaround). CI mode disables Fast
+Refresh, so **restart the dev server after any route/layout file change** — editing then
+re-navigating without a restart silently serves the old bundle.
 
 ### Local Supabase
 

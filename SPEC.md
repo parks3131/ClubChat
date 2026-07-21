@@ -1592,3 +1592,30 @@ Editor in order (`0001` → ... → latest), and swap the two
    `## Task 16`) so it stays available on demand without bloating what
    loads into context every session. The same rule applies to section 4
    — describe current architecture only, not how it got there.
+7. **Live browser testing via the Claude-in-Chrome extension** (alternative
+   to the headless Playwright MCP flow above — lets you watch it happen
+   in a real browser instead of guessing from code):
+   - **Machine mismatch gotcha**: `tabs_context_mcp`/`list_connected_browsers`
+     can show browsers on *other* physical machines (e.g. a paired Windows
+     PC) — `localhost:8081` there resolves to that machine's own loopback,
+     not this one, and silently fails to load. Only a browser whose
+     `list_connected_browsers` entry has `"isLocal": true` (matching this
+     Mac's OS) can reach the dev server here. Always check `isLocal`
+     before navigating, not just whichever browser is already selected.
+   - **Pairing a Mac-local browser if none shows `isLocal: true`**: call
+     `switch_browser` (broadcasts a connect prompt to every Chrome with
+     the extension installed), then in the target Chrome window click the
+     Claude extension icon and hit **Connect**, naming it something
+     identifiable (e.g. "Mac - ClubChat Dev"). Then `select_browser` with
+     its returned `deviceId`.
+   - **No known passwords for seeded test personas**: this repo's local
+     DB already carries a few purpose-built test accounts (e.g. "Requester
+     Bob", "Voter Alice", "Header Tester", "Preview Tester" — see the
+     `profiles` table), but none of their passwords are recorded anywhere.
+     Don't try to guess them. Instead, sign up a brand-new account through
+     the app's own `/sign-up` UI (auto-confirmed locally, so no email step),
+     then grant it whatever club/race/Eboard membership the test needs
+     directly via SQL (`docker exec supabase_db_Club_Chat psql ...` —
+     see the "Local Supabase" command block in `CLAUDE.md` for the exact
+     invocation). This is how the race-preview screen (task after #47,
+     see `docs/HISTORY.md`) was verified live as a plain non-admin member.
