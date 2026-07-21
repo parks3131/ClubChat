@@ -194,25 +194,36 @@ export async function fetchPoll(pollId: string, currentUserId: string): Promise<
 // identities (poll isn't private, or the caller is its creator) — RLS
 // on poll_votes is the real backstop either way, this just avoids an
 // unnecessary request otherwise.
-export async function fetchPollVoters(pollId: string): Promise<Record<string, { userId: string; fullName: string }[]>> {
+export interface PollVoter {
+  userId: string;
+  fullName: string;
+  avatarUrl: string | null;
+}
+
+export async function fetchPollVoters(pollId: string): Promise<Record<string, PollVoter[]>> {
   const { data: votes, error } = await supabase.from("poll_votes").select("option_id, user_id").eq("poll_id", pollId);
   if (error) throw error;
   if (!votes || votes.length === 0) return {};
 
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, full_name")
+    .select("id, full_name, avatar_url")
     .in(
       "id",
       votes.map((v) => v.user_id)
     );
 
-  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
 
-  const byOption: Record<string, { userId: string; fullName: string }[]> = {};
+  const byOption: Record<string, PollVoter[]> = {};
   for (const v of votes) {
     if (!byOption[v.option_id]) byOption[v.option_id] = [];
-    byOption[v.option_id].push({ userId: v.user_id, fullName: nameById.get(v.user_id) ?? "Unknown" });
+    const profile = profileById.get(v.user_id);
+    byOption[v.option_id].push({
+      userId: v.user_id,
+      fullName: profile?.full_name ?? "Unknown",
+      avatarUrl: profile?.avatar_url ?? null,
+    });
   }
   return byOption;
 }

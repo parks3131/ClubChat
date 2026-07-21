@@ -9,12 +9,25 @@ import { ThemedSwitch } from "./ThemedSwitch";
 const MAX_OPTIONS = 10;
 
 type EndsChoice = "none" | "1d" | "3d" | "1w" | "custom";
+type CustomUnit = "minutes" | "hours" | "days";
 
 const CHOICE_TO_DAYS: Record<Exclude<EndsChoice, "none" | "custom">, number> = {
   "1d": 1,
   "3d": 3,
   "1w": 7,
 };
+
+const UNIT_TO_MS: Record<CustomUnit, number> = {
+  minutes: 60 * 1000,
+  hours: 60 * 60 * 1000,
+  days: 24 * 60 * 60 * 1000,
+};
+
+const CUSTOM_UNITS: { value: CustomUnit; label: string }[] = [
+  { value: "minutes", label: "Min" },
+  { value: "hours", label: "Hrs" },
+  { value: "days", label: "Days" },
+];
 
 // Extracted so Race and Eboard polls can reuse the exact same create form
 // instead of forking three more copies (same reasoning as
@@ -39,7 +52,8 @@ export function PollCreateScreen({ scope, canCreate, listPath, pollPath }: Props
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [endsChoice, setEndsChoice] = useState<EndsChoice>("none");
-  const [customDays, setCustomDays] = useState("");
+  const [customAmount, setCustomAmount] = useState("");
+  const [customUnit, setCustomUnit] = useState<CustomUnit>("hours");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -84,12 +98,12 @@ export function PollCreateScreen({ scope, canCreate, listPath, pollPath }: Props
 
     let closesAt: string | null = null;
     if (endsChoice === "custom") {
-      const days = Number(customDays);
-      if (!Number.isInteger(days) || days < 1) {
-        setError("Enter a whole number of days (1 or more).");
+      const amount = Number(customAmount);
+      if (!Number.isInteger(amount) || amount < 1) {
+        setError("Enter a whole number (1 or more).");
         return;
       }
-      closesAt = new Date(Date.now() + days * 86400000).toISOString();
+      closesAt = new Date(Date.now() + amount * UNIT_TO_MS[customUnit]).toISOString();
     } else if (endsChoice !== "none") {
       closesAt = new Date(Date.now() + CHOICE_TO_DAYS[endsChoice] * 86400000).toISOString();
     }
@@ -181,13 +195,23 @@ export function PollCreateScreen({ scope, canCreate, listPath, pollPath }: Props
             <View style={styles.customRow}>
               <TextInput
                 style={[styles.input, styles.customInput]}
-                placeholder="7"
+                placeholder="30"
                 placeholderTextColor={colors.onSurfaceVariant}
-                value={customDays}
-                onChangeText={setCustomDays}
+                value={customAmount}
+                onChangeText={setCustomAmount}
                 keyboardType="number-pad"
               />
-              <Text style={styles.customLabel}>days from now</Text>
+              <View style={styles.unitChipsRow}>
+                {CUSTOM_UNITS.map((unit) => (
+                  <TouchableOpacity
+                    key={unit.value}
+                    style={[styles.unitChip, customUnit === unit.value && styles.unitChipActive]}
+                    onPress={() => setCustomUnit(unit.value)}
+                  >
+                    <Text style={[styles.unitChipText, customUnit === unit.value && styles.unitChipTextActive]}>{unit.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           )}
         </View>
@@ -278,9 +302,21 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { ...typography.labelSm, fontSize: 12, color: colors.onSurfaceVariant, textTransform: "none" },
   chipTextActive: { color: colors.onPrimary },
-  customRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm, marginTop: spacing.stackSm },
-  customInput: { width: 72, textAlign: "center" },
+  customRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.stackSm, marginTop: spacing.stackSm },
+  customInput: { width: 64, textAlign: "center" },
   customLabel: { ...typography.bodyMd, fontSize: 14, color: colors.onSurfaceVariant },
+  unitChipsRow: { flexDirection: "row", gap: 6 },
+  unitChip: {
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.stackSm + 2,
+    paddingVertical: spacing.stackSm,
+    backgroundColor: colors.surfaceContainerLow,
+  },
+  unitChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  unitChipText: { ...typography.labelSm, fontSize: 12, color: colors.onSurfaceVariant, textTransform: "none" },
+  unitChipTextActive: { color: colors.onPrimary },
   switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.gutter },
   switchLabelWrap: { flex: 1 },
   switchLabel: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
