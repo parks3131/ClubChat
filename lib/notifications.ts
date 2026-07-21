@@ -153,10 +153,17 @@ export async function markNotificationsReadForPath(userId: string, targetPath: s
   if (error) throw error;
 }
 
-export async function markChannelRead(channelId: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from("channel_reads")
-    .upsert({ channel_id: channelId, user_id: userId, last_read_at: new Date().toISOString() });
+// Routes through mark_channel_read_and_log() rather than a plain
+// channel_reads upsert — the RPC also writes a one-time, already-read
+// `chat_caught_up` notification capturing "you caught up on N messages"
+// before it advances last_read_at, so a resolved chat-unread row
+// persists in the feed afterward (light-shaded) instead of just
+// vanishing once fetch_unread_channel_summaries() stops returning it.
+// `userId` param kept for compatibility with existing call sites — the
+// RPC is security definer and reads auth.uid() itself, same as every
+// other RPC in this app.
+export async function markChannelRead(channelId: string, _userId: string): Promise<void> {
+  const { error } = await supabase.rpc("mark_channel_read_and_log", { p_channel_id: channelId });
   if (error) throw error;
 }
 

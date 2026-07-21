@@ -25,6 +25,7 @@ const ICON_BY_TYPE: Record<NotificationType, MaterialIconName> = {
   meeting_created: "groups",
   announcement: "campaign",
   poll_closing_soon: "timer",
+  chat_caught_up: "done-all",
 };
 
 const PAGE_SIZE = 20;
@@ -33,8 +34,32 @@ const PAGE_SIZE = 20;
 // merge-by-id-then-resort technique ChatScreen.tsx's mergeMessages uses,
 // just sorted newest-first instead of oldest-first, so a focus/realtime
 // reload of page 1 never discards older pages already loaded via scroll.
-function mergeFeedItems(existing: NotificationFeedItem[], incoming: NotificationFeedItem[]): NotificationFeedItem[] {
+//
+// `replaceChatUnread` must be true for any *page-1* fetch (load()'s own
+// focus/realtime calls) and false for a `before`-cursored "load older"
+// page. chat_unread items are never paginated — fetchNotificationFeed
+// only fetches them on an uncursored call — so a page-1 result is always
+// the complete, authoritative current set of unread channels. Without
+// this, a channel that gets fully read (and drops out of the RPC's
+// results) never gets removed from local state: union-by-id only ever
+// adds/overwrites, so the old dark "N unread" row would linger forever
+// alongside its own new light "Caught up on N" history entry (task #47)
+// — exactly the confusing double-row the founder flagged live. A `before`
+// page never includes chat_unread items at all (see
+// fetchNotificationFeed), so wiping them there would incorrectly drop
+// still-valid unread rows just because this *older-notifications-only*
+// page didn't happen to mention them.
+function mergeFeedItems(
+  existing: NotificationFeedItem[],
+  incoming: NotificationFeedItem[],
+  replaceChatUnread: boolean
+): NotificationFeedItem[] {
   const byId = new Map(existing.map((i) => [i.id, i]));
+  if (replaceChatUnread) {
+    for (const [id, item] of byId) {
+      if (item.kind === "chat_unread") byId.delete(id);
+    }
+  }
   for (const i of incoming) byId.set(i.id, i);
   return [...byId.values()].sort((a, b) => new Date(b.atIso).getTime() - new Date(a.atIso).getTime());
 }
@@ -55,7 +80,7 @@ export default function NotificationsScreen() {
     setLoading(true);
     fetchNotificationFeed(userId, { limit: PAGE_SIZE })
       .then((page) => {
-        setItems((prev) => mergeFeedItems(prev, page));
+        setItems((prev) => mergeFeedItems(prev, page, true));
         setHasMoreOlder(page.filter((i) => i.kind === "notification").length === PAGE_SIZE);
         setLoadError(false);
       })
@@ -63,15 +88,20 @@ export default function NotificationsScreen() {
       .finally(() => setLoading(false));
   }, [userId]);
 
-  // Opening this tab clears the badge for discrete items only —
-  // markAllRead never touches chat-unread rows (see
-  // lib/notifications.ts's markAllNotificationsRead), so a "48 unread in
-  // Club X chat" row stays exactly as real until that chat is actually
-  // opened.
+  // Marks read on BLUR (leaving the screen), not on focus — items you're
+  // currently looking at stay dark-shaded for this whole visit, so
+  // "unread" is actually visible instead of flipping to read before you
+  // can perceive it; they only turn light the *next* time you open this
+  // tab. Still only discrete items — markAllRead never touches
+  // chat-unread rows (see lib/notifications.ts's
+  // markAllNotificationsRead), so a "48 unread in Club X chat" row stays
+  // exactly as real until that chat is actually opened, same as before.
   useFocusEffect(
     useCallback(() => {
       load();
-      markAllRead();
+      return () => {
+        markAllRead();
+      };
     }, [load, markAllRead])
   );
 
@@ -88,7 +118,7 @@ export default function NotificationsScreen() {
     setLoadingMore(true);
     fetchNotificationFeed(userId, { limit: PAGE_SIZE, before: oldestNotification.atIso })
       .then((page) => {
-        setItems((prev) => mergeFeedItems(prev, page));
+        setItems((prev) => mergeFeedItems(prev, page, false));
         // A `before`-cursored page never includes chat_unread items (see
         // fetchNotificationFeed), so its length is exactly the raw
         // notifications row count for this page.

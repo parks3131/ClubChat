@@ -32,7 +32,8 @@ export type NotificationType =
   | "race_created"
   | "meeting_created"
   | "announcement"
-  | "poll_closing_soon";
+  | "poll_closing_soon"
+  | "chat_caught_up";
 
 export interface Database {
   public: {
@@ -522,6 +523,10 @@ export interface Database {
       };
       transfer_ownership: {
         Args: { target_club_id: string; new_owner_user_id: string };
+        Returns: undefined;
+      };
+      mark_channel_read_and_log: {
+        Args: { p_channel_id: string };
         Returns: undefined;
       };
     };
