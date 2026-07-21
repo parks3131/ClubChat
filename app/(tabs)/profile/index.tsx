@@ -1,8 +1,20 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { LoadError } from "../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../constants/theme";
 import { useAuth } from "../../../contexts/AuthProvider";
@@ -10,6 +22,8 @@ import { fetchMyClubs, type ClubWithRole } from "../../../lib/clubs";
 import { pickImageOnWeb } from "../../../lib/pickImageOnWeb";
 import { deleteAccount, fetchProfile, formatDateOfBirth, uploadAvatar, type Profile } from "../../../lib/profile";
 import { reportError } from "../../../lib/reportError";
+
+const CLUB_CHIP_LIMIT = 3;
 
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
@@ -21,6 +35,14 @@ export default function ProfileScreen() {
   const [retryToken, setRetryToken] = useState(0);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [clubsModalVisible, setClubsModalVisible] = useState(false);
+  const [clubSearch, setClubSearch] = useState("");
+
+  const filteredClubs = useMemo(() => {
+    const query = clubSearch.trim().toLowerCase();
+    if (!query) return clubs;
+    return clubs.filter((c) => c.name.toLowerCase().includes(query));
+  }, [clubs, clubSearch]);
 
   useFocusEffect(
     useCallback(() => {
@@ -159,7 +181,7 @@ export default function ProfileScreen() {
           <Text style={styles.bio}>You haven't joined any clubs yet.</Text>
         ) : (
           <View style={styles.clubChipRow}>
-            {clubs.map((club) => (
+            {clubs.slice(0, CLUB_CHIP_LIMIT).map((club) => (
               <TouchableOpacity
                 key={club.id}
                 style={styles.clubChip}
@@ -171,6 +193,17 @@ export default function ProfileScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
+            {clubs.length > CLUB_CHIP_LIMIT && (
+              <TouchableOpacity
+                style={styles.moreChip}
+                onPress={() => {
+                  setClubSearch("");
+                  setClubsModalVisible(true);
+                }}
+              >
+                <Text style={styles.moreChipText}>+{clubs.length - CLUB_CHIP_LIMIT} more</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -222,6 +255,58 @@ export default function ProfileScreen() {
           </>
         )}
       </TouchableOpacity>
+
+      <Modal
+        visible={clubsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClubsModalVisible(false)}
+      >
+        <View style={styles.clubsModalBackdrop}>
+          <View style={styles.clubsModalCard}>
+            <View style={styles.clubsModalHeader}>
+              <Text style={styles.clubsModalTitle}>Your Clubs</Text>
+              <TouchableOpacity onPress={() => setClubsModalVisible(false)} hitSlop={8}>
+                <MaterialIcons name="close" size={22} color={colors.onSurface} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.clubsSearchBar}>
+              <MaterialIcons name="search" size={18} color={colors.onSurfaceVariant} />
+              <TextInput
+                style={styles.clubsSearchInput}
+                placeholder="Search clubs"
+                placeholderTextColor={colors.onSurfaceVariant}
+                value={clubSearch}
+                onChangeText={setClubSearch}
+                autoFocus={Platform.OS === "web"}
+              />
+            </View>
+
+            <ScrollView style={styles.clubsModalList}>
+              {filteredClubs.length === 0 ? (
+                <Text style={styles.clubsModalEmptyText}>No clubs match "{clubSearch}".</Text>
+              ) : (
+                filteredClubs.map((club) => (
+                  <TouchableOpacity
+                    key={club.id}
+                    style={styles.clubsModalRow}
+                    onPress={() => {
+                      setClubsModalVisible(false);
+                      router.push(`/clubs/${club.id}?from=profile`);
+                    }}
+                  >
+                    <Text style={styles.clubsModalRowName}>{club.name}</Text>
+                    <Text style={styles.clubsModalRowRole}>
+                      {club.role === "owner" ? "Owner" : club.role === "admin" ? "Admin" : "Member"}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -278,6 +363,17 @@ const styles = StyleSheet.create({
   },
   clubChipText: { ...typography.labelSm, color: colors.onSurface, textTransform: "none", fontWeight: "700" },
   clubChipRole: { ...typography.labelSm, color: colors.onSurfaceVariant },
+  moreChip: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreChipText: { ...typography.labelSm, color: colors.primary, textTransform: "none", fontWeight: "700" },
   bio: { ...typography.bodyMd, color: colors.onSurfaceVariant },
   detailsCard: {
     width: "100%",
@@ -332,4 +428,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.gutter,
   },
   deleteAccountText: { ...typography.labelSm, color: colors.error, fontWeight: "700" },
+  clubsModalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: spacing.marginMobile },
+  clubsModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    maxHeight: "80%",
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
+  },
+  clubsModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.stackMd },
+  clubsModalTitle: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface },
+  clubsSearchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    paddingHorizontal: spacing.gutter,
+  },
+  clubsSearchInput: { flex: 1, ...typography.bodyMd, fontSize: 15, color: colors.onSurface, paddingVertical: spacing.stackSm + 4 },
+  clubsModalList: { marginTop: spacing.stackMd },
+  clubsModalEmptyText: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, fontStyle: "italic", paddingVertical: spacing.stackMd },
+  clubsModalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.stackSm + 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceContainerHigh,
+  },
+  clubsModalRowName: { ...typography.bodyMd, fontSize: 15, fontWeight: "700", color: colors.onSurface, flexShrink: 1 },
+  clubsModalRowRole: { ...typography.labelSm, color: colors.onSurfaceVariant },
 });
