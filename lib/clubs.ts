@@ -27,6 +27,7 @@ export interface ClubProfile {
   description: string | null;
   avatarUrl: string | null;
   createdBy: string;
+  joinPolicy: ClubJoinPolicy;
 }
 
 export async function fetchMyClubs(userId: string): Promise<ClubWithRole[]> {
@@ -107,7 +108,7 @@ export async function joinOrRequestClub(clubId: string): Promise<"joined" | "req
 export async function fetchClubProfile(clubId: string): Promise<ClubProfile> {
   const { data, error } = await supabase
     .from("clubs")
-    .select("id, name, description, avatar_url, created_by")
+    .select("id, name, description, avatar_url, created_by, join_policy")
     .eq("id", clubId)
     .single();
 
@@ -118,6 +119,7 @@ export async function fetchClubProfile(clubId: string): Promise<ClubProfile> {
     description: data.description,
     avatarUrl: data.avatar_url,
     createdBy: data.created_by,
+    joinPolicy: data.join_policy,
   };
 }
 
@@ -132,10 +134,16 @@ export async function deleteClub(clubId: string) {
 
 // Enforced by the existing "admins can update their club" RLS policy —
 // a non-admin's call fails at the database, this doesn't add a new gate.
-export async function updateClubProfile(clubId: string, params: { name: string; description: string }) {
+// Flipping join_policy to "open" also triggers handle_club_join_policy_opened
+// (0053_club_join_policy_auto_approve.sql), which auto-approves every
+// pending club_join_requests row instead of leaving them stuck pending.
+export async function updateClubProfile(
+  clubId: string,
+  params: { name: string; description: string; joinPolicy: ClubJoinPolicy }
+) {
   const { error } = await supabase
     .from("clubs")
-    .update({ name: params.name, description: params.description || null })
+    .update({ name: params.name, description: params.description || null, join_policy: params.joinPolicy })
     .eq("id", clubId);
   if (error) throw error;
 }
