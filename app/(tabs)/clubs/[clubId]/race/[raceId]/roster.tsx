@@ -16,6 +16,7 @@ import {
   type RaceJoinRequestRow,
   type RaceMemberRow,
 } from "../../../../../../lib/races";
+import { markNotificationsReadForPath } from "../../../../../../lib/notifications";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
 
@@ -80,6 +81,16 @@ export default function RaceRosterScreen() {
         cancelled = true;
       };
     }, [reload])
+  );
+
+  // Same "only clears once you look" guarantee club-profile/members.tsx
+  // just got — clears pending race_join_request notifications by
+  // actually visiting this roster, never via bulk markAllNotificationsRead.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isManager || !session?.user.id) return;
+      markNotificationsReadForPath(session.user.id, `/clubs/${race.clubId}/race/${race.raceId}/roster`).catch(() => {});
+    }, [isManager, session?.user.id, race.clubId, race.raceId])
   );
 
   const handleDecide = async (requestId: string, approve: boolean) => {

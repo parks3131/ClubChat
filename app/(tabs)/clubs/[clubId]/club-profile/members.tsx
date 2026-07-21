@@ -18,6 +18,7 @@ import {
   type ClubMemberRow,
   type JoinRequestRow,
 } from "../../../../../lib/members";
+import { markNotificationsReadForPath } from "../../../../../lib/notifications";
 import { reportError } from "../../../../../lib/reportError";
 import { useClub } from "../_layout";
 
@@ -71,6 +72,17 @@ export default function ClubMembersScreen() {
         cancelled = true;
       };
     }, [reload])
+  );
+
+  // Clears any pending club_join_request notifications by actually
+  // visiting this roster, the same "only clears once you look" guarantee
+  // markChannelRead already gives chat-unread rows — never via bulk
+  // markAllNotificationsRead in the Notifications tab (see lib/notifications.ts).
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAdmin || !session?.user.id) return;
+      markNotificationsReadForPath(session.user.id, `/clubs/${club.clubId}/club-profile/members`).catch(() => {});
+    }, [isAdmin, session?.user.id, club.clubId])
   );
 
   const handlePromote = async (userId: string) => {

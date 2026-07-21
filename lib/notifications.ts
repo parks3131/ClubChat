@@ -117,14 +117,38 @@ export async function fetchUnreadBadgeCount(userId: string): Promise<number> {
   return (notifCount ?? 0) + (chatRows?.length ?? 0);
 }
 
-// Bulk-marks every currently-unread discrete notification as read.
-// Deliberately never touches channel_reads — a chat's unread count only
-// clears when the user actually opens that chat (markChannelRead).
+// Bulk-marks every currently-unread *discrete* notification as read —
+// except the 3 pending-join-request-inbox types, which are deliberately
+// excluded here and instead cleared only by markNotificationsReadForPath
+// (called from the actual roster/request screen each one points at).
+// Those need the same "only clears once you actually go look" guarantee
+// chat-unread rows already have via markChannelRead — glancing at the
+// Notifications feed shouldn't be enough to silently dismiss a pending
+// request nobody's reviewed yet.
+const JOIN_REQUEST_TYPES = ["club_join_request", "race_join_request", "eboard_join_request"] as const;
+
 export async function markAllNotificationsRead(userId: string): Promise<void> {
   const { error } = await supabase
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("recipient_id", userId)
+    .is("read_at", null)
+    .not("type", "in", `(${JOIN_REQUEST_TYPES.join(",")})`);
+  if (error) throw error;
+}
+
+// Mirrors markChannelRead's shape: clears every unread notification whose
+// target_path matches the screen the caller just actually visited (e.g. a
+// race's roster), rather than every notification for the caller overall.
+// Bulk-inserted trigger rows (0033_notification_triggers_requests.sql) use
+// a fixed, predictable target_path per scope, so an exact match is safe —
+// a non-admin visiting the same path simply matches zero rows.
+export async function markNotificationsReadForPath(userId: string, targetPath: string): Promise<void> {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("recipient_id", userId)
+    .eq("target_path", targetPath)
     .is("read_at", null);
   if (error) throw error;
 }

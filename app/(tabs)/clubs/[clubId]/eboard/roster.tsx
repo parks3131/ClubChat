@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Platform, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
 import MembersScreen, { type MembersScreenRow } from "../../../../../components/MembersScreen";
 import { colors } from "../../../../../constants/theme";
+import { useAuth } from "../../../../../contexts/AuthProvider";
 import {
   addEboardMember,
   decideEboardJoinRequest,
@@ -14,6 +15,7 @@ import {
   type EboardJoinRequestRow,
   type EboardMemberRow,
 } from "../../../../../lib/eboard";
+import { markNotificationsReadForPath } from "../../../../../lib/notifications";
 import { reportError } from "../../../../../lib/reportError";
 import { useClub } from "../_layout";
 import { useEboard } from "./_layout";
@@ -40,6 +42,7 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 export default function EboardRosterScreen() {
   const eboard = useEboard();
   const club = useClub();
+  const { session } = useAuth();
   const canManage = eboard.channel?.isMember ?? false;
 
   const [members, setMembers] = useState<EboardMemberRow[]>([]);
@@ -75,6 +78,16 @@ export default function EboardRosterScreen() {
         cancelled = true;
       };
     }, [reload])
+  );
+
+  // Same "only clears once you look" guarantee the other two roster
+  // screens just got — clears pending eboard_join_request notifications
+  // by actually visiting this roster, never via bulk markAllNotificationsRead.
+  useFocusEffect(
+    useCallback(() => {
+      if (!canManage || !session?.user.id) return;
+      markNotificationsReadForPath(session.user.id, `/clubs/${club.clubId}/eboard/roster`).catch(() => {});
+    }, [canManage, session?.user.id, club.clubId])
   );
 
   const handleDecide = async (requestId: string, approve: boolean) => {

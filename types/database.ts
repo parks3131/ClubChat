@@ -31,7 +31,8 @@ export type NotificationType =
   | "event_created"
   | "race_created"
   | "meeting_created"
-  | "announcement";
+  | "announcement"
+  | "poll_closing_soon";
 
 export interface Database {
   public: {

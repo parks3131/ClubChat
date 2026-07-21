@@ -24,6 +24,7 @@ const ICON_BY_TYPE: Record<NotificationType, MaterialIconName> = {
   race_created: "flag",
   meeting_created: "groups",
   announcement: "campaign",
+  poll_closing_soon: "timer",
 };
 
 const PAGE_SIZE = 20;
@@ -121,8 +122,13 @@ export default function NotificationsScreen() {
         ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.primary} style={styles.footerLoader} /> : null}
         renderItem={({ item }) => {
           if (item.kind === "chat_unread") {
+            // Always rendered unread — this row only exists in the feed
+            // while unreadCount > 0 (see fetch_unread_channel_summaries),
+            // and, like a pending join request, only clears by actually
+            // opening the chat (markChannelRead), never by glancing at
+            // this list.
             return (
-              <TouchableOpacity style={styles.row} onPress={() => router.push(item.targetPath)}>
+              <TouchableOpacity style={[styles.row, styles.rowUnread]} onPress={() => router.push(item.targetPath)}>
                 <View style={[styles.iconWrap, styles.iconWrapUnread]}>
                   <MaterialIcons name="chat-bubble" size={20} color={colors.onPrimary} />
                 </View>
@@ -140,7 +146,10 @@ export default function NotificationsScreen() {
           }
 
           return (
-            <TouchableOpacity style={styles.row} onPress={() => router.push(item.targetPath)}>
+            <TouchableOpacity
+              style={[styles.row, item.isUnread && styles.rowUnread]}
+              onPress={() => router.push(item.targetPath)}
+            >
               <View style={[styles.iconWrap, item.isUnread && styles.iconWrapUnread]}>
                 <MaterialIcons
                   name={ICON_BY_TYPE[item.type]}
@@ -190,6 +199,10 @@ const styles = StyleSheet.create({
     padding: spacing.gutter,
     marginBottom: spacing.stackSm,
   },
+  // The actual "darker until seen" shade — a light primary tint (same M3
+  // "unread container" pattern the *Fixed tokens already exist for),
+  // distinct from the plain white surfaceContainerLowest a read row keeps.
+  rowUnread: { backgroundColor: colors.primaryFixed, borderColor: colors.primaryFixedDim },
   iconWrap: {
     width: 40,
     height: 40,
