@@ -22,6 +22,17 @@ export default function ClubChatScreen() {
       backFallback={`/clubs/${club.clubId}`}
       titlePath={`/clubs/${club.clubId}/club-profile`}
       fetchMentionCandidates={fetchMentionCandidates}
+      attachMenu={{
+        createPollPath: `/clubs/${club.clubId}/polls/create`,
+        createEventPath: `/clubs/${club.clubId}/event/create`,
+      }}
+      headerMenu={[
+        { label: "Poll", path: `/clubs/${club.clubId}/polls`, icon: "how-to-vote" },
+        { label: "Routines", path: `/clubs/${club.clubId}/routines`, icon: "fitness-center" },
+        { label: "Events", path: `/clubs/${club.clubId}/calendar`, icon: "event" },
+      ]}
+      resolvePollPath={(pollId) => `/clubs/${club.clubId}/polls/${pollId}`}
+      resolveEventPath={(eventId) => `/clubs/${club.clubId}/event/${eventId}`}
     />
   );
 }

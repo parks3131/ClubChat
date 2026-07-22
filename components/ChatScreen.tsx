@@ -1,5 +1,6 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -22,13 +24,15 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
-import { colors, radii, spacing, typography } from "../constants/theme";
+import { colors, radii, spacing, typography, type MaterialIconName } from "../constants/theme";
 import { useAuth } from "../contexts/AuthProvider";
 import { useNotifications } from "../contexts/NotificationsProvider";
+import { fetchEvent, type DisplayCalendarEvent } from "../lib/calendar";
 import {
   deleteMessage,
   fetchMessages,
   reportMessage,
+  sendDocumentMessage,
   sendMessage,
   sendPhotoMessage,
   subscribeToNewMessages,
@@ -44,10 +48,18 @@ import {
   type MentionCandidate,
 } from "../lib/mentions";
 import { markChannelRead } from "../lib/notifications";
+import { pickDocumentOnWeb } from "../lib/pickDocumentOnWeb";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
+import { castVote, fetchPoll, isPollEffectivelyClosed, type PollDetail } from "../lib/polls";
 import { reportError } from "../lib/reportError";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
+
+function formatFileSize(bytes: number | null) {
+  if (!bytes) return "";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -103,6 +115,28 @@ export interface ChatScreenProps {
   // per call site). Fetched once per channel mount and cached; not
   // re-fetched on every keystroke.
   fetchMentionCandidates: () => Promise<MentionCandidate[]>;
+  // Founder wireframe: a WhatsApp-style expandable "+" grid (Photos /
+  // Camera / Document, plus Poll/Event for admins) replacing the old
+  // single photo-picker icon. Only club chat passes this for now — race/
+  // Eboard chat keep the old single-icon behavior unchanged until the
+  // founder says to extend it there too, per explicit scoping call.
+  attachMenu?: {
+    createPollPath: string;
+    createEventPath: string;
+  };
+  // The chat header's grid icon (next to Highlights) — opens a small
+  // dropdown of quick-nav links. Only club chat passes this, pointing at
+  // Polls/Routines/Calendar, the same 3 screens the club hub dropped from
+  // its own row-per-feature list — Eboard & Council isn't included here,
+  // its placement is still an open founder decision.
+  headerMenu?: { label: string; path: string; icon: MaterialIconName }[];
+  // A created club poll/event auto-posts into chat as its own message
+  // (0071_poll_event_chat_messages.sql) — these resolve where "View
+  // Poll"/"View Event" should navigate. Only club chat passes these,
+  // since only club-scoped polls/events post to chat for now (race/
+  // Eboard polls don't yet, matching attachMenu/headerMenu's scoping).
+  resolvePollPath?: (pollId: string) => string;
+  resolveEventPath?: (eventId: string) => string;
 }
 
 export default function ChatScreen({
@@ -115,6 +149,10 @@ export default function ChatScreen({
   backFallback,
   titlePath,
   fetchMentionCandidates,
+  attachMenu,
+  headerMenu,
+  resolvePollPath,
+  resolveEventPath,
 }: ChatScreenProps) {
   const router = useRouter();
   const navigation = useNavigation();
@@ -127,6 +165,16 @@ export default function ChatScreen({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState("");
   const [asAnnouncement, setAsAnnouncement] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [pendingDocument, setPendingDocument] = useState<{ uri: string; name: string; mimeType: string; size: number } | null>(
+    null
+  );
+  const [sendingDocument, setSendingDocument] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+  const [pollDataByMessageId, setPollDataByMessageId] = useState<Map<string, PollDetail>>(new Map());
+  const [eventDataByMessageId, setEventDataByMessageId] = useState<Map<string, DisplayCalendarEvent>>(new Map());
+  const [votingPollOptionId, setVotingPollOptionId] = useState<string | null>(null);
   const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState<{ uri: string; contentType: string } | null>(null);
   const [photoCaption, setPhotoCaption] = useState("");
@@ -152,6 +200,25 @@ export default function ChatScreen({
   // entirely instead of just overriding headerRight.
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
+  }, [navigation]);
+
+  // Chat is meant to feel full-screen — hide the bottom tab bar while it's
+  // open. Club/race/eboard chat all mount this component at different
+  // nesting depths (race chat has one extra Stack layer over club/eboard
+  // chat), so walk up parents until we find the tab navigator itself
+  // rather than assuming a fixed number of getParent() hops.
+  useLayoutEffect(() => {
+    let tabsNavigation = navigation;
+    while (tabsNavigation && tabsNavigation.getState()?.type !== "tab") {
+      const parent = tabsNavigation.getParent();
+      if (!parent) break;
+      tabsNavigation = parent;
+    }
+    if (tabsNavigation?.getState()?.type !== "tab") return;
+    tabsNavigation.setOptions({ tabBarStyle: { display: "none" } });
+    return () => {
+      tabsNavigation.setOptions({ tabBarStyle: { backgroundColor: colors.surfaceContainerLow } });
+    };
   }, [navigation]);
 
   useEffect(() => {
@@ -201,6 +268,49 @@ export default function ChatScreen({
       cancelled = true;
     };
   }, [channelId, fetchMentionCandidates]);
+
+  // Hydrates poll/event chat-card messages with the real poll/event data
+  // they reference (0071_poll_event_chat_messages.sql) — re-runs whenever
+  // the message list changes (send/react/pin/delete/realtime), same as
+  // reactions/mentions are already fully re-derived from `messages`
+  // rather than diffed incrementally.
+  useEffect(() => {
+    if (!session) return;
+    const pollMessages = messages.filter((m) => m.messageType === "poll" && m.pollId);
+    const eventMessages = messages.filter((m) => m.messageType === "event" && m.eventId);
+    if (pollMessages.length === 0 && eventMessages.length === 0) return;
+
+    let cancelled = false;
+    Promise.all([
+      Promise.all(pollMessages.map((m) => fetchPoll(m.pollId!, session.user.id).then((data) => [m.id, data] as const))),
+      Promise.all(eventMessages.map((m) => fetchEvent(m.eventId!).then((data) => [m.id, data] as const))),
+    ])
+      .then(([pollEntries, eventEntries]) => {
+        if (cancelled) return;
+        setPollDataByMessageId(new Map(pollEntries));
+        setEventDataByMessageId(
+          new Map(eventEntries.filter((entry): entry is [string, DisplayCalendarEvent] => entry[1] !== null))
+        );
+      })
+      .catch(reportError);
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, session]);
+
+  const handleVotePollOption = async (messageId: string, pollId: string, optionId: string) => {
+    if (!session) return;
+    setVotingPollOptionId(optionId);
+    try {
+      await castVote(optionId);
+      const updated = await fetchPoll(pollId, session.user.id);
+      setPollDataByMessageId((prev) => new Map(prev).set(messageId, updated));
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setVotingPollOptionId(null);
+    }
+  };
 
   // Opening a chat is what actually clears its "N unread" row in the
   // Notifications feed (see lib/notifications.ts) — merely viewing the
@@ -320,6 +430,95 @@ export default function ChatScreen({
       reportError(err);
     } finally {
       setSendingPhoto(false);
+    }
+  };
+
+  // Distinct from handlePickPhoto (library) — WhatsApp-style attach grid
+  // splits "Photos" and "Camera" into separate options.
+  const handlePickCamera = async () => {
+    if (!session) return;
+    setAttachMenuOpen(false);
+
+    try {
+      let asset: { uri: string; mimeType: string } | null;
+      if (Platform.OS === "web") {
+        asset = await pickImageOnWeb({ captureCamera: true });
+      } else {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          reportError(new Error("Camera access is required to take a photo."));
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+        asset =
+          result.canceled || !result.assets?.[0]
+            ? null
+            : { uri: result.assets[0].uri, mimeType: result.assets[0].mimeType ?? "image/jpeg" };
+      }
+      if (!asset) return;
+
+      setPendingPhoto({ uri: asset.uri, contentType: asset.mimeType });
+      setPhotoCaption("");
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  const handlePickDocument = async () => {
+    setAttachMenuOpen(false);
+
+    try {
+      let asset: { uri: string; name: string; mimeType: string; size: number } | null;
+      if (Platform.OS === "web") {
+        asset = await pickDocumentOnWeb();
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+        asset =
+          result.canceled || !result.assets?.[0]
+            ? null
+            : {
+                uri: result.assets[0].uri,
+                name: result.assets[0].name,
+                mimeType: result.assets[0].mimeType ?? "application/octet-stream",
+                size: result.assets[0].size ?? 0,
+              };
+      }
+      if (!asset) return;
+      setPendingDocument(asset);
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  const handleSendDocument = async () => {
+    if (!session || !pendingDocument) return;
+    setSendingDocument(true);
+    try {
+      await sendDocumentMessage({
+        channelId,
+        senderId: session.user.id,
+        fileUri: pendingDocument.uri,
+        contentType: pendingDocument.mimeType,
+        fileName: pendingDocument.name,
+        fileSizeBytes: pendingDocument.size,
+      });
+      setPendingDocument(null);
+      reload();
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setSendingDocument(false);
+    }
+  };
+
+  // Toggling closed also refocuses the composer — "tap the + again to go
+  // back to the keyboard," matching the founder's WhatsApp reference.
+  const handleToggleAttachMenu = () => {
+    if (attachMenuOpen) {
+      setAttachMenuOpen(false);
+      inputRef.current?.focus();
+    } else {
+      setAttachMenuOpen(true);
     }
   };
 
@@ -503,6 +702,40 @@ export default function ChatScreen({
                       </Text>
                     ) : null}
                   </View>
+                ) : item.messageType === "document" && item.documentUrl ? (
+                  <TouchableOpacity
+                    style={styles.documentBubble}
+                    onPress={() => item.documentUrl && Linking.openURL(item.documentUrl)}
+                  >
+                    <MaterialIcons name="insert-drive-file" size={28} color={isMine ? colors.onPrimary : colors.primary} />
+                    <View style={styles.documentBubbleText}>
+                      <Text
+                        style={[styles.documentName, isMine && styles.bodyMine]}
+                        numberOfLines={1}
+                      >
+                        {item.documentName ?? "Document"}
+                      </Text>
+                      {item.documentSizeBytes ? (
+                        <Text style={[styles.documentSize, isMine && styles.documentSizeMine]}>
+                          {formatFileSize(item.documentSizeBytes)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ) : item.messageType === "poll" && item.pollId ? (
+                  <PollMessageCard
+                    poll={pollDataByMessageId.get(item.id) ?? null}
+                    isMine={isMine}
+                    votingOptionId={votingPollOptionId}
+                    onVote={(optionId) => handleVotePollOption(item.id, item.pollId!, optionId)}
+                    onViewPoll={() => resolvePollPath && router.push(resolvePollPath(item.pollId!))}
+                  />
+                ) : item.messageType === "event" && item.eventId ? (
+                  <EventMessageCard
+                    event={eventDataByMessageId.get(item.id) ?? null}
+                    isMine={isMine}
+                    onViewEvent={() => resolveEventPath && router.push(resolveEventPath(item.eventId!))}
+                  />
                 ) : (
                   <Text style={[styles.body, isMine && styles.bodyMine]}>
                     {renderBodyWithMentions(item.body ?? "", item.mentions, isMine ? styles.mentionTextMine : styles.mentionText)}
@@ -589,9 +822,32 @@ export default function ChatScreen({
               <MaterialIcons name="bolt" size={16} color={colors.onPrimary} />
               <Text style={styles.highlightsButtonText}>Highlights</Text>
             </TouchableOpacity>
+            {headerMenu && (
+              <TouchableOpacity style={styles.gridMenuButton} onPress={() => setHeaderMenuOpen((v) => !v)}>
+                <MaterialIcons name="grid-view" size={18} color={colors.onSurface} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </BlurView>
+
+      {headerMenuOpen && headerMenu && (
+        <View style={[styles.headerMenuDropdown, { top: HEADER_HEIGHT + insets.top }]}>
+          {headerMenu.map((item) => (
+            <TouchableOpacity
+              key={item.path}
+              style={styles.headerMenuRow}
+              onPress={() => {
+                setHeaderMenuOpen(false);
+                router.push(item.path);
+              }}
+            >
+              <MaterialIcons name={item.icon} size={18} color={colors.primary} />
+              <Text style={styles.headerMenuLabel}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {/* Floating pinned notice — overlaps the top of the message list. */}
       {pinnedMessages.length > 0 && (
@@ -610,7 +866,17 @@ export default function ChatScreen({
                 <View style={styles.pinnedTextCol}>
                   <Text style={styles.pinnedLabel}>Notice</Text>
                   <Text style={styles.pinnedText} numberOfLines={1}>
-                    {m.deletedAt ? "This message was deleted" : m.messageType === "photo" ? "📷 Photo" : m.body}
+                    {m.deletedAt
+                      ? "This message was deleted"
+                      : m.messageType === "photo"
+                        ? "📷 Photo"
+                        : m.messageType === "document"
+                          ? `📄 ${m.documentName ?? "Document"}`
+                          : m.messageType === "poll"
+                            ? `📊 ${pollDataByMessageId.get(m.id)?.question ?? "Poll"}`
+                            : m.messageType === "event"
+                              ? `📅 ${eventDataByMessageId.get(m.id)?.title ?? "Event"}`
+                              : m.body}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -651,6 +917,76 @@ export default function ChatScreen({
         </View>
       )}
 
+      {pendingDocument && (
+        <View style={styles.photoPreviewRow}>
+          <MaterialIcons name="insert-drive-file" size={28} color={colors.primary} />
+          <Text style={styles.documentPreviewName} numberOfLines={1}>
+            {pendingDocument.name}
+          </Text>
+          <TouchableOpacity style={styles.photoPreviewCancel} onPress={() => setPendingDocument(null)} disabled={sendingDocument}>
+            <MaterialIcons name="close" size={18} color={colors.onSurfaceVariant} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.photoPreviewSend} onPress={handleSendDocument} disabled={sendingDocument}>
+            {sendingDocument ? (
+              <ActivityIndicator size="small" color={colors.onPrimary} />
+            ) : (
+              <MaterialIcons name="send" size={18} color={colors.onPrimary} />
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {attachMenuOpen && attachMenu && (
+        <View style={styles.attachGrid}>
+          <TouchableOpacity style={styles.attachGridItem} onPress={handlePickPhoto}>
+            <View style={styles.attachGridIconBadge}>
+              <MaterialIcons name="photo-library" size={24} color={colors.onPrimary} />
+            </View>
+            <Text style={styles.attachGridLabel}>Photos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachGridItem} onPress={handlePickCamera}>
+            <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt]}>
+              <MaterialIcons name="photo-camera" size={24} color={colors.onPrimary} />
+            </View>
+            <Text style={styles.attachGridLabel}>Camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachGridItem} onPress={handlePickDocument}>
+            <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt2]}>
+              <MaterialIcons name="insert-drive-file" size={24} color={colors.onPrimary} />
+            </View>
+            <Text style={styles.attachGridLabel}>Document</Text>
+          </TouchableOpacity>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.attachGridItem}
+              onPress={() => {
+                setAttachMenuOpen(false);
+                router.push(attachMenu.createPollPath);
+              }}
+            >
+              <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt3]}>
+                <MaterialIcons name="how-to-vote" size={24} color={colors.onPrimary} />
+              </View>
+              <Text style={styles.attachGridLabel}>Poll</Text>
+            </TouchableOpacity>
+          )}
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.attachGridItem}
+              onPress={() => {
+                setAttachMenuOpen(false);
+                router.push(attachMenu.createEventPath);
+              }}
+            >
+              <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt4]}>
+                <MaterialIcons name="event" size={24} color={colors.onPrimary} />
+              </View>
+              <Text style={styles.attachGridLabel}>Event</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {mentionSuggestions.length > 0 && (
         <View style={styles.mentionSuggestions}>
           {mentionSuggestions.map((candidate) => (
@@ -671,16 +1007,28 @@ export default function ChatScreen({
       )}
 
       <View style={styles.inputRow}>
-        <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto} disabled={sendingPhoto || !!pendingPhoto}>
-          <MaterialIcons name="add" size={22} color={colors.onSurfaceVariant} />
-        </TouchableOpacity>
+        {attachMenu ? (
+          <TouchableOpacity
+            style={styles.photoButton}
+            onPress={handleToggleAttachMenu}
+            disabled={sendingPhoto || !!pendingPhoto || sendingDocument || !!pendingDocument}
+          >
+            <MaterialIcons name={attachMenuOpen ? "keyboard" : "add"} size={22} color={colors.onSurfaceVariant} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto} disabled={sendingPhoto || !!pendingPhoto}>
+            <MaterialIcons name="add" size={22} color={colors.onSurfaceVariant} />
+          </TouchableOpacity>
+        )}
         <View style={styles.inputPill}>
           <TextInput
+            ref={inputRef}
             style={styles.input}
             placeholder={`Message ${placeholderName}`}
             placeholderTextColor={colors.onSurfaceVariant}
             value={draft}
             onChangeText={handleDraftChange}
+            onFocus={() => setAttachMenuOpen(false)}
             multiline
           />
         </View>
@@ -729,6 +1077,103 @@ function renderBodyWithMentions(body: string, mentions: MentionCandidate[], ment
     ) : (
       segment.value
     )
+  );
+}
+
+// The inline, votable poll card a "poll" chat message renders as
+// (0071_poll_event_chat_messages.sql) — reuses the exact same castVote/
+// fetchPoll lib/polls.ts already uses for the full PollDetailScreen, so
+// allow_multiple/is_private/closed/deadline behavior can't drift between
+// the two surfaces. "View Poll" covers what doesn't fit inline (per-
+// option voter list, creator close/reopen/delete).
+function PollMessageCard({
+  poll,
+  isMine,
+  votingOptionId,
+  onVote,
+  onViewPoll,
+}: {
+  poll: PollDetail | null;
+  isMine: boolean;
+  votingOptionId: string | null;
+  onVote: (optionId: string) => void;
+  onViewPoll: () => void;
+}) {
+  if (!poll) {
+    return <ActivityIndicator size="small" color={isMine ? colors.onPrimary : colors.primary} />;
+  }
+  const closed = isPollEffectivelyClosed(poll);
+  return (
+    <View style={styles.pollCard}>
+      <Text style={[styles.pollQuestion, isMine && styles.bodyMine]}>{poll.question}</Text>
+      <Text style={[styles.pollMeta, isMine && styles.pollMetaMine]}>
+        {poll.allowMultiple ? "Select one or more" : "Select one"}
+        {closed ? " · Closed" : ""}
+      </Text>
+      <View style={styles.pollOptions}>
+        {poll.options.map((option) => (
+          <TouchableOpacity
+            key={option.id}
+            style={[styles.pollOptionRow, option.votedByMe && styles.pollOptionRowSelected]}
+            disabled={closed || votingOptionId === option.id}
+            onPress={() => onVote(option.id)}
+          >
+            <Text style={styles.pollOptionText} numberOfLines={1}>
+              {option.votedByMe ? "✓ " : ""}
+              {option.text}
+            </Text>
+            <Text style={styles.pollOptionCount}>{option.voteCount}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <TouchableOpacity onPress={onViewPoll}>
+        <Text style={[styles.pollViewLink, isMine && styles.pollViewLinkMine]}>View Poll</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// The linkable event card an "event" chat message renders as — no inline
+// interactivity (this app has no RSVP concept), just enough to recognize
+// it and jump straight to the real event detail screen.
+function EventMessageCard({
+  event,
+  isMine,
+  onViewEvent,
+}: {
+  event: DisplayCalendarEvent | null;
+  isMine: boolean;
+  onViewEvent: () => void;
+}) {
+  if (!event) {
+    return <ActivityIndicator size="small" color={isMine ? colors.onPrimary : colors.primary} />;
+  }
+  return (
+    <View style={styles.eventCard}>
+      <View style={styles.eventCardHeader}>
+        <MaterialIcons name="event" size={18} color={isMine ? colors.onPrimary : colors.primary} />
+        <Text style={[styles.eventCardTitle, isMine && styles.bodyMine]} numberOfLines={1}>
+          {event.title}
+        </Text>
+      </View>
+      <Text style={[styles.eventCardDate, isMine && styles.eventCardMetaMine]}>
+        {new Date(event.startAt).toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </Text>
+      {event.location && (
+        <Text style={[styles.eventCardLocation, isMine && styles.eventCardMetaMine]} numberOfLines={1}>
+          📍 {event.location}
+        </Text>
+      )}
+      <TouchableOpacity style={styles.eventCardButton} onPress={onViewEvent}>
+        <Text style={styles.eventCardButtonText}>View Event</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -804,6 +1249,38 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.unit + 2,
   },
   highlightsButtonText: { ...typography.labelSm, fontSize: 10, color: colors.onPrimary },
+  gridMenuButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.05)",
+  },
+  headerMenuDropdown: {
+    position: "absolute",
+    right: spacing.gutter,
+    zIndex: 45,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    paddingVertical: spacing.stackSm,
+    minWidth: 160,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  headerMenuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+  },
+  headerMenuLabel: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
   pinnedStrip: {
     position: "absolute",
     left: spacing.gutter,
@@ -869,6 +1346,45 @@ const styles = StyleSheet.create({
   mentionTextMine: { fontWeight: "700", color: colors.onPrimary, textDecorationLine: "underline" },
   deletedText: { ...typography.bodyMd, fontSize: 15, color: colors.onSurfaceVariant, fontStyle: "italic" },
   photoBubbleImage: { width: 220, height: 220, borderRadius: radii.DEFAULT, backgroundColor: colors.surfaceVariant },
+  documentBubble: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm, minWidth: 180 },
+  documentBubbleText: { flex: 1 },
+  documentName: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
+  documentSize: { ...typography.labelSm, fontSize: 11, color: colors.onSurfaceVariant },
+  documentSizeMine: { color: colors.onPrimary, opacity: 0.8 },
+  pollCard: { gap: spacing.stackSm, minWidth: 220 },
+  pollQuestion: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
+  pollMeta: { ...typography.labelSm, fontSize: 11, color: colors.onSurfaceVariant },
+  pollMetaMine: { color: colors.onPrimary, opacity: 0.8 },
+  pollOptions: { gap: spacing.stackSm },
+  pollOptionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+  },
+  pollOptionRowSelected: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
+  pollOptionText: { ...typography.bodyMd, fontSize: 13, color: colors.onSurface, flexShrink: 1 },
+  pollOptionCount: { ...typography.statValue, fontSize: 13, color: colors.primaryContainer },
+  pollViewLink: { ...typography.labelSm, fontSize: 12, color: colors.primary, textAlign: "center" },
+  pollViewLinkMine: { color: colors.onPrimary, textDecorationLine: "underline" },
+  eventCard: { gap: spacing.stackSm, minWidth: 200 },
+  eventCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  eventCardTitle: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface, flexShrink: 1 },
+  eventCardDate: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant },
+  eventCardLocation: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant },
+  eventCardMetaMine: { color: colors.onPrimary, opacity: 0.85 },
+  eventCardButton: {
+    backgroundColor: colors.primaryContainer,
+    borderRadius: radii.md,
+    paddingVertical: spacing.stackSm,
+    alignItems: "center",
+  },
+  eventCardButtonText: { ...typography.labelSm, fontSize: 12, color: colors.onPrimaryContainer },
   timestampInline: { ...typography.labelSm, fontSize: 9, color: colors.onSurfaceVariant, textTransform: "none" },
   timestampInlineMine: { color: colors.onPrimary, opacity: 0.8 },
   bubbleFooter: { flexDirection: "row", alignItems: "center", gap: spacing.unit, marginTop: spacing.unit, justifyContent: "flex-end" },
@@ -989,6 +1505,7 @@ const styles = StyleSheet.create({
   },
   mentionSuggestionAvatarInitial: { ...typography.labelSm, fontSize: 12, color: colors.primary },
   mentionSuggestionName: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
+  documentPreviewName: { flex: 1, ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
   photoPreviewCancel: { padding: spacing.unit + 2 },
   photoPreviewSend: {
     backgroundColor: colors.primary,
@@ -998,6 +1515,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  attachGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.gutter,
+    padding: spacing.gutter,
+    backgroundColor: colors.surfaceContainerLow,
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
+  },
+  attachGridItem: { alignItems: "center", gap: spacing.unit, width: 72 },
+  attachGridIconBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  attachGridIconBadgeAlt: { backgroundColor: colors.secondary },
+  attachGridIconBadgeAlt2: { backgroundColor: colors.tertiary },
+  attachGridIconBadgeAlt3: { backgroundColor: colors.inverseSurface },
+  attachGridIconBadgeAlt4: { backgroundColor: colors.error },
+  attachGridLabel: { ...typography.labelSm, fontSize: 11, color: colors.onSurface, textTransform: "none" },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",

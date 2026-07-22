@@ -1,10 +1,13 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, usePathname, useRouter } from "expo-router";
 import { colors, typography } from "../../constants/theme";
+import { useCurrentClub } from "../../contexts/CurrentClubProvider";
 import { useNotifications } from "../../contexts/NotificationsProvider";
 
 export default function TabsLayout() {
   const { unreadCount } = useNotifications();
+  const { currentClub } = useCurrentClub();
+  const pathname = usePathname();
   const router = useRouter();
 
   return (
@@ -22,16 +25,32 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="clubs"
         options={{ title: "Clubs", tabBarIcon: ({ color, size }) => <MaterialIcons name="groups" size={size} color={color} /> }}
-        // Tapping the Clubs tab always resets straight to the Main clubs
-        // list, no matter how deep this tab's own Stack currently is or
-        // which tab you're coming from — a blanket version of the
-        // `router.replace("/clubs")` reset SPEC.md section 6 already
-        // documents for the narrower ?from=profile case.
+        // Context-aware, mirroring the Calendar tab's currentClub check:
+        // while inside a club (anywhere in its nested stack — chat, races,
+        // highlights, etc., not just the hub screen), tapping Clubs jumps
+        // straight to that club's hub instead of resetting to the Main
+        // list. Tapping it again from the hub (already the shallowest stop
+        // once inside a club) instead goes to the Main list, same as the
+        // `?from=clubsTab` override index.tsx applies to its own back
+        // button for this exact entry path. No active club falls back to
+        // the original blanket reset from SPEC.md section 6.
         listeners={{
           tabPress: (e) => {
             e.preventDefault();
-            router.replace("/clubs");
+            if (!currentClub) {
+              router.replace("/clubs");
+              return;
+            }
+            const clubHubPath = `/clubs/${currentClub.clubId}`;
+            router.replace(pathname === clubHubPath ? "/clubs" : `${clubHubPath}?from=clubsTab`);
           },
+        }}
+      />
+      <Tabs.Screen
+        name="calendar"
+        options={{
+          title: "Calendar",
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="calendar-month" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

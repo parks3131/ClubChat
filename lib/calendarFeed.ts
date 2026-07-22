@@ -1,4 +1,5 @@
 import { fetchEvents } from "./calendar";
+import { fetchMyClubs } from "./clubs";
 import { fetchEboardChannel, fetchMeetings } from "./eboard";
 import { fetchPolls, isPollEffectivelyClosed } from "./polls";
 import { fetchRaces } from "./races";
@@ -34,6 +35,9 @@ export interface CalendarFeedItem {
   // isPollEffectivelyClosed so this can never drift from what the poll
   // screens themselves already show as open/closed.
   isOpen?: boolean;
+  // Only set by fetchGlobalCalendarFeed's cross-club merge — a single
+  // club's own feed has no need to label which club each item is from.
+  clubName?: string;
 }
 
 // Merges several already-existing, independently-scoped data sources into
@@ -164,4 +168,25 @@ export async function fetchCalendarFeed(
 
   items.sort((a, b) => new Date(a.atIso).getTime() - new Date(b.atIso).getTime());
   return items;
+}
+
+// The bottom-tab Calendar screen's "no club currently active" mode
+// (SPEC.md task after #47's restructure) — every club the caller belongs
+// to, merged into one feed via the exact same per-club fetchCalendarFeed
+// above, just called once per club and combined. No new tables/RLS: each
+// call already only returns what that club's own policies allow this
+// caller to see.
+export async function fetchGlobalCalendarFeed(userId: string): Promise<CalendarFeedItem[]> {
+  const clubs = await fetchMyClubs(userId);
+  const perClub = await Promise.all(
+    clubs.map(async (c) => {
+      const isClubAdmin = c.role === "admin" || c.role === "owner";
+      const items = await fetchCalendarFeed(c.id, userId, isClubAdmin);
+      return items.map((item) => ({ ...item, clubName: c.name }));
+    })
+  );
+
+  const merged = perClub.flat();
+  merged.sort((a, b) => new Date(a.atIso).getTime() - new Date(b.atIso).getTime());
+  return merged;
 }

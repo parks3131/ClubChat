@@ -12,6 +12,7 @@ import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { colors } from "../constants/theme";
 import { AuthProvider, useAuth } from "../contexts/AuthProvider";
+import { CurrentClubProvider } from "../contexts/CurrentClubProvider";
 import { NotificationsProvider } from "../contexts/NotificationsProvider";
 
 function RootNavigator() {
@@ -70,7 +71,9 @@ export default function RootLayout() {
       <StatusBar style="auto" />
       <AuthProvider>
         <NotificationsProvider>
-          <RootNavigator />
+          <CurrentClubProvider>
+            <RootNavigator />
+          </CurrentClubProvider>
         </NotificationsProvider>
       </AuthProvider>
     </SafeAreaProvider>

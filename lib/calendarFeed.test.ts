@@ -1,10 +1,12 @@
-import { fetchCalendarFeed } from "./calendarFeed";
+import { fetchCalendarFeed, fetchGlobalCalendarFeed } from "./calendarFeed";
 import { fetchEvents } from "./calendar";
+import { fetchMyClubs } from "./clubs";
 import { fetchEboardChannel, fetchMeetings } from "./eboard";
 import { fetchPolls } from "./polls";
 import { fetchRaces } from "./races";
 
 jest.mock("./calendar");
+jest.mock("./clubs");
 jest.mock("./eboard");
 // Only fetchPolls is mocked — isPollEffectivelyClosed keeps its real
 // implementation (via requireActual) since calendarFeed.ts's own isOpen
@@ -17,6 +19,7 @@ jest.mock("./polls", () => ({
 jest.mock("./races");
 
 const mockFetchEvents = fetchEvents as jest.MockedFunction<typeof fetchEvents>;
+const mockFetchMyClubs = fetchMyClubs as jest.MockedFunction<typeof fetchMyClubs>;
 const mockFetchRaces = fetchRaces as jest.MockedFunction<typeof fetchRaces>;
 const mockFetchEboardChannel = fetchEboardChannel as jest.MockedFunction<typeof fetchEboardChannel>;
 const mockFetchMeetings = fetchMeetings as jest.MockedFunction<typeof fetchMeetings>;
@@ -41,6 +44,7 @@ const baseMeeting = {
 
 beforeEach(() => {
   mockFetchEvents.mockReset();
+  mockFetchMyClubs.mockReset();
   mockFetchRaces.mockReset();
   mockFetchEboardChannel.mockReset();
   mockFetchMeetings.mockReset();
@@ -224,5 +228,28 @@ describe("fetchCalendarFeed", () => {
     expect(polls.find((p) => p.id === "poll:race-poll")?.path).toBe("/clubs/club-1/race/r1/polls/race-poll");
     expect(polls.find((p) => p.id === "poll:eboard-poll")?.path).toBe("/clubs/club-1/eboard/polls/eboard-poll");
     expect(polls.find((p) => p.id === "poll:club-poll-open")?.path).toBe("/clubs/club-1/polls/club-poll-open");
+  });
+});
+
+describe("fetchGlobalCalendarFeed", () => {
+  it("merges every club's own feed, tags each item with its club name, and sorts the combined result", async () => {
+    mockFetchMyClubs.mockResolvedValue([
+      { id: "club-1", name: "Track Club", description: null, sport: null, invite_code: "AAA", avatarUrl: null, role: "owner" },
+      { id: "club-2", name: "Swim Club", description: null, sport: null, invite_code: "BBB", avatarUrl: null, role: "member" },
+    ]);
+    mockFetchEboardChannel.mockResolvedValue(null);
+    mockFetchEvents.mockImplementation(async (clubId) =>
+      clubId === "club-1"
+        ? [{ ...baseEvent, id: "e1", clubId, eventType: "practice", title: "Track practice", startAt: "2026-05-10T18:00:00.000Z" }]
+        : [{ ...baseEvent, id: "e2", clubId, eventType: "practice", title: "Swim practice", startAt: "2026-05-01T18:00:00.000Z" }]
+    );
+    mockFetchRaces.mockResolvedValue([]);
+
+    const feed = await fetchGlobalCalendarFeed("user-1");
+
+    expect(feed.map((i) => ({ title: i.title, clubName: i.clubName }))).toEqual([
+      { title: "Swim practice", clubName: "Swim Club" },
+      { title: "Track practice", clubName: "Track Club" },
+    ]);
   });
 });

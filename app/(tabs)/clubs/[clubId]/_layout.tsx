@@ -5,6 +5,7 @@ import { makeBackHeaderLeft } from "../../../../components/BackHeaderButton";
 import { LoadError } from "../../../../components/LoadError";
 import { colors, typography } from "../../../../constants/theme";
 import { useAuth } from "../../../../contexts/AuthProvider";
+import { useCurrentClub } from "../../../../contexts/CurrentClubProvider";
 import { supabase } from "../../../../lib/supabase";
 import type { ClubRole } from "../../../../types/database";
 
@@ -36,9 +37,20 @@ export default function ClubLayout() {
   const { clubId } = useLocalSearchParams<{ clubId: string }>();
   const { session } = useAuth();
   const router = useRouter();
+  const { setCurrentClub } = useCurrentClub();
   const [club, setClub] = useState<ClubContextValue | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+
+  // Makes "which club is the user in" readable from the bottom-tab Calendar
+  // screen, which sits outside this Stack entirely. Cleared on unmount —
+  // leaving this club's stack (from anywhere nested under it, not just the
+  // hub screen) clears it back to null, same as walking out of any room.
+  useEffect(() => {
+    if (!club) return;
+    setCurrentClub({ clubId: club.clubId, name: club.name, isAdmin: club.isAdmin });
+    return () => setCurrentClub(null);
+  }, [club, setCurrentClub]);
 
   useEffect(() => {
     if (!session) return;
@@ -169,6 +181,7 @@ export default function ClubLayout() {
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
           }}
         />
+        <Stack.Screen name="news" options={{ headerShown: false }} />
         <Stack.Screen name="routines" options={{ headerShown: false }} />
         <Stack.Screen name="polls" options={{ headerShown: false }} />
         <Stack.Screen name="races" options={{ headerShown: false }} />

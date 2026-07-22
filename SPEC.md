@@ -74,7 +74,13 @@ User (auth.users + profiles)
      ├─ Channel (club-scoped by default; a race-scoped Channel has a
      │           non-null race_id, an eboard-scoped one a non-null
      │           eboard_channel_id, instead — see Race/EboardChannel below)
-     │   └─ Message (text | photo | announcement, pinned, reactions)
+     │   └─ Message (text | photo | announcement | system | document,
+     │       pinned, reactions — `document` added task after #47's
+     │       WhatsApp-style "+" attach menu: any file type, media_url
+     │       reused for the storage path same as `photo`, plus
+     │       document_name/document_size_bytes for display. Club chat
+     │       only for now — race/Eboard chat keep the old single-icon
+     │       photo-only composer unchanged until extended there too.)
      ├─ CalendarEvent (type: race | practice | team_bonding | volunteer | other
      │                 — the "race" type here is unrelated to Race below;
      │                 it's just a calendar entry, no link between them)
@@ -83,6 +89,20 @@ User (auth.users + profiles)
      │                   title, description — deliberately no structured
      │                   exercise sub-table, per an explicit "keep it very
      │                   simple" scoping call)
+     ├─ ClubPost (News & Highlights, task after #47's club-hub restructure
+     │            — a standalone admin-post feed, deliberately separate
+     │            from chat's pinned/announcements: body text and/or a
+     │            photo, reverse-chronological. Any club admin can
+     │            create/edit/delete any post — mirrors Race Meet Info/
+     │            Routines/Events' "any admin" model, not Eboard
+     │            Meetings' creator-only one, confirmed explicitly via
+     │            AskUserQuestion rather than assumed by analogy.
+     │            ClubPostReaction mirrors MessageReaction's shape
+     │            exactly, scoped to the post's club. Creating a post
+     │            notifies every other club member, same fan-out pattern
+     │            as poll/event/race/meeting creation.)
+     │   └─ ClubPostReaction (post_id, user_id, emoji — unique per emoji
+     │       per user per post)
      ├─ Poll (task #24 — question + N options, admin-created; per-poll
      │        toggles for allow_multiple and is_private. Vote counts are
      │        always public (denormalized on PollOption, trigger-
@@ -236,9 +256,33 @@ app/                          Expo Router file-based routes
                                top-level route group — one route can't
                                serve both a signed-out and signed-in
                                visitor without getting bounced.
-  (tabs)/_layout.tsx           Bottom tabs: Clubs, Notifications, Profile
+  (tabs)/_layout.tsx           Bottom tabs: Clubs, Calendar, Notifications,
+                               Profile (task after #47's club-hub
+                               restructure added Calendar as a real tab)
                                — bell icon + a native `tabBarBadge`
-                               sourced from `useNotifications()`.
+                               sourced from `useNotifications()`. The
+                               Clubs tab's `tabPress` listener reads
+                               `useCurrentClub()` (contexts/
+                               CurrentClubProvider.tsx): no active club ->
+                               resets to the Main list as before; an
+                               active club whose hub isn't already the
+                               current screen -> jumps straight to that
+                               club's hub (`?from=clubsTab`); already on
+                               that hub -> Main list. Mirrors the same
+                               `?from=profile` "no real back history"
+                               pattern (section 6) rather than trusting
+                               `canGoBack()`.
+  (tabs)/calendar.tsx           The Calendar tab. Reads `useCurrentClub()`
+                                 and mounts shared components/
+                                 CalendarScreen.tsx in `mode: "club"` (that
+                                 club's own feed, admin create FAB) when a
+                                 club is active, or `mode: "global"`
+                                 (every club the caller belongs to,
+                                 merged via lib/calendarFeed.ts's
+                                 `fetchGlobalCalendarFeed`, each row
+                                 tagged with its club name, read-only — no
+                                 FAB, since creating an event is
+                                 inherently club-scoped) otherwise.
   (tabs)/notifications.tsx      The Notifications feed, a single
                                  top-level screen (no nested stack — every
                                  row just `router.push`es elsewhere).
@@ -290,28 +334,67 @@ app/                          Expo Router file-based routes
                                 direct URL nav/refresh leaves no back
                                 history for the native button to use.
   (tabs)/clubs/[clubId]/index.tsx
-                                Hub screen — four rows (Chat / Calendar /
-                                Routines / Races & Meets). Landing point
-                                when entering a club. Handles `?from=profile`
-                                cross-tab back-history special case (section 6).
+                                Hub screen — restructured (task after #47,
+                                founder wireframe) from the original flat
+                                row-per-feature list down to: News &
+                                Highlights, Club Main Chat, and a Races &
+                                Meets card showing the 2 nearest upcoming
+                                races + "See all". Routines/Polls/Eboard &
+                                Council are deliberately unlinked from here
+                                (routes/RLS untouched, just pending a
+                                decision on where they land next — an
+                                explicit founder call against a stopgap
+                                "More" menu). Landing point when entering a
+                                club. Handles `?from=profile` (Profile tab
+                                cross-tab entry) and `?from=clubsTab` (the
+                                Clubs tab's own shortcut, below) — both
+                                override the header back button to skip
+                                `canGoBack()` entirely, same class of "no
+                                real back history for this navigation"
+                                gotcha (section 6).
   (tabs)/clubs/[clubId]/chat.tsx
                                 Thin wrapper around shared
-                                components/ChatScreen.tsx, passing the
-                                admin invite code as `extraHeaderRight`
-                                (club-only, race chat has none).
+                                components/ChatScreen.tsx — the only call
+                                site passing `attachMenu` (Poll/Event
+                                create paths) and `headerMenu` (Poll/
+                                Routines/Events quick-nav); race/Eboard
+                                chat wrappers pass neither, so they keep
+                                ChatScreen's original single-icon
+                                behavior untouched.
   (tabs)/clubs/[clubId]/calendar.tsx
-                                Merges calendar_events with races/Eboard
-                                meetings/polls the caller has access to
-                                (see lib/calendarFeed.ts) into one
-                                Upcoming/Past list, sorted by date/time,
-                                each row badged by type and tapping
-                                navigates to the real event/race/
-                                meeting/poll screen.
+                                Thin wrapper around shared
+                                components/CalendarScreen.tsx (`mode:
+                                "club"`) — same merged Upcoming/Past feed
+                                as always (lib/calendarFeed.ts), just
+                                extracted so `(tabs)/calendar.tsx` below
+                                can mount the identical UI in its own
+                                "no club active" global mode.
   (tabs)/clubs/[clubId]/highlights.tsx
                                 Thin wrapper around shared
                                 components/HighlightsScreen.tsx — Pinned/
                                 Announcements tabs over the same message
-                                data chat already fetches.
+                                data chat already fetches. No longer
+                                linked from the hub (News & Highlights
+                                took that slot, see news/ below) — still
+                                reachable via ChatScreen's "Highlights"
+                                pill.
+  (tabs)/clubs/[clubId]/news/
+                                News & Highlights — own nested Stack
+                                (same shape as routines/). A standalone
+                                admin-post feed (lib/clubPosts.ts),
+                                deliberately separate from chat's pinned/
+                                announcements. `index.tsx`: reverse-
+                                chronological feed cards (optional photo,
+                                body, creator name/avatar/time, emoji
+                                reactions mirroring ChatScreen's compact
+                                picker), admin-only Edit/Delete per post,
+                                admin-only FAB. `create.tsx`: create/edit
+                                form (photo picker reuses ChatScreen's
+                                pickImageOnWeb/expo-image-picker pattern
+                                + a caption textarea; requires at least
+                                one of the two) — `?postId=` query param
+                                reuses this same screen for editing,
+                                mirroring event/create.tsx's convention.
   (tabs)/clubs/[clubId]/routines/
                                 Weekly routines — own nested Stack.
                                 `index.tsx`: Mon-Sun view for a real
@@ -507,27 +590,69 @@ components/BackHeaderButton.tsx  makeBackHeaderLeft(router, fallback) —
                                  used by every club-scoped Stack layout.
 components/ChatScreen.tsx       Chat UI/logic (messages, reactions, pin/
                                  announce, pinned strip, Highlights
-                                 button, auto-scroll) shared by club/race/
+                                 button, auto-scroll, bottom-tab hiding —
+                                 see task after #47) shared by club/race/
                                  Eboard chat. Parametrized by
                                  `channelId`/`isAdmin`/`memberPath`/
                                  `highlightsPath`/`titlePath`/
-                                 `backFallback`, plus an optional
-                                 `extraHeaderRight` (club chat's admin
-                                 invite code only). Custom glass-blur
+                                 `backFallback`/`fetchMentionCandidates`,
+                                 plus two optional club-chat-only props:
+                                 `attachMenu` ({createPollPath,
+                                 createEventPath}) and `headerMenu`
+                                 ({label,path,icon}[]). Custom glass-blur
                                  header (`expo-blur`) with a tappable
                                  title (jumps to club-profile/race
                                  roster/eboard roster), Highlights pill,
-                                 current-user avatar. 📷 picker button +
-                                 inline photo rendering + tap-to-
-                                 fullscreen Modal viewer. Per-message
-                                 Delete (sender or channel admin) and
-                                 Report (anyone else), with a "This
-                                 message was deleted" tombstone render
-                                 when `deletedAt` is set. Sent-message
-                                 bubbles use an `expo-linear-gradient`
-                                 fill; the pinned strip is a floating,
-                                 locally-dismissible overlay (doesn't
-                                 unpin); announcement toggle is a compact
+                                 current-user avatar, and — only when
+                                 `headerMenu` is passed — a grid icon
+                                 opening a small dropdown of quick-nav
+                                 links (club chat passes Poll/Routines/
+                                 Events, resolving the club hub's
+                                 restructure-era gap for those two;
+                                 Eboard & Council's placement is still
+                                 open). Composer's "+" branches on
+                                 `attachMenu`: undefined keeps the
+                                 original single photo-picker icon
+                                 (race/Eboard chat, unchanged); when
+                                 present it's a WhatsApp-style expandable
+                                 grid (Photos/Camera/Document always,
+                                 Poll/Event admin-only via `isAdmin`) —
+                                 tapping the icon again (now showing a
+                                 keyboard glyph) or focusing the text
+                                 input collapses it back. Document
+                                 attachments render as a tap-to-open
+                                 bubble (filename + size, opens the
+                                 signed URL via `Linking.openURL`); photo
+                                 rendering + tap-to-fullscreen Modal
+                                 viewer unchanged. `poll`/`event`
+                                 messages (0071_poll_event_chat_messages
+                                 .sql) render as PollMessageCard/
+                                 EventMessageCard — a poll bubble is
+                                 fully votable inline (reuses lib/
+                                 polls.ts's castVote/fetchPoll directly,
+                                 so allow_multiple/is_private/closed/
+                                 deadline behavior is identical to the
+                                 full PollDetailScreen, not a parallel
+                                 simplified copy) with a "View Poll" link
+                                 for what doesn't fit inline (voter list,
+                                 creator close/reopen/delete); an event
+                                 bubble is a plain title/date/location
+                                 card with a "View Event" button (no
+                                 RSVP concept in this app). Poll/event
+                                 data for these cards is hydrated by a
+                                 `useEffect` keyed on the message list
+                                 (`resolvePollPath`/`resolveEventPath`
+                                 props resolve where the links navigate;
+                                 only club chat passes them, matching
+                                 attachMenu/headerMenu's scoping). Per-message Delete
+                                 (sender or channel admin) and Report
+                                 (anyone else), with a "This message was
+                                 deleted" tombstone render when
+                                 `deletedAt` is set. Sent-message bubbles
+                                 use an `expo-linear-gradient` fill; the
+                                 pinned strip is a floating, locally-
+                                 dismissible overlay (doesn't unpin);
+                                 announcement toggle is a compact
                                  megaphone icon in the input row (not a
                                  full-width banner).
 components/HighlightsScreen.tsx  Same extraction, for the Pinned/
@@ -536,6 +661,14 @@ components/HighlightsScreen.tsx  Same extraction, for the Pinned/
                                  (`isAdmin` prop) tabs, photo-message
                                  rendering, same custom glass header as
                                  ChatScreen (`backFallback` prop).
+components/CalendarScreen.tsx    Extracted from the old per-club-only
+                                 calendar.tsx (task after #47's Calendar
+                                 tab) — `mode: "club"` (clubId + isAdmin,
+                                 admin create FAB) or `mode: "global"`
+                                 (every club merged, read-only, each row's
+                                 badge row also shows `item.clubName`).
+                                 Mounted by both `clubs/[clubId]/
+                                 calendar.tsx` and `(tabs)/calendar.tsx`.
 components/PollsListScreen.tsx   Shared Polls list ("Stitch Poll"
                                  design, theme.ts tokens). ALL POLLS/MY
                                  VOTES segmented tabs, hero card for an
@@ -589,6 +722,20 @@ contexts/NotificationsProvider.tsx  Same shape as AuthProvider, nested
                                  post-markChannelRead refetch both work
                                  from outside the Notifications screen
                                  itself.
+contexts/CurrentClubProvider.tsx  Nested alongside NotificationsProvider
+                                 in app/_layout.tsx (task after #47's
+                                 Calendar tab / Clubs-tab shortcut). Holds
+                                 `{ clubId, name, isAdmin } | null`,
+                                 written solely by clubs/[clubId]/
+                                 _layout.tsx (set once the club loads,
+                                 cleared on unmount — i.e. leaving that
+                                 club's stack from anywhere nested under
+                                 it, not just the hub screen). Read by
+                                 `(tabs)/calendar.tsx` and the Clubs tab's
+                                 own `tabPress` listener, both of which
+                                 sit outside the club's own Stack and have
+                                 no other way to know "which club is
+                                 currently active."
 lib/supabase.ts                Supabase client (reads EXPO_PUBLIC_* env vars)
 lib/clubs.ts                   fetchMyClubs / createClub / joinClubByCode /
                                  searchClubs / joinOrRequestClub /
@@ -610,8 +757,18 @@ lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
                                  bucket, then insert) + DisplayMessage
                                  .photoUrl, resolved as a batched
                                  short-lived signed URL per fetch.
-                                 deleteMessage (soft — sets deleted_at +
-                                 clears body/media_url via the existing
+                                 sendDocumentMessage (task after #47's "+"
+                                 attach menu — any file type, uploads to
+                                 the private message-documents bucket,
+                                 filename's own extension used for the
+                                 storage path rather than deriving one
+                                 from contentType) + DisplayMessage
+                                 .documentUrl/.documentName/
+                                 .documentSizeBytes, same signed-URL-per-
+                                 fetch pattern as photos. deleteMessage
+                                 (soft — sets deleted_at + clears body/
+                                 media_url/document_name/
+                                 document_size_bytes via the existing
                                  UPDATE RLS policy, not a real DELETE) /
                                  reportMessage (no-ops on a repeat
                                  report) / fetchReportedMessages /
@@ -646,7 +803,30 @@ lib/calendarFeed.ts              fetchCalendarFeed(clubId, userId,
                                  meeting does — Upcoming/Past bucketing
                                  for a poll item uses isOpen, not a raw
                                  date compare against atIso (closesAt ??
-                                 createdAt).
+                                 createdAt). `fetchGlobalCalendarFeed(userId)`
+                                 (task after #47's Calendar tab) —
+                                 `(tabs)/calendar.tsx`'s "no club active"
+                                 mode: every club from fetchMyClubs, one
+                                 fetchCalendarFeed call each, merged and
+                                 re-sorted, each item tagged with
+                                 `clubName`. No new tables/RLS — same
+                                 "every read already goes through each
+                                 feature's own policies" reasoning as the
+                                 per-club version.
+lib/clubPosts.ts                 News & Highlights (task after #47's
+                                 club-hub restructure) — fetchClubPosts /
+                                 fetchClubPost / createClubPost /
+                                 updateClubPost (an omitted `mediaUrl`
+                                 leaves the existing photo untouched, a
+                                 real path replaces it, `null` removes
+                                 it) / deleteClubPost (hard delete,
+                                 matching polls/races/events — a post has
+                                 no "conversation continuity" reason to
+                                 soft-delete/tombstone the way chat
+                                 messages do) / uploadClubPostPhoto /
+                                 toggleClubPostReaction. Signed URLs per
+                                 fetch from the private club-post-photos
+                                 bucket, same pattern as lib/messages.ts.
 lib/members.ts                   fetchClubMembers / promoteToAdmin /
                                  fetchPendingRequests / decideJoinRequest
 lib/profile.ts                   fetchProfile / updateProfile /
@@ -672,7 +852,20 @@ lib/pickImageOnWeb.ts             `pickImageOnWeb()`, a raw
                                  sufficient user activation to open the
                                  native file dialog. Native platforms are
                                  unaffected and still go through
-                                 expo-image-picker directly.
+                                 expo-image-picker directly. Takes an
+                                 optional `{captureCamera: boolean}` (task
+                                 after #47) setting the file input's
+                                 `capture="environment"` attribute — hints
+                                 mobile browsers to open the camera
+                                 directly, harmlessly ignored on desktop.
+lib/pickDocumentOnWeb.ts          `pickDocumentOnWeb()` — same real-
+                                 `.click()` fix as pickImageOnWeb.ts,
+                                 applied proactively to expo-document-
+                                 picker's web shim (found to have the
+                                 identical `dispatchEvent(new
+                                 MouseEvent("click"))` pattern while
+                                 building the document-attachment "+"
+                                 menu, before it had a chance to bite).
 lib/routines.ts                  fetchWeekWorkouts / fetchWorkout /
                                  createWorkout / updateWorkout /
                                  deleteWorkout, + ACTIVITY_TYPES/
@@ -1190,6 +1383,84 @@ supabase/migrations/
                                  unchanged; this only adds a persisted,
                                  already-read historical trace of when it
                                  got resolved.
+
+  -- Note: migrations 0053-0060 (join-policy auto-approve, @mention
+  -- tagging) exist on disk but were never back-filled into this list —
+  -- read them directly if needed. Resuming here at 0061.
+
+  0061_club_posts.sql              News & Highlights (task after #47).
+                                 club_posts (club_id, created_by, body,
+                                 media_url, created_at) — select:
+                                 is_club_member(club_id); insert/update/
+                                 delete: is_club_admin(club_id) (any
+                                 admin, not creator-only — confirmed via
+                                 AskUserQuestion, matches Race Meet Info/
+                                 Routines/Events over Eboard Meetings).
+                                 Bound directly to the row's own club_id
+                                 column, not a self-referential lookup —
+                                 safe under INSERT...RETURNING per
+                                 section 6's second RLS gotcha.
+  0062_club_post_photos_storage.sql  Private 'club-post-photos' bucket,
+                                 same shape as message-photos (0027):
+                                 objects keyed `${clubId}/${uuid}.ext`,
+                                 select gated on is_club_member, insert on
+                                 is_club_admin.
+  0063_club_post_reactions.sql     club_post_reactions — mirrors
+                                 message_reactions' shape exactly (same
+                                 pattern message_mentions/0058 already
+                                 reused for a different feature).
+  0064_news_post_notification_type.sql
+                                 Adds 'news_post_created' to
+                                 notification_type, alone in its own file
+                                 per section 6's enum-transaction lesson.
+  0065_club_post_notify.sql        notify_news_post_created(), same
+                                 shape as notify_race_created/
+                                 notify_poll_created (0034) — fans out to
+                                 every club member except the creator.
+  0066_message_type_document.sql   Adds 'document' to message_type, alone
+                                 in its own file per section 6's
+                                 enum-transaction lesson.
+  0067_message_documents_columns.sql
+                                 messages.document_name, .document_size_bytes
+                                 — media_url itself is reused as-is for the
+                                 storage path, same column a photo message
+                                 already uses.
+  0068_message_documents_storage.sql
+                                 Private 'message-documents' bucket,
+                                 identical shape to message-photos (0027):
+                                 `${channelId}/${uuid}.ext`, gated by
+                                 is_channel_member for both read and write
+                                 — any channel member (not just admins)
+                                 can attach a document, same as a photo.
+  0069_chat_poll_event_message_type.sql
+                                 Adds 'poll' and 'event' to message_type
+                                 (both in one file — neither is used
+                                 within this same migration, so section
+                                 6's enum-transaction restriction doesn't
+                                 apply).
+  0070_messages_poll_event_refs.sql
+                                 messages.poll_id/event_id (both `on
+                                 delete cascade` — deleting the poll/
+                                 event removes its chat card instead of
+                                 leaving a dead link).
+  0071_poll_event_chat_messages.sql
+                                 post_poll_chat_message()/
+                                 post_event_chat_message(): security-
+                                 definer triggers, same shape as
+                                 log_member_added (0008), auto-posting a
+                                 poll/event chat message the instant one
+                                 is created — regardless of entry point
+                                 (dedicated Polls/Calendar screen, or the
+                                 chat "+" shortcut), confirmed via a
+                                 direct-SQL-insert test during
+                                 verification. Separate concern from
+                                 notify_poll_created/notify_event_created
+                                 (0034), which still handle the
+                                 Notifications-tab bell entry unchanged.
+                                 Club-scoped only for now (race_id is not
+                                 null or eboard_channel_id is not null ->
+                                 skipped) — calendar_events has no race/
+                                 Eboard scope to begin with.
 ```
 
 ## 5. Current status
@@ -1288,6 +1559,73 @@ exactly — and task #47 fixed the Notifications feed's mark-read timing
 visible) and gave chat-unread rows a persisted, already-read history
 trace once resolved, via this app's first RPC-driven notification
 insert.
+
+**Since task #47** (not yet folded into numbered tasks above — a founder
+wireframe-driven club-navigation restructure, done incrementally with an
+explicit "one by one, tell me if there's a problem" approach): chat now
+hides the bottom tab bar entirely (full-screen); the club hub dropped its
+flat row-per-feature list for News & Highlights / Club Main Chat / a
+Races & Meets preview, with Routines/Polls/Eboard & Council deliberately
+left unlinked pending a founder decision on where they land next; a new
+Calendar bottom tab shows either the active club's feed or a merged
+cross-club feed depending on `CurrentClubProvider`'s `currentClub` (set
+by `clubs/[clubId]/_layout.tsx`, read by both the Calendar tab and the
+Clubs tab); the
+Clubs tab itself became context-aware — a shortcut into the active
+club's hub, then a second tap (or its header back button) out to the
+Main list, using the same `?from=` override pattern as the pre-existing
+`?from=profile` case rather than trusting `canGoBack()`; and News &
+Highlights shipped as a real standalone admin-post feed (`club_posts` +
+`club_post_reactions`, migrations 0061-0065) — any club admin can
+create/edit/delete any post (confirmed explicitly, not assumed by
+analogy — this codebase has both a creator-only precedent, Eboard
+Meetings, and an any-admin one, Race Meet Info/Routines/Events), members
+can react with the same emoji set chat uses, and creating a post
+notifies every other club member. Verified live via Playwright + direct
+SQL role changes, including a real bug caught mid-build: `news/
+_layout.tsx`'s header initially copied routines/polls/races/eboard's
+text-only title, dropping the club avatar that the top-level hub/chat/
+calendar screens show — founder-flagged live from their own concurrent
+testing session, fixed since this was a brand-new Stack, not a
+pre-existing one worth leaving alone.
+
+**Same session, right after**: club chat's composer "+" became a
+WhatsApp-style expandable grid (Photos/Camera/Document always, Poll/
+Event admin-only), and its header gained a grid icon opening a Poll/
+Routines/Events quick-nav dropdown — both club-chat-only for now, by
+explicit founder scoping ("for now lets do for this but later we should
+do similarly to others"), leaving race/Eboard chat's single photo-icon
+composer untouched. Document attachments are a genuinely new capability
+(any file type, migrations 0066-0068 — new message_type value, two new
+messages columns, a new private storage bucket) rather than a UI-only
+change, so it went through the same "confirm scope before writing SQL"
+AskUserQuestion pass News & Highlights did. Caught one bug proactively
+rather than reactively: `expo-document-picker`'s web implementation
+turned out to use the exact same `dispatchEvent(new
+MouseEvent("click"))` pattern that caused the original `pickImageOnWeb`
+bug (real user-activation gotcha some browsers don't honor for a
+synthetic event) — noticed while reading the library's source before
+wiring it up, so `lib/pickDocumentOnWeb.ts` applies the same real-
+`.click()` fix from day one instead of waiting to hit the bug again.
+Verified live via Playwright, including a real document upload/open
+round-trip through the signed-URL flow — and, again, the founder was
+already live-testing concurrently and posted 2 real documents mid-build.
+
+**Same session, next**: removed the Profile tab's own back arrow (a
+bottom-tab root showing a back button that jumps to a *different* tab
+was confusing, not a real "back") — `edit`/`privacy-policy`/`terms`
+keep theirs, only `index`'s `headerLeft` was dropped. Then: a created
+poll/event now auto-posts into club chat as its own message
+(migrations 0069-0071) — a poll renders as a fully votable inline card
+(same castVote/fetchPoll lib/polls.ts already uses, so behavior can't
+drift from the full Poll screen), an event as a title/date/location
+card with a "View Event" button. Fires regardless of entry point
+(confirmed live via a direct SQL insert into `polls`, bypassing the
+UI entirely, during verification) via a security-definer trigger the
+same shape as the existing join/leave system-message triggers —
+deleting the underlying poll/event cascades to remove its chat card
+too (confirmed live). Club-scoped only for now, matching the "+"
+attach menu's own scoping.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

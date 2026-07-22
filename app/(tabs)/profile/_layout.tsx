@@ -6,7 +6,7 @@ export default function ProfileStackLayout() {
 
   return (
     <Stack>
-      <Stack.Screen name="index" options={{ title: "Profile", headerLeft: makeBackHeaderLeft(router, "/clubs") }} />
+      <Stack.Screen name="index" options={{ title: "Profile" }} />
       <Stack.Screen name="edit" options={{ title: "Edit profile", presentation: "modal" }} />
       <Stack.Screen
         name="privacy-policy"

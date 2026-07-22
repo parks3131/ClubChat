@@ -4,7 +4,7 @@
 
 export type ClubRole = "owner" | "admin" | "member";
 export type CalendarEventType = "race" | "practice" | "team_bonding" | "volunteer" | "other";
-export type MessageType = "text" | "photo" | "announcement" | "system";
+export type MessageType = "text" | "photo" | "announcement" | "system" | "document" | "poll" | "event";
 export type ClubJoinPolicy = "open" | "request";
 export type JoinRequestStatus = "pending" | "approved" | "denied";
 export type RoutineActivityType =
@@ -34,7 +34,8 @@ export type NotificationType =
   | "announcement"
   | "poll_closing_soon"
   | "chat_caught_up"
-  | "mentioned";
+  | "mentioned"
+  | "news_post_created";
 
 export interface Database {
   public: {
@@ -129,6 +130,10 @@ export interface Database {
           message_type: MessageType;
           body: string | null;
           media_url: string | null;
+          document_name: string | null;
+          document_size_bytes: number | null;
+          poll_id: string | null;
+          event_id: string | null;
           pinned: boolean;
           created_at: string;
           deleted_at: string | null;
@@ -166,6 +171,37 @@ export interface Database {
           mentioned_user_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["message_mentions"]["Row"]>;
+        Relationships: [];
+      };
+      club_posts: {
+        Row: {
+          id: string;
+          club_id: string;
+          created_by: string;
+          body: string | null;
+          media_url: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["club_posts"]["Row"]> & {
+          club_id: string;
+          created_by: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["club_posts"]["Row"]>;
+        Relationships: [];
+      };
+      club_post_reactions: {
+        Row: {
+          post_id: string;
+          user_id: string;
+          emoji: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["club_post_reactions"]["Row"]> & {
+          post_id: string;
+          user_id: string;
+          emoji: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["club_post_reactions"]["Row"]>;
         Relationships: [];
       };
       message_reports: {

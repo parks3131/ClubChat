@@ -9,11 +9,15 @@
 // dialog reliably. This bypasses the library's web path entirely rather
 // than patching node_modules (native platforms are unaffected — they use a
 // real native module, not this DOM shim).
-export function pickImageOnWeb(): Promise<{ uri: string; mimeType: string } | null> {
+export function pickImageOnWeb(options?: { captureCamera?: boolean }): Promise<{ uri: string; mimeType: string } | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
+    // Hints mobile browsers to open the camera directly rather than a
+    // gallery/file picker — ignored (harmlessly falls back to the normal
+    // picker) on desktop browsers with no camera-capture affordance.
+    if (options?.captureCamera) input.setAttribute("capture", "environment");
     input.style.display = "none";
 
     input.addEventListener("change", () => {

@@ -10,6 +10,11 @@ export interface DisplayMessage {
   messageType: MessageType;
   body: string | null;
   photoUrl: string | null;
+  documentUrl: string | null;
+  documentName: string | null;
+  documentSizeBytes: number | null;
+  pollId: string | null;
+  eventId: string | null;
   pinned: boolean;
   createdAt: string;
   deletedAt: string | null;
@@ -17,11 +22,26 @@ export interface DisplayMessage {
   mentions: MentionCandidate[];
 }
 
-// message-photos is a private bucket (see 0027_message_photos_storage.sql)
+// message-photos/message-documents are private buckets (see
+// 0027_message_photos_storage.sql / 0068_message_documents_storage.sql)
 // gated by the same is_channel_member check as the messages table itself,
 // so a displayable URL has to be a short-lived signed URL fetched per
 // request rather than a stored public URL.
 const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;
+const DOCUMENT_SIGNED_URL_TTL_SECONDS = 3600;
+
+async function signDocumentUrls(paths: string[]): Promise<Map<string, string>> {
+  if (paths.length === 0) return new Map();
+  const { data, error } = await supabase.storage
+    .from("message-documents")
+    .createSignedUrls(paths, DOCUMENT_SIGNED_URL_TTL_SECONDS);
+  if (error) throw error;
+  const byPath = new Map<string, string>();
+  for (const entry of data ?? []) {
+    if (entry.signedUrl) byPath.set(entry.path ?? "", entry.signedUrl);
+  }
+  return byPath;
+}
 
 async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
   if (paths.length === 0) return new Map();
@@ -44,6 +64,10 @@ async function attachSendersAndReactions(
     message_type: MessageType;
     body: string | null;
     media_url: string | null;
+    document_name: string | null;
+    document_size_bytes: number | null;
+    poll_id: string | null;
+    event_id: string | null;
     pinned: boolean;
     created_at: string;
     deleted_at: string | null;
@@ -54,12 +78,14 @@ async function attachSendersAndReactions(
   const senderIds = [...new Set(messages.map((m) => m.sender_id))];
   const messageIds = messages.map((m) => m.id);
   const photoPaths = messages.filter((m) => m.message_type === "photo" && m.media_url).map((m) => m.media_url as string);
+  const documentPaths = messages.filter((m) => m.message_type === "document" && m.media_url).map((m) => m.media_url as string);
 
-  const [{ data: profiles }, { data: reactions }, { data: mentionRows }, signedUrlByPath] = await Promise.all([
+  const [{ data: profiles }, { data: reactions }, { data: mentionRows }, signedUrlByPath, signedDocumentUrlByPath] = await Promise.all([
     supabase.from("profiles").select("id, full_name, avatar_url").in("id", senderIds),
     supabase.from("message_reactions").select("message_id, user_id, emoji").in("message_id", messageIds),
     supabase.from("message_mentions").select("message_id, mentioned_user_id").in("message_id", messageIds),
     signPhotoUrls(photoPaths),
+    signDocumentUrls(documentPaths),
   ]);
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -95,7 +121,12 @@ async function attachSendersAndReactions(
     senderAvatarUrl: profileById.get(m.sender_id)?.avatar_url ?? null,
     messageType: m.message_type,
     body: m.body,
-    photoUrl: m.media_url ? (signedUrlByPath.get(m.media_url) ?? null) : null,
+    photoUrl: m.message_type === "photo" && m.media_url ? (signedUrlByPath.get(m.media_url) ?? null) : null,
+    documentUrl: m.message_type === "document" && m.media_url ? (signedDocumentUrlByPath.get(m.media_url) ?? null) : null,
+    documentName: m.document_name,
+    documentSizeBytes: m.document_size_bytes,
+    pollId: m.poll_id,
+    eventId: m.event_id,
     pinned: m.pinned,
     createdAt: m.created_at,
     deletedAt: m.deleted_at,
@@ -111,7 +142,7 @@ export async function fetchMessages(
   if (options?.limit) {
     let query = supabase
       .from("messages")
-      .select("id, channel_id, sender_id, message_type, body, media_url, pinned, created_at, deleted_at")
+      .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
       .limit(options.limit);
@@ -128,7 +159,7 @@ export async function fetchMessages(
 
   const { data, error } = await supabase
     .from("messages")
-    .select("id, channel_id, sender_id, message_type, body, media_url, pinned, created_at, deleted_at")
+    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
     .eq("channel_id", channelId)
     .order("created_at", { ascending: true });
 
@@ -232,6 +263,39 @@ export async function sendPhotoMessage(params: {
   if (error) throw error;
 }
 
+// Filename's own extension (e.g. "workout_plan.pdf") is more reliable
+// than deriving one from contentType, which for arbitrary document types
+// (docx/xlsx/etc.) doesn't map to a simple `type/subtype` split the way
+// image mime types do.
+export async function sendDocumentMessage(params: {
+  channelId: string;
+  senderId: string;
+  fileUri: string;
+  contentType: string;
+  fileName: string;
+  fileSizeBytes: number;
+}) {
+  const response = await fetch(params.fileUri);
+  const blob = await response.blob();
+  const ext = params.fileName.includes(".") ? params.fileName.split(".").pop() : "bin";
+  const path = `${params.channelId}/${crypto.randomUUID()}.${ext}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("message-documents")
+    .upload(path, blob, { contentType: params.contentType });
+  if (uploadError) throw uploadError;
+
+  const { error } = await supabase.from("messages").insert({
+    channel_id: params.channelId,
+    sender_id: params.senderId,
+    message_type: "document",
+    media_url: path,
+    document_name: params.fileName,
+    document_size_bytes: params.fileSizeBytes,
+  });
+  if (error) throw error;
+}
+
 export async function togglePinned(messageId: string, pinned: boolean) {
   const { error } = await supabase.from("messages").update({ pinned }).eq("id", messageId);
   if (error) throw error;
@@ -246,7 +310,15 @@ export async function togglePinned(messageId: string, pinned: boolean) {
 export async function deleteMessage(messageId: string) {
   const { error } = await supabase
     .from("messages")
-    .update({ deleted_at: new Date().toISOString(), body: null, media_url: null })
+    .update({
+      deleted_at: new Date().toISOString(),
+      body: null,
+      media_url: null,
+      document_name: null,
+      document_size_bytes: null,
+      poll_id: null,
+      event_id: null,
+    })
     .eq("id", messageId);
   if (error) throw error;
 }
@@ -283,7 +355,7 @@ export async function fetchReportedMessages(channelId: string): Promise<Reported
 
   const { data: messageRows, error: messagesError } = await supabase
     .from("messages")
-    .select("id, channel_id, sender_id, message_type, body, media_url, pinned, created_at, deleted_at")
+    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
     .in("id", [...countByMessageId.keys()]);
   if (messagesError) throw messagesError;
 
