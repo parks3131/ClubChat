@@ -5,7 +5,14 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
-import { deleteEboardChannel, fetchEboardMembers, uploadEboardAvatar, type EboardMemberRow } from "../../../../../lib/eboard";
+import { useAuth } from "../../../../../contexts/AuthProvider";
+import {
+  deleteEboardChannel,
+  fetchEboardMembers,
+  removeEboardMember,
+  uploadEboardAvatar,
+  type EboardMemberRow,
+} from "../../../../../lib/eboard";
 import { pickImageOnWeb } from "../../../../../lib/pickImageOnWeb";
 import { reportError } from "../../../../../lib/reportError";
 import { useEboard } from "./_layout";
@@ -34,11 +41,13 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 export default function EboardProfileScreen() {
   const eboard = useEboard();
   const router = useRouter();
+  const { session } = useAuth();
 
   const [members, setMembers] = useState<EboardMemberRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const reload = useCallback(() => {
@@ -117,6 +126,23 @@ export default function EboardProfileScreen() {
     } catch (err) {
       reportError(err);
       setDeleting(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    if (!eboard.channel || !session) return;
+    const proceed = await confirmAction(
+      "Leave Eboard & Council?",
+      `Leave ${eboard.channel.name}? You'll lose access to its chat and roster. An existing member can add you back later.`
+    );
+    if (!proceed) return;
+    setLeaving(true);
+    try {
+      await removeEboardMember(eboard.channel.id, session.user.id);
+      router.replace(`/clubs/${eboard.clubId}`);
+    } catch (err) {
+      reportError(err);
+      setLeaving(false);
     }
   };
 
@@ -209,6 +235,16 @@ export default function EboardProfileScreen() {
       </View>
 
       {eboard.channel.isMember && (
+        <TouchableOpacity style={styles.leaveButton} onPress={handleLeave} disabled={leaving}>
+          {leaving ? (
+            <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+          ) : (
+            <Text style={styles.leaveButtonText}>Leave Eboard & Council</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {eboard.channel.isMember && (
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete} disabled={deleting}>
           {deleting ? (
             <ActivityIndicator size="small" color={colors.error} />
@@ -273,4 +309,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   deleteButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.error },
+  leaveButton: {
+    marginTop: spacing.stackLg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.stackSm + 4,
+    alignItems: "center",
+  },
+  leaveButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurfaceVariant },
 });

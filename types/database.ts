@@ -35,7 +35,8 @@ export type NotificationType =
   | "poll_closing_soon"
   | "chat_caught_up"
   | "mentioned"
-  | "news_post_created";
+  | "news_post_created"
+  | "car_group_incharge_left";
 
 export interface Database {
   public: {

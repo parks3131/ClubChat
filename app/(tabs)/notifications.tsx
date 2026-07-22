@@ -28,6 +28,7 @@ const ICON_BY_TYPE: Record<NotificationType, MaterialIconName> = {
   chat_caught_up: "done-all",
   mentioned: "alternate-email",
   news_post_created: "photo-camera",
+  car_group_incharge_left: "directions-car",
 };
 
 const PAGE_SIZE = 20;

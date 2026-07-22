@@ -5,8 +5,16 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
+import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { pickImageOnWeb } from "../../../../../../lib/pickImageOnWeb";
-import { deleteRace, fetchRaceMembers, fetchRaceProfile, uploadRaceAvatar, type RaceProfile } from "../../../../../../lib/races";
+import {
+  deleteRace,
+  fetchRaceMembers,
+  fetchRaceProfile,
+  removeRaceMember,
+  uploadRaceAvatar,
+  type RaceProfile,
+} from "../../../../../../lib/races";
 import { reportError } from "../../../../../../lib/reportError";
 import { useRace } from "./_layout";
 
@@ -44,12 +52,14 @@ function formatEventDate(dateKey: string) {
 export default function RaceProfileScreen() {
   const race = useRace();
   const router = useRouter();
+  const { session } = useAuth();
 
   const [profile, setProfile] = useState<RaceProfile | null>(null);
   const [preview, setPreview] = useState<{ userId: string; fullName: string; avatarUrl: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [deletingRace, setDeletingRace] = useState(false);
+  const [leavingRace, setLeavingRace] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const reload = useCallback(async () => {
@@ -127,6 +137,27 @@ export default function RaceProfileScreen() {
     } catch (err) {
       reportError(err);
       setDeletingRace(false);
+    }
+  };
+
+  // removeRaceMember already cleans up any race_car_group_members row for
+  // this user first (lib/races.ts) — reused as-is here since it's the
+  // exact same delete an admin-initiated "Remove" already does, just
+  // targeting the caller's own row. If they were a group's Incharge, the
+  // DB-side clear_incharge_on_member_removed trigger clears that and
+  // notifies the club's admins that the group now needs a new one — the
+  // rest of the group's roster is left untouched.
+  const handleLeaveRace = async () => {
+    if (!session) return;
+    const proceed = await confirmAction("Leave this race?", `Leave ${race.name}? You'll lose access to its chat and roster.`);
+    if (!proceed) return;
+    setLeavingRace(true);
+    try {
+      await removeRaceMember(race.raceId, session.user.id);
+      router.replace(`/clubs/${race.clubId}/races`);
+    } catch (err) {
+      reportError(err);
+      setLeavingRace(false);
     }
   };
 
@@ -210,6 +241,16 @@ export default function RaceProfileScreen() {
         </TouchableOpacity>
       </View>
 
+      {race.isMember && (
+        <TouchableOpacity style={styles.leaveButton} onPress={handleLeaveRace} disabled={leavingRace}>
+          {leavingRace ? (
+            <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+          ) : (
+            <Text style={styles.leaveButtonText}>Leave Race</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
       {race.isManager && (
         <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteRace} disabled={deletingRace}>
           {deletingRace ? (
@@ -275,4 +316,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   deleteButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.error },
+  leaveButton: {
+    marginTop: spacing.stackLg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.stackSm + 4,
+    alignItems: "center",
+  },
+  leaveButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurfaceVariant },
 });

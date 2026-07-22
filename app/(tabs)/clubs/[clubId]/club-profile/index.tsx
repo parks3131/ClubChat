@@ -7,8 +7,8 @@ import { LoadError } from "../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { deleteClub, fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
+import { fetchClubMembers, removeMember, type ClubMemberRow } from "../../../../../lib/members";
 import { pickImageOnWeb } from "../../../../../lib/pickImageOnWeb";
-import { fetchClubMembers, type ClubMemberRow } from "../../../../../lib/members";
 import { reportError } from "../../../../../lib/reportError";
 import { useClub } from "../_layout";
 
@@ -43,6 +43,7 @@ export default function ClubProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [copied, setCopied] = useState(false);
   const [deletingClub, setDeletingClub] = useState(false);
+  const [leavingClub, setLeavingClub] = useState(false);
 
   const reload = useCallback(
     () => Promise.all([fetchClubProfile(club.clubId).then(setProfile), fetchClubMembers(club.clubId).then(setMembers)]),
@@ -126,6 +127,30 @@ export default function ClubProfileScreen() {
     } catch (err) {
       reportError(err);
       setDeletingClub(false);
+    }
+  };
+
+  // Leaving removes this club's own club_members row — already self-
+  // leave-able for anyone but the Owner (0043's "members can leave except
+  // the owner" policy), and already cascades to every race/Eboard channel
+  // under this club too (handle_club_member_removed_membership_sync,
+  // 0043), so "leave main chat -> out of everything" needs no extra work
+  // here beyond the delete + navigating away before any RLS-gated screen
+  // under this club tries to re-render with access already revoked.
+  const handleLeaveClub = async () => {
+    if (!session) return;
+    const proceed = await confirmAction(
+      "Leave this club?",
+      `Leave ${club.name}? You'll lose access to its chat, races, and Eboard & Council. You can rejoin later if it's open, or ask an admin to add you back.`
+    );
+    if (!proceed) return;
+    setLeavingClub(true);
+    try {
+      await removeMember(club.clubId, session.user.id);
+      router.replace("/clubs");
+    } catch (err) {
+      reportError(err);
+      setLeavingClub(false);
     }
   };
 
@@ -221,7 +246,24 @@ export default function ClubProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {profile.createdBy === session?.user.id && (
+      {!club.isOwner && (
+        <TouchableOpacity style={styles.leaveButton} onPress={handleLeaveClub} disabled={leavingClub}>
+          {leavingClub ? (
+            <ActivityIndicator size="small" color={colors.onSurfaceVariant} />
+          ) : (
+            <Text style={styles.leaveButtonText}>Leave Club</Text>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {club.isOwner && (
+        // Blocked at the RLS layer too (0043's self-leave policy excludes
+        // role = 'owner') — exactly one Owner must exist at all times, so
+        // leaving outright would orphan the club. Transfer first instead.
+        <Text style={styles.leaveHint}>Transfer ownership from Members to leave this club.</Text>
+      )}
+
+      {club.isOwner && (
         <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteClub} disabled={deletingClub}>
           {deletingClub ? (
             <ActivityIndicator size="small" color={colors.error} />
@@ -306,4 +348,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   deleteButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.error },
+  leaveButton: {
+    marginTop: spacing.stackLg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.stackSm + 4,
+    alignItems: "center",
+  },
+  leaveButtonText: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurfaceVariant },
+  leaveHint: {
+    ...typography.bodyMd,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    textAlign: "center",
+    marginTop: spacing.stackLg,
+  },
 });
