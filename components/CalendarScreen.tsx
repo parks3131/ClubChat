@@ -1,17 +1,20 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, typography } from "../constants/theme";
 import { useAuth } from "../contexts/AuthProvider";
 import { fetchCalendarFeed, fetchGlobalCalendarFeed, type CalendarFeedItem } from "../lib/calendarFeed";
-import { toDateKey } from "../lib/dates";
+import { addMonths, toDateKey } from "../lib/dates";
 import { LoadError } from "./LoadError";
 
-// Background/text pair per badge label — covers all 8 feed item types
-// lib/calendarFeed.ts can surface (5 calendar_event types + "Race/Meet" +
-// "Eboard Meeting" + "Poll"), not just the 3 the Stitch mockup happened
-// to show.
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+const CELLS_IN_GRID = 42; // 6 weeks x 7 days — fixed so paging months never changes grid height
+
+// Background/text pair per badge label, for the day-popup's item rows.
+// Covers every kind CalendarFeedItem can still be once polls are filtered
+// out before reaching this screen (see gridItems below) — 5 calendar_event
+// types + "Race/Meet" + "Eboard Meeting".
 const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
   Race: { bg: colors.primaryFixed, fg: colors.onPrimaryFixedVariant },
   Practice: { bg: colors.tertiaryFixed, fg: colors.onTertiaryFixedVariant },
@@ -20,45 +23,24 @@ const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
   Other: { bg: colors.surfaceContainerHigh, fg: colors.onSurfaceVariant },
   "Race/Meet": { bg: colors.primary, fg: colors.onPrimary },
   "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
-  Poll: { bg: colors.secondaryContainer, fg: colors.onSecondaryContainer },
 };
 
-const BIB_STYLE: Record<string, { bg: string; fg: string }> = {
-  Race: { bg: colors.primary, fg: colors.onPrimary },
-  Practice: { bg: colors.tertiary, fg: colors.onTertiary },
-  "Team bonding": { bg: colors.secondary, fg: colors.onSecondary },
-  Volunteer: { bg: colors.error, fg: colors.onError },
-  Other: { bg: colors.onSurfaceVariant, fg: colors.surface },
-  "Race/Meet": { bg: colors.primaryContainer, fg: colors.onPrimaryContainer },
-  "Eboard Meeting": { bg: colors.inverseSurface, fg: colors.inverseOnSurface },
-  Poll: { bg: colors.secondary, fg: colors.onSecondary },
-};
-
-function formatItemDate(item: CalendarFeedItem) {
-  if (item.hasTime) {
-    return new Date(item.atIso).toLocaleString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  }
-  // Date-only (races) — build from y/m/d components rather than
-  // `new Date(iso)`, which parses as UTC midnight and can display a day
-  // early in timezones behind UTC (same bug formatDateOfBirth was fixed
-  // for — see SPEC.md section 6).
-  const [year, month, day] = item.atIso.slice(0, 10).split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+function formatItemTime(item: CalendarFeedItem) {
+  if (!item.hasTime) return null;
+  return new Date(item.atIso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-function bibDay(item: CalendarFeedItem) {
-  const [, month, day] = item.atIso.slice(0, 10).split("-").map(Number);
-  return { day, month: new Date(2000, month - 1, 1).toLocaleDateString(undefined, { month: "short" }).toUpperCase() };
+function formatMonthTitle(year: number, month: number) {
+  return new Date(year, month, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function formatDayTitle(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 type CalendarScreenProps =
@@ -70,13 +52,16 @@ type CalendarScreenProps =
   // event only makes sense inside one specific club.
   | { mode: "global" };
 
-// Merges calendar_events, races you have access to, and Eboard meetings
-// (if you're a member) into one date-ordered feed — see
-// lib/calendarFeed.ts for the per-source visibility rules. "Upcoming" vs
-// "Past" preserves each source's own existing cutoff convention rather
-// than one blunt timestamp comparison: a race stays "Upcoming" all day
-// today (date-string compare, matching races/index.tsx), while events/
-// meetings use a real timestamp compare.
+// Month-grid calendar (founder request, replacing the old flat Upcoming/
+// Past list): each day that has a calendar_event, race, or Eboard meeting
+// gets a dark-circled marker; tapping a marked day opens a bottom-sheet
+// popup listing that day's items, each tappable through to its real
+// screen. Merges calendar_events, races you have access to, and Eboard
+// meetings (if you're a member) — see lib/calendarFeed.ts for the
+// per-source visibility rules. Polls are deliberately excluded from this
+// grid (a poll has a closing deadline, not a "when it happens" the way
+// the other 3 kinds do — confirmed explicitly rather than assumed) but
+// stay fully visible from each Polls tab/list on their own.
 export default function CalendarScreen(props: CalendarScreenProps) {
   const { session } = useAuth();
   const router = useRouter();
@@ -84,6 +69,9 @@ export default function CalendarScreen(props: CalendarScreenProps) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+  const today = new Date();
+  const [visibleMonth, setVisibleMonth] = useState({ year: today.getFullYear(), month: today.getMonth() });
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
   const scopeKey = props.mode === "club" ? props.clubId : "global";
 
@@ -116,23 +104,32 @@ export default function CalendarScreen(props: CalendarScreenProps) {
     }, [scopeKey, session, retryToken])
   );
 
-  const now = Date.now();
-  const todayKey = toDateKey(new Date());
-  // A poll has no fixed "when it happens" the way an event/race/meeting
-  // does — an open-ended poll (no closes_at) would otherwise flip to
-  // "Past" the instant its own createdAt timestamp (used as atIso so it
-  // still sorts/displays somewhere) ticks past "now". Use isOpen (mirrors
-  // lib/polls.ts's isPollEffectivelyClosed) instead of a date compare for
-  // this one kind.
-  const isUpcoming = (item: CalendarFeedItem) =>
-    item.kind === "poll"
-      ? !!item.isOpen
-      : item.hasTime
-        ? new Date(item.atIso).getTime() >= now
-        : item.atIso.slice(0, 10) >= todayKey;
+  const itemsByDay = useMemo(() => {
+    const map = new Map<string, CalendarFeedItem[]>();
+    for (const item of items) {
+      if (item.kind === "poll") continue;
+      const dateKey = item.atIso.slice(0, 10);
+      if (!map.has(dateKey)) map.set(dateKey, []);
+      map.get(dateKey)!.push(item);
+    }
+    return map;
+  }, [items]);
 
-  const upcoming = items.filter(isUpcoming);
-  const past = items.filter((i) => !isUpcoming(i)).reverse();
+  const todayKey = toDateKey(today);
+
+  // Classic month-grid layout: find this month's first day's weekday to
+  // know how many leading filler cells (from the previous month) it
+  // needs, then fill 42 cells total so every month renders the same grid
+  // height — paging Dec -> Jan never jumps the FAB/page around.
+  const gridCells = useMemo(() => {
+    const firstOfMonth = new Date(visibleMonth.year, visibleMonth.month, 1);
+    const leadingBlanks = firstOfMonth.getDay();
+    const gridStart = new Date(visibleMonth.year, visibleMonth.month, 1 - leadingBlanks);
+    return Array.from({ length: CELLS_IN_GRID }, (_, i) => {
+      const date = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      return { date, dateKey: toDateKey(date), inMonth: date.getMonth() === visibleMonth.month };
+    });
+  }, [visibleMonth]);
 
   if (loading) {
     return (
@@ -146,115 +143,161 @@ export default function CalendarScreen(props: CalendarScreenProps) {
     return <LoadError message="Couldn't load the calendar." onRetry={() => setRetryToken((t) => t + 1)} />;
   }
 
-  const sections = [
-    { title: "Upcoming Events", data: upcoming, faded: false },
-    { title: "Past Events", data: past, faded: true },
-  ].filter((s) => s.data.length > 0);
+  const selectedDayItems = selectedDayKey ? itemsByDay.get(selectedDayKey) ?? [] : [];
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={sections}
-        keyExtractor={(s) => s.title}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            {props.mode === "global" ? "No events across your clubs yet." : "No events yet."}
+      <View style={styles.monthHeader}>
+        <TouchableOpacity
+          hitSlop={8}
+          onPress={() =>
+            setVisibleMonth((m) => {
+              const next = addMonths(new Date(m.year, m.month, 1), -1);
+              return { year: next.getFullYear(), month: next.getMonth() };
+            })
+          }
+        >
+          <MaterialIcons name="chevron-left" size={26} color={colors.onSurface} />
+        </TouchableOpacity>
+        <Text style={styles.monthTitle}>{formatMonthTitle(visibleMonth.year, visibleMonth.month)}</Text>
+        <TouchableOpacity
+          hitSlop={8}
+          onPress={() =>
+            setVisibleMonth((m) => {
+              const next = addMonths(new Date(m.year, m.month, 1), 1);
+              return { year: next.getFullYear(), month: next.getMonth() };
+            })
+          }
+        >
+          <MaterialIcons name="chevron-right" size={26} color={colors.onSurface} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.weekdayRow}>
+        {WEEKDAY_LABELS.map((label, i) => (
+          <Text key={i} style={styles.weekdayLabel}>
+            {label}
           </Text>
-        }
-        renderItem={({ item: section }) => (
-          <View>
-            <Text style={[styles.sectionHeader, section.faded && styles.sectionHeaderFaded]}>{section.title}</Text>
-            {section.data.map((item) => {
-              const bib = bibDay(item);
-              const bibStyle = BIB_STYLE[item.badgeLabel] ?? BIB_STYLE.Other;
-              const badgeStyle = BADGE_STYLE[item.badgeLabel] ?? BADGE_STYLE.Other;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.row, section.faded && styles.rowFaded]}
-                  onPress={() => router.push(item.path)}
+        ))}
+      </View>
+
+      <View style={styles.grid}>
+        {gridCells.map((cell) => {
+          const dayItems = itemsByDay.get(cell.dateKey);
+          const hasItems = !!dayItems && dayItems.length > 0;
+          const isToday = cell.dateKey === todayKey;
+          return (
+            <TouchableOpacity
+              key={cell.dateKey}
+              style={styles.cell}
+              disabled={!cell.inMonth || !hasItems}
+              onPress={() => setSelectedDayKey(cell.dateKey)}
+            >
+              <View style={[styles.dayMarker, isToday && styles.dayMarkerToday, hasItems && styles.dayMarkerFilled]}>
+                <Text
+                  style={[
+                    styles.dayNumber,
+                    !cell.inMonth && styles.dayNumberOutOfMonth,
+                    hasItems && styles.dayNumberFilled,
+                  ]}
                 >
-                  <View style={[styles.bibChip, { backgroundColor: bibStyle.bg }]}>
-                    <Text style={[styles.bibDay, { color: bibStyle.fg }]}>{bib.day}</Text>
-                    <Text style={[styles.bibMonth, { color: bibStyle.fg }]}>{bib.month}</Text>
-                  </View>
-                  <View style={styles.rowBody}>
-                    <View style={styles.rowHeader}>
-                      <Text style={[styles.badge, { backgroundColor: badgeStyle.bg, color: badgeStyle.fg }]}>
-                        {item.badgeLabel.toUpperCase()}
-                      </Text>
-                      {item.clubName && <Text style={styles.clubTag}>{item.clubName}</Text>}
-                    </View>
-                    <Text style={styles.rowTitle}>{item.title}</Text>
-                    <Text style={styles.rowDate}>{formatItemDate(item)}</Text>
-                    {item.subtitle && (
-                      <View style={styles.rowLocationRow}>
-                        <MaterialIcons name="location-on" size={14} color={colors.onSecondaryContainer} />
-                        <Text style={styles.rowLocation}>{item.subtitle}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <MaterialIcons name="chevron-right" size={22} color={colors.outline} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      />
+                  {cell.date.getDate()}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {items.length === 0 && (
+        <Text style={styles.empty}>{props.mode === "global" ? "No events across your clubs yet." : "No events yet."}</Text>
+      )}
 
       {props.mode === "club" && props.isAdmin && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${props.clubId}/event/create`)}>
           <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>
       )}
+
+      <Modal visible={selectedDayKey !== null} transparent animationType="fade" onRequestClose={() => setSelectedDayKey(null)}>
+        <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setSelectedDayKey(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation?.()}>
+            <Text style={styles.sheetTitle}>{selectedDayKey && formatDayTitle(selectedDayKey)}</Text>
+            <ScrollView style={styles.sheetList}>
+              {selectedDayItems.map((item) => {
+                const badgeStyle = BADGE_STYLE[item.badgeLabel] ?? BADGE_STYLE.Other;
+                const time = formatItemTime(item);
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.sheetRow}
+                    onPress={() => {
+                      setSelectedDayKey(null);
+                      router.push(item.path);
+                    }}
+                  >
+                    <View style={styles.sheetRowHeader}>
+                      <Text style={[styles.badge, { backgroundColor: badgeStyle.bg, color: badgeStyle.fg }]}>
+                        {item.badgeLabel.toUpperCase()}
+                      </Text>
+                      {item.clubName && <Text style={styles.clubTag}>{item.clubName}</Text>}
+                    </View>
+                    <Text style={styles.sheetRowTitle}>{item.title}</Text>
+                    {(time || item.subtitle) && (
+                      <View style={styles.sheetRowMetaRow}>
+                        {time && <Text style={styles.sheetRowMeta}>{time}</Text>}
+                        {item.subtitle && (
+                          <View style={styles.sheetRowLocationRow}>
+                            <MaterialIcons name="location-on" size={13} color={colors.onSecondaryContainer} />
+                            <Text style={styles.sheetRowMeta}>{item.subtitle}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+  container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  list: { padding: spacing.marginMobile, paddingBottom: 80 },
-  empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
-  sectionHeader: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginTop: spacing.stackSm, marginBottom: spacing.stackSm },
-  sectionHeaderFaded: { opacity: 0.5 },
-  row: {
-    flexDirection: "row",
-    gap: spacing.gutter,
-    alignItems: "flex-start",
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
+  empty: { textAlign: "center", marginTop: spacing.stackLg, color: colors.onSurfaceVariant },
+  monthHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.stackMd },
+  monthTitle: { ...typography.headlineLgMobile, fontSize: 20, color: colors.onSurface },
+  weekdayRow: { flexDirection: "row" },
+  weekdayLabel: {
+    width: `${100 / 7}%`,
+    textAlign: "center",
+    ...typography.labelSm,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
     marginBottom: spacing.stackSm,
   },
-  rowFaded: { opacity: 0.6 },
-  bibChip: {
-    width: 52,
-    height: 60,
-    borderRadius: radii.DEFAULT,
+  grid: { flexDirection: "row", flexWrap: "wrap" },
+  // Fixed height rather than `aspectRatio: 1` — on a wide viewport (this
+  // app is mobile-first but also runs via react-native-web) a percentage
+  // width cell with aspectRatio 1 would grow just as tall as it is wide,
+  // blowing the whole grid's height out well past the screen.
+  cell: { width: `${100 / 7}%`, height: 56, alignItems: "center", justifyContent: "center" },
+  dayMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-  bibDay: { ...typography.statValue, fontSize: 22, lineHeight: 22 },
-  bibMonth: { ...typography.labelSm, fontSize: 10, marginTop: 2 },
-  rowBody: { flex: 1 },
-  rowHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
-  badge: {
-    ...typography.labelSm,
-    fontSize: 10,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.stackSm,
-    paddingVertical: 2,
-    overflow: "hidden",
-  },
-  clubTag: { ...typography.labelSm, fontSize: 10, color: colors.onSurfaceVariant, textTransform: "uppercase" },
-  rowTitle: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface, marginTop: spacing.stackSm },
-  rowDate: { ...typography.bodyMd, fontSize: 13, color: colors.secondary, marginTop: 2 },
-  rowLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  rowLocation: { ...typography.bodyMd, fontSize: 13, color: colors.onSecondaryContainer },
+  dayMarkerToday: { borderWidth: 2, borderColor: colors.primary },
+  dayMarkerFilled: { backgroundColor: colors.onSurface },
+  dayNumber: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
+  dayNumberOutOfMonth: { color: colors.onSurfaceVariant, opacity: 0.4 },
+  dayNumberFilled: { color: colors.surface, fontWeight: "700" },
   fab: {
     position: "absolute",
     right: spacing.marginMobile,
@@ -266,4 +309,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sheet: {
+    maxHeight: "70%",
+    backgroundColor: colors.surfaceContainerLowest,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.marginMobile,
+  },
+  sheetTitle: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginBottom: spacing.stackMd },
+  sheetList: { flexGrow: 0 },
+  sheetRow: {
+    backgroundColor: colors.surfaceContainerLow,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    padding: spacing.gutter,
+    marginBottom: spacing.stackSm,
+  },
+  sheetRowHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  badge: {
+    ...typography.labelSm,
+    fontSize: 10,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: 2,
+    overflow: "hidden",
+  },
+  clubTag: { ...typography.labelSm, fontSize: 10, color: colors.onSurfaceVariant, textTransform: "uppercase" },
+  sheetRowTitle: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onSurface, marginTop: spacing.stackSm },
+  sheetRowMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.gutter, marginTop: 4 },
+  sheetRowMeta: { ...typography.bodyMd, fontSize: 13, color: colors.secondary },
+  sheetRowLocationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
 });

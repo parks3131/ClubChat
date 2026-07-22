@@ -1,5 +1,6 @@
 import {
   addDays,
+  addMonths,
   combineToIso,
   formatCountdown,
   getMonday,
@@ -48,6 +49,27 @@ describe("addDays", () => {
 
   it("rolls over a month boundary", () => {
     expect(toDateKey(addDays(new Date(2026, 2, 30), 3))).toBe("2026-04-02");
+  });
+});
+
+describe("addMonths", () => {
+  it("adds a positive number of months", () => {
+    expect(toDateKey(addMonths(new Date(2026, 2, 5), 2))).toBe("2026-05-01");
+  });
+
+  it("subtracts with a negative number of months", () => {
+    expect(toDateKey(addMonths(new Date(2026, 2, 5), -2))).toBe("2026-01-01");
+  });
+
+  it("rolls over a year boundary", () => {
+    expect(toDateKey(addMonths(new Date(2026, 11, 15), 1))).toBe("2027-01-01");
+  });
+
+  it("doesn't overflow into the wrong month for a day that doesn't exist in the target month", () => {
+    // Jan 31 + 1 month would land on "Feb 31", which JS Date normalizes
+    // forward to Mar 3 — addMonths resets the day-of-month to 1 first so
+    // this always lands in February instead.
+    expect(toDateKey(addMonths(new Date(2026, 0, 31), 1))).toBe("2026-02-01");
   });
 });
 

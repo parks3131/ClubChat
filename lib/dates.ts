@@ -33,6 +33,18 @@ export function addDays(d: Date, n: number): Date {
   return date;
 }
 
+// Sets the day-of-month to 1 before adding months, so e.g. Jan 31 + 1
+// month doesn't overflow into March (JS Date would otherwise interpret
+// "Jan 31 + 1 month" as "Feb 31", which normalizes to Mar 3) — month-grid
+// navigation only ever cares about which month is visible, never a
+// specific day, so this loses no information that matters for that.
+export function addMonths(d: Date, n: number): Date {
+  const date = new Date(d);
+  date.setDate(1);
+  date.setMonth(date.getMonth() + n);
+  return date;
+}
+
 export function splitIso(iso: string): { date: string; time: string } {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
