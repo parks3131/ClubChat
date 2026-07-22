@@ -39,9 +39,21 @@ export default function RaceChatScreen() {
       avatarUrl={race.avatarUrl}
       memberPath={(userId) => `/clubs/${race.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${race.clubId}/race/${race.raceId}/highlights`}
-      backFallback={`/clubs/${race.clubId}/race/${race.raceId}`}
+      // Not race/[raceId]/index (the hub) — that screen now auto-redirects
+      // a member straight back here, which would bounce forever if this
+      // is ever hit as a "no back history" fallback (e.g. direct URL
+      // entry).
+      backFallback={`/clubs/${race.clubId}/races`}
       titlePath={`/clubs/${race.clubId}/race/${race.raceId}/profile`}
       fetchMentionCandidates={fetchMentionCandidates}
+      attachMenu={{
+        createPollPath: `/clubs/${race.clubId}/race/${race.raceId}/polls/create`,
+      }}
+      headerMenu={[
+        { label: "Meet Information", path: `/clubs/${race.clubId}/race/${race.raceId}/location`, icon: "info" },
+        { label: "Polls", path: `/clubs/${race.clubId}/race/${race.raceId}/polls`, icon: "how-to-vote" },
+        { label: "Car Assignments & Groups", path: `/clubs/${race.clubId}/race/${race.raceId}/carpool`, icon: "directions-car" },
+      ]}
     />
   );
 }

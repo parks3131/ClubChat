@@ -4,7 +4,7 @@
 
 export type ClubRole = "owner" | "admin" | "member";
 export type CalendarEventType = "race" | "practice" | "team_bonding" | "volunteer" | "other";
-export type MessageType = "text" | "photo" | "announcement" | "system" | "document" | "poll" | "event";
+export type MessageType = "text" | "photo" | "announcement" | "system" | "document" | "poll" | "event" | "meeting";
 export type ClubJoinPolicy = "open" | "request";
 export type JoinRequestStatus = "pending" | "approved" | "denied";
 export type RoutineActivityType =
@@ -135,6 +135,7 @@ export interface Database {
           document_size_bytes: number | null;
           poll_id: string | null;
           event_id: string | null;
+          meeting_id: string | null;
           pinned: boolean;
           created_at: string;
           deleted_at: string | null;

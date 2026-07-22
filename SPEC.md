@@ -481,12 +481,25 @@ app/                          Expo Router file-based routes
                                 + a "Manage roster" entry point, not the
                                 full hub; anyone with neither is
                                 redirected to the races list. `index.tsx`:
-                                hub — 3 rows (Chat, Meet Information, Car
-                                Assignments & Groups). `chat.tsx`/
-                                `highlights.tsx`: thin wrappers around the
-                                same shared components club chat uses —
-                                full feature parity for free, gated on
-                                `isMember` with a direct-URL guard.
+                                no more member-only grid (task after #47's
+                                chat-first nav rework, same session as
+                                Eboard's below) — a member is redirected
+                                straight to `/chat` on mount; this screen's
+                                only remaining job is the not-yet-a-member
+                                states above. `chat.tsx`/`highlights.tsx`:
+                                thin wrappers around the same shared
+                                components club chat uses — full feature
+                                parity for free, gated on `isMember` with
+                                a direct-URL guard. `chat.tsx` passes
+                                `attachMenu={{ createPollPath }}` (no
+                                Event/Meeting — race has no such concept)
+                                and `headerMenu` pointing at Meet
+                                Information/Polls/Car Assignments & Groups
+                                — the same 3 rows `index.tsx`'s grid used
+                                to hold, now reached from chat instead;
+                                `backFallback` points at the races list,
+                                not `index.tsx` (which would just bounce
+                                a member straight back here).
                                 `location.tsx` ("Meet Information", route
                                 name unchanged though the label isn't
                                 "location" anymore): 5 fields — description,
@@ -554,21 +567,41 @@ app/                          Expo Router file-based routes
                                 yet -> admin sees a "+ Create" prompt;
                                 channel exists but not a member -> name/
                                 description + Request-to-join/Requested;
-                                a member -> hub with Chat/Meetings rows.
-                                `create.tsx`: name + description (no date
-                                field). `chat.tsx`/`highlights.tsx`: thin
-                                wrappers around the same shared components
-                                club/race chat use. `meetings.tsx`:
-                                Upcoming/Past list (same shape as
-                                calendar.tsx), any member can create.
-                                `meeting/create.tsx`: title, description,
-                                date+time (plain YYYY-MM-DD + HH:MM
-                                fields), link (Zoom/Meet/etc, optional);
-                                redirects away if a non-creator hits an
-                                edit URL directly. `meeting/[meetingId].tsx`:
-                                detail view; Edit/Delete only render for
-                                the creator, "Added by <name>", tappable
-                                link opens via `Linking.openURL`.
+                                a member -> redirected straight to `/chat`
+                                on mount (task after #47's chat-first nav
+                                rework — no more member-only hub grid;
+                                Meetings/Polls are reached from chat's own
+                                header quick-nav grid instead, Chat being
+                                the screen itself). `create.tsx`: name +
+                                description (no date field). `chat.tsx`:
+                                passes `attachMenu={{ createPollPath,
+                                createMeetingPath }}` (any Eboard member
+                                can create either — `isAdmin` is
+                                unconditionally true here, see below) and
+                                `headerMenu` pointing at Meetings/Polls —
+                                the same 2 rows `index.tsx`'s old hub grid
+                                used to hold; `backFallback` points at the
+                                club hub, not `index.tsx` (which would
+                                just bounce a member straight back here).
+                                `highlights.tsx`: thin wrapper around the
+                                same shared components club/race chat use.
+                                `meetings.tsx`: Upcoming/Past list (same
+                                shape as calendar.tsx), any member can
+                                create. `meeting/create.tsx`: title,
+                                description, date+time (plain YYYY-MM-DD +
+                                HH:MM fields), link (Zoom/Meet/etc,
+                                optional); redirects away if a non-creator
+                                hits an edit URL directly; `?from=chat`
+                                (appended when reached from chat's "+")
+                                lands back on `/eboard/chat` after saving
+                                instead of the new meeting's own detail
+                                screen, mirroring event/create.tsx's same
+                                convention — redundant with the chat card
+                                the creation already auto-posts (0077).
+                                `meeting/[meetingId].tsx`: detail view;
+                                Edit/Delete only render for the creator,
+                                "Added by <name>", tappable link opens via
+                                `Linking.openURL`.
                                 `polls/{index,create,[pollId]}.tsx`: thin
                                 wrappers around the same shared
                                 components/PollsListScreen.tsx/etc. club/
@@ -596,55 +629,71 @@ components/ChatScreen.tsx       Chat UI/logic (messages, reactions, pin/
                                  `channelId`/`isAdmin`/`memberPath`/
                                  `highlightsPath`/`titlePath`/
                                  `backFallback`/`fetchMentionCandidates`,
-                                 plus two optional club-chat-only props:
-                                 `attachMenu` ({createPollPath,
-                                 createEventPath}) and `headerMenu`
-                                 ({label,path,icon}[]). Custom glass-blur
-                                 header (`expo-blur`) with a tappable
-                                 title (jumps to club-profile/race
-                                 roster/eboard roster), Highlights pill,
-                                 current-user avatar, and — only when
-                                 `headerMenu` is passed — a grid icon
-                                 opening a small dropdown of quick-nav
-                                 links (club chat passes Poll/Routines/
-                                 Events, resolving the club hub's
-                                 restructure-era gap for those two;
-                                 Eboard & Council's placement is still
-                                 open). Composer's "+" branches on
-                                 `attachMenu`: undefined keeps the
-                                 original single photo-picker icon
-                                 (race/Eboard chat, unchanged); when
+                                 plus optional props: `attachMenu`
+                                 ({createPollPath?, createEventPath?,
+                                 createMeetingPath?} — club passes Poll+
+                                 Event, race passes Poll only, Eboard
+                                 passes Poll+Meeting; task after #47's
+                                 chat-first Eboard/Race nav rework
+                                 extended this beyond its original
+                                 club-chat-only scoping, see section 5's
+                                 narrative) and `headerMenu`
+                                 ({label,path,icon}[] — club points at
+                                 Poll/Routines/Events, race at Meet
+                                 Information/Polls/Car Assignments &
+                                 Groups, Eboard at Meetings/Polls; each is
+                                 the same set of rows that scope's own hub
+                                 grid used to hold before members started
+                                 being redirected straight into chat).
+                                 Custom glass-blur header (`expo-blur`)
+                                 with a tappable title (jumps to
+                                 club-profile/race roster/eboard roster),
+                                 Highlights pill, current-user avatar, and
+                                 — only when `headerMenu` is passed — a
+                                 grid icon opening a small dropdown of
+                                 quick-nav links. Composer's "+" branches
+                                 on `attachMenu`: undefined keeps the
+                                 original single photo-picker icon; when
                                  present it's a WhatsApp-style expandable
-                                 grid (Photos/Camera/Document always,
-                                 Poll/Event admin-only via `isAdmin`) —
-                                 tapping the icon again (now showing a
-                                 keyboard glyph) or focusing the text
-                                 input collapses it back. Document
+                                 grid (Photos/Camera/Document always, each
+                                 create-action admin-gated via `isAdmin`
+                                 and only rendered when its path prop is
+                                 set) — tapping the icon again (now
+                                 showing a keyboard glyph) or focusing the
+                                 text input collapses it back. Document
                                  attachments render as a tap-to-open
                                  bubble (filename + size, opens the
                                  signed URL via `Linking.openURL`); photo
                                  rendering + tap-to-fullscreen Modal
-                                 viewer unchanged. `poll`/`event`
-                                 messages (0071_poll_event_chat_messages
-                                 .sql) render as PollMessageCard/
-                                 EventMessageCard — a poll bubble is
-                                 fully votable inline (reuses lib/
-                                 polls.ts's castVote/fetchPoll directly,
-                                 so allow_multiple/is_private/closed/
-                                 deadline behavior is identical to the
-                                 full PollDetailScreen, not a parallel
-                                 simplified copy) with a "View Poll" link
-                                 for what doesn't fit inline (voter list,
-                                 creator close/reopen/delete); an event
-                                 bubble is a plain title/date/location
-                                 card with a "View Event" button (no
-                                 RSVP concept in this app). Poll/event
-                                 data for these cards is hydrated by a
-                                 `useEffect` keyed on the message list
-                                 (`resolvePollPath`/`resolveEventPath`
-                                 props resolve where the links navigate;
-                                 only club chat passes them, matching
-                                 attachMenu/headerMenu's scoping). Per-message Delete
+                                 viewer unchanged. `poll`/`event`/
+                                 `meeting` messages
+                                 (0071_poll_event_chat_messages.sql,
+                                 0077_race_eboard_poll_meeting_chat_
+                                 messages.sql) render as PollMessageCard/
+                                 EventMessageCard/MeetingMessageCard — a
+                                 poll bubble is fully votable inline
+                                 (reuses lib/polls.ts's castVote/
+                                 fetchPoll directly, so allow_multiple/
+                                 is_private/closed/deadline behavior is
+                                 identical to the full PollDetailScreen,
+                                 not a parallel simplified copy) with a
+                                 "View Poll" link for what doesn't fit
+                                 inline (voter list, creator close/
+                                 reopen/delete); an event/meeting bubble
+                                 is a plain title/date(/location) card
+                                 with a "View Event"/"View Meeting"
+                                 button (no RSVP concept in this app).
+                                 Poll/event/meeting data for these cards
+                                 is hydrated by a `useEffect` keyed on the
+                                 message list (`resolveEventPath`/
+                                 `resolveMeetingPath` props resolve where
+                                 those two links navigate — polls need no
+                                 equivalent, the inline card is the full
+                                 UI already; only club chat passes
+                                 `resolveEventPath`, only Eboard chat
+                                 passes `resolveMeetingPath`, matching
+                                 each concept's own scoping). Per-message
+                                 Delete
                                  (sender or channel admin) and Report
                                  (anyone else), with a "This message was
                                  deleted" tombstone render when
@@ -1461,6 +1510,34 @@ supabase/migrations/
                                  null or eboard_channel_id is not null ->
                                  skipped) — calendar_events has no race/
                                  Eboard scope to begin with.
+
+  -- Note: migrations 0072-0075 (Eboard auto-create on club creation,
+  -- car-group-incharge-left system message, Leave Race/Eboard/car-group
+  -- self-service) exist on disk but were never back-filled into this
+  -- list either — read them directly if needed. Resuming here at 0076.
+
+  0076_meeting_message_type_enum.sql
+                                 Adds 'meeting' to message_type, alone in
+                                 its own file per this section's own
+                                 enum-transaction lesson.
+  0077_race_eboard_poll_meeting_chat_messages.sql
+                                 Task after #47's chat-first Eboard/Race
+                                 nav rework (see section 5's narrative) —
+                                 messages.meeting_id (`on delete cascade`,
+                                 same shape as poll_id/event_id);
+                                 post_meeting_chat_message(), a new
+                                 trigger on eboard_meetings insert, same
+                                 shape as 0071's poll/event triggers, but
+                                 posting into the Eboard's own channel
+                                 (looked up by eboard_channel_id) rather
+                                 than a club's main one. Also re-creates
+                                 post_poll_chat_message() (0071): its
+                                 race/Eboard branches were previously
+                                 skipped entirely ("club-scoped only for
+                                 now") — closed now that race/Eboard chat
+                                 get their own "+" poll-creation shortcut,
+                                 by routing to that race's/Eboard's own
+                                 channel instead of skipping.
 ```
 
 ## 5. Current status
@@ -1626,6 +1703,44 @@ same shape as the existing join/leave system-message triggers —
 deleting the underlying poll/event cascades to remove its chat card
 too (confirmed live). Club-scoped only for now, matching the "+"
 attach menu's own scoping.
+
+**Same session, next**: extended the club-chat-only "+" attach menu and
+header quick-nav grid to Race and Eboard chat, and removed both of their
+own intermediate hub screens for members — the same restructure club chat
+already went through, applied one level down. `race/[raceId]/index.tsx`
+and `eboard/index.tsx` no longer show a member-only grid; a member is
+redirected straight into `/chat` on mount instead (the not-yet-a-member
+states — "no channel yet," "Request to join" — are unchanged, since
+those still need a real landing page). Race chat's "+" gets Poll only
+(no Event/Meeting concept there); its header grid gets Meet Information/
+Polls/Car Assignments & Groups, the exact 3 rows its old hub grid used to
+hold. Eboard chat's "+" gets Poll and Meeting (any Eboard member can
+create either, mirroring the existing any-member rules for both); its
+header grid gets Meetings/Polls. A created Eboard meeting now auto-posts
+into Eboard chat the same way polls/events already did for club chat —
+new `meeting` message type + `messages.meeting_id`, a
+`post_meeting_chat_message()` trigger mirroring 0071's shape (migration
+0077). The existing `post_poll_chat_message()` trigger, previously
+club-scoped only ("race/Eboard skipped, for now"), was re-created in the
+same migration to route into that race's/Eboard's own channel instead of
+skipping — closing the exact carve-out its own comment flagged, now that
+race/Eboard chat have a poll-creation shortcut of their own. Caught one
+real bug before writing any code, not during live testing: chat's own
+`backFallback` prop (used when there's no navigation history to pop —
+direct URL entry, a page refresh) pointed at each hub screen, which would
+now bounce a member straight back to chat, an infinite loop with no way
+out. Fixed by retargeting `backFallback`, plus every sibling screen's
+`headerLeft` fallback that used to point at the hub (Meetings/Polls/Meet
+Information/Car Assignments), to the *grandparent* instead — the club hub
+for Eboard, the races list for Race. Verified live via Playwright: a
+member landing on `/eboard`, `/eboard/chat`, `/race/[id]`, and
+`/race/[id]/chat` via cold direct-URL navigation all settle on chat
+within about a second (the intermediate hub renders for one frame, never
+visibly), the chat back button lands on the correct grandparent with no
+loop, both attach-menu create-actions post a live inline card (confirmed
+for both a race poll and an Eboard meeting) with a working "View
+Poll"/"View Meeting" link out, and both header grids link to the correct
+3/2 destinations.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 

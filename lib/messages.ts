@@ -15,6 +15,7 @@ export interface DisplayMessage {
   documentSizeBytes: number | null;
   pollId: string | null;
   eventId: string | null;
+  meetingId: string | null;
   pinned: boolean;
   createdAt: string;
   deletedAt: string | null;
@@ -68,6 +69,7 @@ async function attachSendersAndReactions(
     document_size_bytes: number | null;
     poll_id: string | null;
     event_id: string | null;
+    meeting_id: string | null;
     pinned: boolean;
     created_at: string;
     deleted_at: string | null;
@@ -127,6 +129,7 @@ async function attachSendersAndReactions(
     documentSizeBytes: m.document_size_bytes,
     pollId: m.poll_id,
     eventId: m.event_id,
+    meetingId: m.meeting_id,
     pinned: m.pinned,
     createdAt: m.created_at,
     deletedAt: m.deleted_at,
@@ -142,7 +145,7 @@ export async function fetchMessages(
   if (options?.limit) {
     let query = supabase
       .from("messages")
-      .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
+      .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, meeting_id, pinned, created_at, deleted_at")
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
       .limit(options.limit);
@@ -159,7 +162,7 @@ export async function fetchMessages(
 
   const { data, error } = await supabase
     .from("messages")
-    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
+    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, meeting_id, pinned, created_at, deleted_at")
     .eq("channel_id", channelId)
     .order("created_at", { ascending: true });
 
@@ -318,6 +321,7 @@ export async function deleteMessage(messageId: string) {
       document_size_bytes: null,
       poll_id: null,
       event_id: null,
+      meeting_id: null,
     })
     .eq("id", messageId);
   if (error) throw error;
@@ -355,7 +359,7 @@ export async function fetchReportedMessages(channelId: string): Promise<Reported
 
   const { data: messageRows, error: messagesError } = await supabase
     .from("messages")
-    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, pinned, created_at, deleted_at")
+    .select("id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, meeting_id, pinned, created_at, deleted_at")
     .in("id", [...countByMessageId.keys()]);
   if (messagesError) throw messagesError;
 

@@ -133,7 +133,12 @@ export default function EboardLayout() {
           options={{
             ...headerOptions,
             title: "Chat",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`),
+            // ChatScreen hides this native header entirely (headerShown:
+            // false) and uses its own `backFallback` prop instead — this
+            // never actually renders, but points at the club hub (not the
+            // eboard hub, which now auto-forwards back here) for
+            // consistency with that prop.
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
           }}
         />
         <Stack.Screen
@@ -145,7 +150,10 @@ export default function EboardLayout() {
           options={{
             ...headerOptions,
             title: "Meetings",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`),
+            // Reached via chat's header quick-nav grid now, not the old
+            // hub grid — back goes straight there, not through the hub
+            // (which would just auto-forward back to chat anyway).
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/chat`),
           }}
         />
         <Stack.Screen
@@ -165,7 +173,7 @@ export default function EboardLayout() {
           options={{
             ...headerOptions,
             title: "Polls",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard`),
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/eboard/chat`),
           }}
         />
         <Stack.Screen

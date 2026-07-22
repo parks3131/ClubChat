@@ -19,7 +19,7 @@ import { createMeeting, fetchMeeting, updateMeeting } from "../../../../../../li
 import { useEboard } from "../_layout";
 
 export default function CreateOrEditMeetingScreen() {
-  const { meetingId } = useLocalSearchParams<{ meetingId?: string }>();
+  const { meetingId, from } = useLocalSearchParams<{ meetingId?: string; from?: string }>();
   const eboard = useEboard();
   const { session } = useAuth();
   const router = useRouter();
@@ -116,7 +116,14 @@ export default function CreateOrEditMeetingScreen() {
           meetingAt,
           createdBy: session.user.id,
         });
-        router.replace(`/clubs/${eboard.clubId}/eboard/meeting/${created.id}`);
+        // Reached from Eboard chat's "+" attach menu (?from=chat, appended
+        // by ChatScreen) — landing on the meeting's own detail screen is
+        // redundant with the chat card this creation already auto-posts
+        // (0077), and just adds an extra back-tap to return to the
+        // conversation.
+        router.replace(
+          from === "chat" ? `/clubs/${eboard.clubId}/eboard/chat` : `/clubs/${eboard.clubId}/eboard/meeting/${created.id}`
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

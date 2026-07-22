@@ -1,19 +1,12 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors, radii, spacing, typography, type MaterialIconName } from "../../../../../../constants/theme";
+import { colors, radii, spacing, typography } from "../../../../../../constants/theme";
 import { useAuth } from "../../../../../../contexts/AuthProvider";
 import { requestJoinRace } from "../../../../../../lib/races";
 import { supabase } from "../../../../../../lib/supabase";
 import { useRace } from "./_layout";
-
-const SECTIONS: { key: string; label: string; subtitle: string; icon: MaterialIconName; tint: string }[] = [
-  { key: "chat", label: "Chat", subtitle: "Jump into the conversation", icon: "forum", tint: colors.primary },
-  { key: "location", label: "Meet Information", subtitle: "Location, hotel, photos & results", icon: "info", tint: colors.secondary },
-  { key: "polls", label: "Polls", subtitle: "Vote on what's next", icon: "how-to-vote", tint: colors.secondary },
-  { key: "carpool", label: "Car Assignments & Groups", subtitle: "Who's riding with who", icon: "directions-car", tint: colors.tertiary },
-];
 
 function formatEventDate(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
@@ -26,15 +19,23 @@ function formatEventDate(dateKey: string) {
 }
 
 // Mirrors eboard/index.tsx's "visible to managers, membership is separate"
-// branching: isMember gets the full hub unchanged; a manager who wasn't
-// added sees name/date + Request to join, plus a way into the roster to
-// manage/approve others without needing to join themselves first.
+// branching for the not-yet-a-member states (name/date + Request to join,
+// plus a way into the roster to manage/approve others without needing to
+// join themselves first). Chat/Meet Info/Polls/Car Assignments no longer
+// have a grid here — a member is bounced straight into chat, which reaches
+// the other three via its own header quick-nav grid instead.
 export default function RaceHubScreen() {
   const race = useRace();
   const router = useRouter();
   const { session } = useAuth();
   const [requesting, setRequesting] = useState(false);
   const [requestPending, setRequestPending] = useState(false);
+
+  useEffect(() => {
+    if (race.isMember) {
+      router.replace(`/clubs/${race.clubId}/race/${race.raceId}/chat`);
+    }
+  }, [race.isMember, race.clubId, race.raceId, router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -99,55 +100,17 @@ export default function RaceHubScreen() {
     );
   }
 
+  // A member never actually sees this — the effect above replaces to
+  // /chat before this would render anything meaningful.
   return (
-    <View style={styles.container}>
-      <View style={styles.identity}>
-        <Text style={styles.raceName}>{race.name.toUpperCase()}</Text>
-        <Text style={styles.date}>{formatEventDate(race.eventDate)}</Text>
-      </View>
-
-      <View style={styles.grid}>
-        {SECTIONS.map((section) => (
-          <TouchableOpacity
-            key={section.key}
-            style={styles.card}
-            onPress={() => router.push(`/clubs/${race.clubId}/race/${race.raceId}/${section.key}`)}
-          >
-            <View style={[styles.iconBadge, { backgroundColor: section.tint }]}>
-              <MaterialIcons name={section.icon} size={22} color={colors.onPrimary} />
-            </View>
-            <View style={styles.cardTextWrap}>
-              <Text style={styles.cardLabel}>{section.label.toUpperCase()}</Text>
-              <Text style={styles.cardSubtitle}>{section.subtitle}</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
-          </TouchableOpacity>
-        ))}
-      </View>
+    <View style={[styles.container, { alignItems: "center", justifyContent: "center" }]}>
+      <ActivityIndicator color={colors.primary} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
-  identity: { alignItems: "center", marginBottom: spacing.gutter },
-  raceName: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5, textAlign: "center" },
-  date: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.unit },
-  grid: { gap: spacing.stackSm },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.gutter,
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
-  },
-  iconBadge: { width: 44, height: 44, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
-  cardTextWrap: { flex: 1 },
-  cardLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
-  cardSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
   emptyState: { alignItems: "center", marginTop: spacing.stackLg, gap: spacing.stackSm, paddingHorizontal: spacing.gutter },
   emptyIconBadge: {
     width: 56,

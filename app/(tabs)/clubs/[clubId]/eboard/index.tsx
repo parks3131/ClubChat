@@ -1,21 +1,27 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { colors, radii, spacing, typography, type MaterialIconName } from "../../../../../constants/theme";
+import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { requestJoinEboardChannel } from "../../../../../lib/eboard";
 import { useEboard } from "./_layout";
 
-const SECTIONS: { key: string; label: string; subtitle: string; icon: MaterialIconName; tint: string }[] = [
-  { key: "chat", label: "Chat", subtitle: "Jump into the conversation", icon: "forum", tint: colors.primary },
-  { key: "meetings", label: "Meetings", subtitle: "Upcoming & past meetings", icon: "groups", tint: colors.secondary },
-  { key: "polls", label: "Polls", subtitle: "Vote on what's next", icon: "how-to-vote", tint: colors.secondary },
-];
-
+// No more member-only grid here — Chat/Meetings/Polls all now live behind
+// the chat screen itself (Meetings/Polls via its header quick-nav grid,
+// Chat being the screen itself), so a member is bounced straight there.
+// This screen's remaining job is the two states that still need a real
+// landing page: no channel created yet, and "not a member" (request-to-
+// join UI, or "Manage roster" for a manager who hasn't joined).
 export default function EboardHubScreen() {
   const eboard = useEboard();
   const router = useRouter();
   const [requesting, setRequesting] = useState(false);
+
+  useEffect(() => {
+    if (eboard.channel?.isMember) {
+      router.replace(`/clubs/${eboard.clubId}/eboard/chat`);
+    }
+  }, [eboard.channel, eboard.clubId, router]);
 
   const handleRequest = async () => {
     if (!eboard.channel) return;
@@ -74,55 +80,17 @@ export default function EboardHubScreen() {
     );
   }
 
+  // A member never actually sees this — the effect above replaces to
+  // /chat before this would render anything meaningful.
   return (
-    <View style={styles.container}>
-      <View style={styles.identity}>
-        <Text style={styles.raceName}>{eboard.channel.name.toUpperCase()}</Text>
-        {eboard.channel.description ? <Text style={styles.date}>{eboard.channel.description}</Text> : null}
-      </View>
-
-      <View style={styles.grid}>
-        {SECTIONS.map((section) => (
-          <TouchableOpacity
-            key={section.key}
-            style={styles.card}
-            onPress={() => router.push(`/clubs/${eboard.clubId}/eboard/${section.key}`)}
-          >
-            <View style={[styles.iconBadge, { backgroundColor: section.tint }]}>
-              <MaterialIcons name={section.icon} size={22} color={colors.onPrimary} />
-            </View>
-            <View style={styles.cardTextWrap}>
-              <Text style={styles.cardLabel}>{section.label.toUpperCase()}</Text>
-              <Text style={styles.cardSubtitle}>{section.subtitle}</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
-          </TouchableOpacity>
-        ))}
-      </View>
+    <View style={[styles.container, { alignItems: "center", justifyContent: "center" }]}>
+      <ActivityIndicator color={colors.primary} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
-  identity: { alignItems: "center", marginBottom: spacing.gutter },
-  raceName: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5, textAlign: "center" },
-  date: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.unit, textAlign: "center" },
-  grid: { gap: spacing.stackSm },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.gutter,
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
-  },
-  iconBadge: { width: 44, height: 44, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
-  cardTextWrap: { flex: 1 },
-  cardLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
-  cardSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
   emptyState: { alignItems: "center", marginTop: spacing.stackLg, gap: spacing.stackSm, paddingHorizontal: spacing.gutter },
   emptyIconBadge: {
     width: 56,

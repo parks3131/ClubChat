@@ -39,15 +39,30 @@ export default function EboardChatScreen() {
       channelId={eboard.channel.channelId}
       // Every eboard_channel_member is guaranteed to already be a club
       // admin (enforced in the insert policy, migration 0017_eboard.sql)
-      // — no separate "eboard admin" role needed for pin/announce rights.
+      // — no separate "eboard admin" role needed for pin/announce rights,
+      // and the same boolean now also gates the "+" Poll/Meeting
+      // create-actions below (always true here, so effectively "any
+      // Eboard member can create", matching lib/polls.ts's canCreate rule).
       isAdmin
       placeholderName={eboard.channel.name}
       avatarUrl={eboard.channel.avatarUrl}
       memberPath={(userId) => `/clubs/${eboard.clubId}/member/${userId}`}
       highlightsPath={`/clubs/${eboard.clubId}/eboard/highlights`}
-      backFallback={`/clubs/${eboard.clubId}/eboard`}
+      // Not eboard/index (the hub) — that screen now auto-redirects a
+      // member straight back here, which would bounce forever if this is
+      // ever hit as a "no back history" fallback (e.g. direct URL entry).
+      backFallback={`/clubs/${eboard.clubId}`}
       titlePath={`/clubs/${eboard.clubId}/eboard/profile`}
       fetchMentionCandidates={fetchMentionCandidates}
+      attachMenu={{
+        createPollPath: `/clubs/${eboard.clubId}/eboard/polls/create`,
+        createMeetingPath: `/clubs/${eboard.clubId}/eboard/meeting/create`,
+      }}
+      headerMenu={[
+        { label: "Meetings", path: `/clubs/${eboard.clubId}/eboard/meetings`, icon: "groups" },
+        { label: "Polls", path: `/clubs/${eboard.clubId}/eboard/polls`, icon: "how-to-vote" },
+      ]}
+      resolveMeetingPath={(meetingId) => `/clubs/${eboard.clubId}/eboard/meeting/${meetingId}`}
     />
   );
 }

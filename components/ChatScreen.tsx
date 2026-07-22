@@ -28,6 +28,7 @@ import { colors, radii, spacing, typography, type MaterialIconName } from "../co
 import { useAuth } from "../contexts/AuthProvider";
 import { useNotifications } from "../contexts/NotificationsProvider";
 import { fetchEvent, type DisplayCalendarEvent } from "../lib/calendar";
+import { fetchMeeting, type EboardMeeting } from "../lib/eboard";
 import {
   deleteMessage,
   fetchMessages,
@@ -117,28 +118,35 @@ export interface ChatScreenProps {
   // re-fetched on every keystroke.
   fetchMentionCandidates: () => Promise<MentionCandidate[]>;
   // Founder wireframe: a WhatsApp-style expandable "+" grid (Photos /
-  // Camera / Document, plus Poll/Event for admins) replacing the old
-  // single photo-picker icon. Only club chat passes this for now — race/
-  // Eboard chat keep the old single-icon behavior unchanged until the
-  // founder says to extend it there too, per explicit scoping call.
+  // Camera / Document, plus admin-gated create-actions) replacing the old
+  // single photo-picker icon. Club chat passes createPollPath +
+  // createEventPath; race chat passes createPollPath only (no Event/
+  // Meeting concept there); Eboard chat passes createPollPath +
+  // createMeetingPath (no Event concept there). Each create-action posts
+  // an inline card into this same chat the instant it's created,
+  // regardless of scope (see 0071/0077's triggers).
   attachMenu?: {
-    createPollPath: string;
-    createEventPath: string;
+    createPollPath?: string;
+    createEventPath?: string;
+    createMeetingPath?: string;
   };
   // The chat header's grid icon (next to Highlights) — opens a small
-  // dropdown of quick-nav links. Only club chat passes this, pointing at
-  // Polls/Routines/Calendar, the same 3 screens the club hub dropped from
-  // its own row-per-feature list — Eboard & Council isn't included here,
-  // its placement is still an open founder decision.
+  // dropdown of quick-nav links. Club chat points at Polls/Routines/
+  // Calendar; race chat at Meet Information/Polls/Car Assignments &
+  // Groups; Eboard chat at Meetings/Polls — the same screens each hub's
+  // own row-per-feature grid used to hold, now reached from chat instead.
   headerMenu?: { label: string; path: string; icon: MaterialIconName }[];
   // A created club event auto-posts into chat as its own message
   // (0071_poll_event_chat_messages.sql) — resolves where "View Event"
   // should navigate. Only club chat passes this, since only club-scoped
-  // events post to chat for now (race/Eboard events don't yet, matching
-  // attachMenu/headerMenu's scoping). Polls no longer need an equivalent
-  // — the inline poll card renders the full PollCard UI directly (see
-  // PollMessageCard below) rather than linking out to a separate screen.
+  // events post to chat (calendar_events has no race/Eboard scope to
+  // begin with). Polls no longer need an equivalent — the inline poll
+  // card renders the full PollCard UI directly (see PollMessageCard
+  // below) rather than linking out to a separate screen.
   resolveEventPath?: (eventId: string) => string;
+  // Same idea for a created Eboard meeting (0077) — only Eboard chat
+  // passes this.
+  resolveMeetingPath?: (meetingId: string) => string;
 }
 
 export default function ChatScreen({
@@ -154,6 +162,7 @@ export default function ChatScreen({
   attachMenu,
   headerMenu,
   resolveEventPath,
+  resolveMeetingPath,
 }: ChatScreenProps) {
   const router = useRouter();
   const navigation = useNavigation();
@@ -175,6 +184,7 @@ export default function ChatScreen({
   const inputRef = useRef<TextInput>(null);
   const [pollDataByMessageId, setPollDataByMessageId] = useState<Map<string, PollDetail>>(new Map());
   const [eventDataByMessageId, setEventDataByMessageId] = useState<Map<string, DisplayCalendarEvent>>(new Map());
+  const [meetingDataByMessageId, setMeetingDataByMessageId] = useState<Map<string, EboardMeeting>>(new Map());
   const [votingPollOptionId, setVotingPollOptionId] = useState<string | null>(null);
   // The message currently showing the ⋮ actions popup (reaction row +
   // Pin/Delete/Report) — replaces what used to be an always-visible text
@@ -284,18 +294,23 @@ export default function ChatScreen({
     if (!session) return;
     const pollMessages = messages.filter((m) => m.messageType === "poll" && m.pollId);
     const eventMessages = messages.filter((m) => m.messageType === "event" && m.eventId);
-    if (pollMessages.length === 0 && eventMessages.length === 0) return;
+    const meetingMessages = messages.filter((m) => m.messageType === "meeting" && m.meetingId);
+    if (pollMessages.length === 0 && eventMessages.length === 0 && meetingMessages.length === 0) return;
 
     let cancelled = false;
     Promise.all([
       Promise.all(pollMessages.map((m) => fetchPoll(m.pollId!, session.user.id).then((data) => [m.id, data] as const))),
       Promise.all(eventMessages.map((m) => fetchEvent(m.eventId!).then((data) => [m.id, data] as const))),
+      Promise.all(meetingMessages.map((m) => fetchMeeting(m.meetingId!).then((data) => [m.id, data] as const))),
     ])
-      .then(([pollEntries, eventEntries]) => {
+      .then(([pollEntries, eventEntries, meetingEntries]) => {
         if (cancelled) return;
         setPollDataByMessageId(new Map(pollEntries));
         setEventDataByMessageId(
           new Map(eventEntries.filter((entry): entry is [string, DisplayCalendarEvent] => entry[1] !== null))
+        );
+        setMeetingDataByMessageId(
+          new Map(meetingEntries.filter((entry): entry is [string, EboardMeeting] => entry[1] !== null))
         );
       })
       .catch(reportError);
@@ -771,6 +786,12 @@ export default function ChatScreen({
                     isMine={isMine}
                     onViewEvent={() => resolveEventPath && router.push(resolveEventPath(item.eventId!))}
                   />
+                ) : item.messageType === "meeting" && item.meetingId ? (
+                  <MeetingMessageCard
+                    meeting={meetingDataByMessageId.get(item.id) ?? null}
+                    isMine={isMine}
+                    onViewMeeting={() => resolveMeetingPath && router.push(resolveMeetingPath(item.meetingId!))}
+                  />
                 ) : (
                   <Text style={[styles.body, isMine && styles.bodyMine]}>
                     {renderBodyWithMentions(item.body ?? "", item.mentions, isMine ? styles.mentionTextMine : styles.mentionText)}
@@ -893,7 +914,9 @@ export default function ChatScreen({
                             ? `📊 ${pollDataByMessageId.get(m.id)?.question ?? "Poll"}`
                             : m.messageType === "event"
                               ? `📅 ${eventDataByMessageId.get(m.id)?.title ?? "Event"}`
-                              : m.body}
+                              : m.messageType === "meeting"
+                                ? `🗓️ ${meetingDataByMessageId.get(m.id)?.title ?? "Meeting"}`
+                                : m.body}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -973,7 +996,7 @@ export default function ChatScreen({
             </View>
             <Text style={styles.attachGridLabel}>Document</Text>
           </TouchableOpacity>
-          {isAdmin && (
+          {isAdmin && attachMenu.createPollPath && (
             <TouchableOpacity
               style={styles.attachGridItem}
               onPress={() => {
@@ -987,7 +1010,7 @@ export default function ChatScreen({
               <Text style={styles.attachGridLabel}>Poll</Text>
             </TouchableOpacity>
           )}
-          {isAdmin && (
+          {isAdmin && attachMenu.createEventPath && (
             <TouchableOpacity
               style={styles.attachGridItem}
               onPress={() => {
@@ -999,6 +1022,20 @@ export default function ChatScreen({
                 <MaterialIcons name="event" size={24} color={colors.onPrimary} />
               </View>
               <Text style={styles.attachGridLabel}>Event</Text>
+            </TouchableOpacity>
+          )}
+          {isAdmin && attachMenu.createMeetingPath && (
+            <TouchableOpacity
+              style={styles.attachGridItem}
+              onPress={() => {
+                setAttachMenuOpen(false);
+                router.push(`${attachMenu.createMeetingPath}?from=chat`);
+              }}
+            >
+              <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt4]}>
+                <MaterialIcons name="groups" size={24} color={colors.onPrimary} />
+              </View>
+              <Text style={styles.attachGridLabel}>Meeting</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1239,6 +1276,46 @@ function EventMessageCard({
       )}
       <TouchableOpacity style={styles.eventCardButton} onPress={onViewEvent}>
         <Text style={styles.eventCardButtonText}>View Event</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// Same shape as EventMessageCard — an Eboard meeting has no RSVP concept
+// either, just a title/date/link card linking out to the real meeting
+// detail screen (which shows the description/"Added by" and Edit/Delete
+// for the creator).
+function MeetingMessageCard({
+  meeting,
+  isMine,
+  onViewMeeting,
+}: {
+  meeting: EboardMeeting | null;
+  isMine: boolean;
+  onViewMeeting: () => void;
+}) {
+  if (!meeting) {
+    return <ActivityIndicator size="small" color={isMine ? colors.onPrimary : colors.primary} />;
+  }
+  return (
+    <View style={styles.eventCard}>
+      <View style={styles.eventCardHeader}>
+        <MaterialIcons name="groups" size={18} color={isMine ? colors.onPrimary : colors.primary} />
+        <Text style={[styles.eventCardTitle, isMine && styles.bodyMine]} numberOfLines={1}>
+          {meeting.title}
+        </Text>
+      </View>
+      <Text style={[styles.eventCardDate, isMine && styles.eventCardMetaMine]}>
+        {new Date(meeting.meetingAt).toLocaleString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </Text>
+      <TouchableOpacity style={styles.eventCardButton} onPress={onViewMeeting}>
+        <Text style={styles.eventCardButtonText}>View Meeting</Text>
       </TouchableOpacity>
     </View>
   );

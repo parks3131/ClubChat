@@ -179,7 +179,12 @@ export default function RaceLayout() {
           options={{
             ...raceScreenOptions,
             title: "Chat",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+            // ChatScreen hides this native header entirely (headerShown:
+            // false) and uses its own `backFallback` prop instead — this
+            // never actually renders, but points at the races list (not
+            // the race hub, which now auto-forwards back here) for
+            // consistency with that prop.
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/races`),
           }}
         />
         <Stack.Screen
@@ -216,7 +221,10 @@ export default function RaceLayout() {
           options={{
             ...raceScreenOptions,
             title: "Meet Information",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+            // Reached via chat's header quick-nav grid now, not the old
+            // hub grid — back goes straight there, not through the hub
+            // (which would just auto-forward back to chat anyway).
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/chat`),
           }}
         />
         <Stack.Screen
@@ -224,7 +232,7 @@ export default function RaceLayout() {
           options={{
             ...raceScreenOptions,
             title: "Polls",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/chat`),
           }}
         />
         <Stack.Screen
@@ -247,7 +255,7 @@ export default function RaceLayout() {
           options={{
             ...raceScreenOptions,
             title: "Car Assignments & Groups",
-            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}`),
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}/race/${race.raceId}/chat`),
           }}
         />
         <Stack.Screen

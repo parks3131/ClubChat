@@ -29,6 +29,7 @@ export default function EboardPollCreateScreen() {
       canCreate
       listPath={`/clubs/${eboard.clubId}/eboard/polls`}
       pollPath={(pollId) => `/clubs/${eboard.clubId}/eboard/polls/${pollId}`}
+      chatPath={`/clubs/${eboard.clubId}/eboard/chat`}
     />
   );
 }

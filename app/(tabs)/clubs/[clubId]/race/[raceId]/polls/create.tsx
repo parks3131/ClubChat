@@ -10,6 +10,7 @@ export default function RacePollCreateScreen() {
       canCreate={race.isManager && race.isMember}
       listPath={`/clubs/${race.clubId}/race/${race.raceId}/polls`}
       pollPath={(pollId) => `/clubs/${race.clubId}/race/${race.raceId}/polls/${pollId}`}
+      chatPath={`/clubs/${race.clubId}/race/${race.raceId}/chat`}
     />
   );
 }
