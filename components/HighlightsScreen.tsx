@@ -13,7 +13,22 @@ import {
   type DisplayMessage,
   type ReportedMessage,
 } from "../lib/messages";
+import { highlightMentions, type MentionCandidate } from "../lib/mentions";
 import { reportError } from "../lib/reportError";
+
+// Same mention-rendering treatment as components/ChatScreen.tsx — swaps
+// any @mention text for a visually distinct inline span.
+function renderBodyWithMentions(body: string, mentions: MentionCandidate[]) {
+  return highlightMentions(body, mentions).map((segment, index) =>
+    segment.type === "mention" ? (
+      <Text key={index} style={styles.mentionText}>
+        @{segment.name}
+      </Text>
+    ) : (
+      segment.value
+    )
+  );
+}
 
 type Tab = "pinned" | "announcements" | "reports";
 
@@ -208,10 +223,10 @@ function HighlightRow({
         ) : item.messageType === "photo" && item.photoUrl ? (
           <View>
             <Image source={{ uri: item.photoUrl }} style={styles.photoThumb} resizeMode="cover" />
-            {item.body ? <Text style={styles.body}>{item.body}</Text> : null}
+            {item.body ? <Text style={styles.body}>{renderBodyWithMentions(item.body, item.mentions)}</Text> : null}
           </View>
         ) : (
-          <Text style={styles.body}>{item.body}</Text>
+          <Text style={styles.body}>{item.body ? renderBodyWithMentions(item.body, item.mentions) : null}</Text>
         )}
       </View>
     </View>
@@ -255,10 +270,10 @@ function ReportRow({
         ) : item.messageType === "photo" && item.photoUrl ? (
           <View>
             <Image source={{ uri: item.photoUrl }} style={styles.photoThumb} resizeMode="cover" />
-            {item.body ? <Text style={styles.body}>{item.body}</Text> : null}
+            {item.body ? <Text style={styles.body}>{renderBodyWithMentions(item.body, item.mentions)}</Text> : null}
           </View>
         ) : (
-          <Text style={styles.body}>{item.body}</Text>
+          <Text style={styles.body}>{item.body ? renderBodyWithMentions(item.body, item.mentions) : null}</Text>
         )}
         <View style={styles.reportActions}>
           {!item.deletedAt && (
@@ -341,6 +356,7 @@ const styles = StyleSheet.create({
   reportCount: { ...typography.labelSm, color: colors.error, textTransform: "none" },
   time: { ...typography.labelSm, color: colors.onSurfaceVariant, marginLeft: "auto", textTransform: "none" },
   body: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface, marginTop: spacing.unit },
+  mentionText: { fontWeight: "700", color: colors.primary },
   deletedText: { ...typography.bodyMd, fontSize: 15, color: colors.onSurfaceVariant, fontStyle: "italic", marginTop: spacing.unit },
   photoThumb: { width: 160, height: 160, borderRadius: radii.DEFAULT, marginTop: spacing.unit, backgroundColor: colors.surfaceVariant },
   reportActions: { flexDirection: "row", gap: spacing.gutter, marginTop: spacing.stackSm },

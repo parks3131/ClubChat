@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import ChatScreen from "../../../../../../components/ChatScreen";
+import { fetchRaceMembers } from "../../../../../../lib/races";
 import { useRace } from "./_layout";
 
 // Only a member can be here — index.tsx never links to /chat otherwise
@@ -10,6 +11,11 @@ import { useRace } from "./_layout";
 export default function RaceChatScreen() {
   const race = useRace();
   const router = useRouter();
+
+  const fetchMentionCandidates = useCallback(
+    () => fetchRaceMembers(race.raceId).then((rows) => rows.map((r) => ({ id: r.userId, fullName: r.fullName }))),
+    [race.raceId]
+  );
 
   useEffect(() => {
     if (!race.isMember) {
@@ -35,6 +41,7 @@ export default function RaceChatScreen() {
       highlightsPath={`/clubs/${race.clubId}/race/${race.raceId}/highlights`}
       backFallback={`/clubs/${race.clubId}/race/${race.raceId}`}
       titlePath={`/clubs/${race.clubId}/race/${race.raceId}/profile`}
+      fetchMentionCandidates={fetchMentionCandidates}
     />
   );
 }

@@ -26,6 +26,7 @@ const ICON_BY_TYPE: Record<NotificationType, MaterialIconName> = {
   announcement: "campaign",
   poll_closing_soon: "timer",
   chat_caught_up: "done-all",
+  mentioned: "alternate-email",
 };
 
 const PAGE_SIZE = 20;

@@ -18,6 +18,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type TextStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
@@ -35,6 +36,13 @@ import {
   togglePinned,
   type DisplayMessage,
 } from "../lib/messages";
+import {
+  filterMentionCandidates,
+  highlightMentions,
+  insertMentionIntoDraft,
+  matchTrailingMentionQuery,
+  type MentionCandidate,
+} from "../lib/mentions";
 import { markChannelRead } from "../lib/notifications";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
 import { reportError } from "../lib/reportError";
@@ -90,6 +98,11 @@ export interface ChatScreenProps {
   // "tap the name to manage membership" pattern used everywhere else in
   // the app, which the custom header initially dropped.
   titlePath: string;
+  // Powers @mention autocomplete — the pool of members eligible to be
+  // tagged in this channel (club members / race roster / Eboard roster,
+  // per call site). Fetched once per channel mount and cached; not
+  // re-fetched on every keystroke.
+  fetchMentionCandidates: () => Promise<MentionCandidate[]>;
 }
 
 export default function ChatScreen({
@@ -101,6 +114,7 @@ export default function ChatScreen({
   highlightsPath,
   backFallback,
   titlePath,
+  fetchMentionCandidates,
 }: ChatScreenProps) {
   const router = useRouter();
   const navigation = useNavigation();
@@ -120,6 +134,12 @@ export default function ChatScreen({
   const [viewerPhotoUrl, setViewerPhotoUrl] = useState<string | null>(null);
   const [reportedIds, setReportedIds] = useState<Set<string>>(new Set());
   const [dismissedPinnedIds, setDismissedPinnedIds] = useState<Set<string>>(new Set());
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  // Users tagged in the current draft (via the autocomplete below), sent
+  // alongside the message as structured ids rather than embedded in the
+  // body text itself — see lib/mentions.ts's module comment for why.
+  const [pendingMentions, setPendingMentions] = useState<MentionCandidate[]>([]);
   const flatListRef = useRef<FlatList<DisplayMessage>>(null);
   // Set right before an older page is prepended, so onContentSizeChange
   // can jump back to the message the user was reading instead of
@@ -170,6 +190,18 @@ export default function ChatScreen({
     return unsubscribe;
   }, [channelId, reload]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchMentionCandidates()
+      .then((candidates) => {
+        if (!cancelled) setMentionCandidates(candidates);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, fetchMentionCandidates]);
+
   // Opening a chat is what actually clears its "N unread" row in the
   // Notifications feed (see lib/notifications.ts) — merely viewing the
   // Notifications tab deliberately does not.
@@ -207,14 +239,34 @@ export default function ChatScreen({
     const body = draft.trim();
     if (!body || !session) return;
     setDraft("");
+    setMentionQuery(null);
+    // Final safety net: only tag a pending mention if its "@Name" text is
+    // still actually present in what's being sent — catches the case
+    // where the user deleted or edited the mention after inserting it.
+    const mentionedUserIds = pendingMentions.filter((c) => body.includes(`@${c.fullName}`)).map((c) => c.id);
+    setPendingMentions([]);
     await sendMessage({
       channelId,
       senderId: session.user.id,
       body,
       messageType: asAnnouncement ? "announcement" : "text",
+      mentionedUserIds,
     });
     setAsAnnouncement(false);
     reload();
+  };
+
+  const handleDraftChange = (text: string) => {
+    setDraft(text);
+    setMentionQuery(matchTrailingMentionQuery(text));
+    setPendingMentions((prev) => prev.filter((c) => text.includes(`@${c.fullName}`)));
+  };
+
+  const handleSelectMention = (candidate: MentionCandidate) => {
+    if (mentionQuery === null) return;
+    setDraft((prev) => insertMentionIntoDraft(prev, mentionQuery, candidate));
+    setMentionQuery(null);
+    setPendingMentions((prev) => (prev.some((c) => c.id === candidate.id) ? prev : [...prev, candidate]));
   };
 
   const handlePickPhoto = async () => {
@@ -322,6 +374,8 @@ export default function ChatScreen({
   }
 
   const pinnedMessages = [...messages].filter((m) => m.pinned && !dismissedPinnedIds.has(m.id)).reverse();
+  const mentionSuggestions =
+    mentionQuery !== null ? filterMentionCandidates(mentionCandidates, mentionQuery) : [];
   const headerPaddingTop = insets.top + 12;
   const listPaddingTop = HEADER_HEIGHT + insets.top + (pinnedMessages.length > 0 ? PINNED_NOTICE_HEIGHT : spacing.stackSm);
 
@@ -399,7 +453,9 @@ export default function ChatScreen({
                   <View style={styles.announcementContent}>
                     <View style={styles.announcementHeadlineRow}>
                       <View style={styles.announcementAccentBar} />
-                      <Text style={styles.announcementHeadline}>{item.body}</Text>
+                      <Text style={styles.announcementHeadline}>
+                        {renderBodyWithMentions(item.body ?? "", item.mentions, styles.mentionText)}
+                      </Text>
                     </View>
                     <Text style={styles.announcementSender}>— {item.senderName}</Text>
                     <View style={styles.bubbleFooter}>
@@ -443,12 +499,14 @@ export default function ChatScreen({
                     </TouchableOpacity>
                     {item.body ? (
                       <Text style={[styles.photoCaption, isMine && styles.bodyMine, { marginTop: spacing.unit }]}>
-                        {item.body}
+                        {renderBodyWithMentions(item.body, item.mentions, isMine ? styles.mentionTextMine : styles.mentionText)}
                       </Text>
                     ) : null}
                   </View>
                 ) : (
-                  <Text style={[styles.body, isMine && styles.bodyMine]}>{item.body}</Text>
+                  <Text style={[styles.body, isMine && styles.bodyMine]}>
+                    {renderBodyWithMentions(item.body ?? "", item.mentions, isMine ? styles.mentionTextMine : styles.mentionText)}
+                  </Text>
                 )}
                 <View style={styles.bubbleFooter}>
                   <Text style={[styles.timestampInline, isMine && styles.timestampInlineMine]}>{formatTime(item.createdAt)}</Text>
@@ -593,6 +651,25 @@ export default function ChatScreen({
         </View>
       )}
 
+      {mentionSuggestions.length > 0 && (
+        <View style={styles.mentionSuggestions}>
+          {mentionSuggestions.map((candidate) => (
+            <TouchableOpacity
+              key={candidate.id}
+              style={styles.mentionSuggestionRow}
+              onPress={() => handleSelectMention(candidate)}
+            >
+              <View style={styles.mentionSuggestionAvatar}>
+                <Text style={styles.mentionSuggestionAvatarInitial}>
+                  {candidate.fullName.charAt(0).toUpperCase() || "?"}
+                </Text>
+              </View>
+              <Text style={styles.mentionSuggestionName}>{candidate.fullName}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <View style={styles.inputRow}>
         <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto} disabled={sendingPhoto || !!pendingPhoto}>
           <MaterialIcons name="add" size={22} color={colors.onSurfaceVariant} />
@@ -603,7 +680,7 @@ export default function ChatScreen({
             placeholder={`Message ${placeholderName}`}
             placeholderTextColor={colors.onSurfaceVariant}
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={handleDraftChange}
             multiline
           />
         </View>
@@ -635,6 +712,23 @@ export default function ChatScreen({
         </TouchableOpacity>
       </Modal>
     </KeyboardAvoidingView>
+  );
+}
+
+// Renders a message body with any @mentions (resolved against this
+// message's own message_mentions rows — see lib/mentions.ts) swapped for
+// a visually distinct inline Text span — shared by the plain body, photo
+// caption, and announcement headline, all of which render item.body the
+// same way.
+function renderBodyWithMentions(body: string, mentions: MentionCandidate[], mentionStyle: TextStyle) {
+  return highlightMentions(body, mentions).map((segment, index) =>
+    segment.type === "mention" ? (
+      <Text key={index} style={mentionStyle}>
+        @{segment.name}
+      </Text>
+    ) : (
+      segment.value
+    )
   );
 }
 
@@ -771,6 +865,8 @@ const styles = StyleSheet.create({
   body: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface },
   bodyMine: { color: colors.onPrimary },
   photoCaption: { ...typography.bodyMd, fontSize: 14, fontStyle: "italic", color: colors.onSurface },
+  mentionText: { fontWeight: "700", color: colors.primary },
+  mentionTextMine: { fontWeight: "700", color: colors.onPrimary, textDecorationLine: "underline" },
   deletedText: { ...typography.bodyMd, fontSize: 15, color: colors.onSurfaceVariant, fontStyle: "italic" },
   photoBubbleImage: { width: 220, height: 220, borderRadius: radii.DEFAULT, backgroundColor: colors.surfaceVariant },
   timestampInline: { ...typography.labelSm, fontSize: 9, color: colors.onSurfaceVariant, textTransform: "none" },
@@ -867,6 +963,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.gutter,
     paddingVertical: spacing.stackSm,
   },
+  mentionSuggestions: {
+    marginHorizontal: spacing.stackSm,
+    marginBottom: spacing.unit,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.DEFAULT,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    overflow: "hidden",
+  },
+  mentionSuggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    paddingHorizontal: spacing.gutter,
+    paddingVertical: spacing.stackSm,
+  },
+  mentionSuggestionAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mentionSuggestionAvatarInitial: { ...typography.labelSm, fontSize: 12, color: colors.primary },
+  mentionSuggestionName: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
   photoPreviewCancel: { padding: spacing.unit + 2 },
   photoPreviewSend: {
     backgroundColor: colors.primary,

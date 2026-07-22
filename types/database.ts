@@ -33,7 +33,8 @@ export type NotificationType =
   | "meeting_created"
   | "announcement"
   | "poll_closing_soon"
-  | "chat_caught_up";
+  | "chat_caught_up"
+  | "mentioned";
 
 export interface Database {
   public: {
@@ -152,6 +153,19 @@ export interface Database {
           emoji: string;
         };
         Update: Partial<Database["public"]["Tables"]["message_reactions"]["Row"]>;
+        Relationships: [];
+      };
+      message_mentions: {
+        Row: {
+          message_id: string;
+          mentioned_user_id: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["message_mentions"]["Row"]> & {
+          message_id: string;
+          mentioned_user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["message_mentions"]["Row"]>;
         Relationships: [];
       };
       message_reports: {

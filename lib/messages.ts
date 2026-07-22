@@ -1,3 +1,4 @@
+import type { MentionCandidate } from "./mentions";
 import { supabase } from "./supabase";
 import type { MessageType } from "../types/database";
 
@@ -13,6 +14,7 @@ export interface DisplayMessage {
   createdAt: string;
   deletedAt: string | null;
   reactions: { emoji: string; userId: string }[];
+  mentions: MentionCandidate[];
 }
 
 // message-photos is a private bucket (see 0027_message_photos_storage.sql)
@@ -53,9 +55,10 @@ async function attachSendersAndReactions(
   const messageIds = messages.map((m) => m.id);
   const photoPaths = messages.filter((m) => m.message_type === "photo" && m.media_url).map((m) => m.media_url as string);
 
-  const [{ data: profiles }, { data: reactions }, signedUrlByPath] = await Promise.all([
+  const [{ data: profiles }, { data: reactions }, { data: mentionRows }, signedUrlByPath] = await Promise.all([
     supabase.from("profiles").select("id, full_name, avatar_url").in("id", senderIds),
     supabase.from("message_reactions").select("message_id, user_id, emoji").in("message_id", messageIds),
+    supabase.from("message_mentions").select("message_id, mentioned_user_id").in("message_id", messageIds),
     signPhotoUrls(photoPaths),
   ]);
 
@@ -65,6 +68,24 @@ async function attachSendersAndReactions(
     const list = reactionsByMessage.get(r.message_id) ?? [];
     list.push({ emoji: r.emoji, userId: r.user_id });
     reactionsByMessage.set(r.message_id, list);
+  }
+
+  // Mentioned users' names aren't in `profiles` above unless they also
+  // happen to be a sender in this batch — fetch any missing ones too.
+  const mentionedIds = [...new Set((mentionRows ?? []).map((r) => r.mentioned_user_id))];
+  const missingMentionedIds = mentionedIds.filter((id) => !profileById.has(id));
+  if (missingMentionedIds.length > 0) {
+    const { data: mentionedProfiles } = await supabase.from("profiles").select("id, full_name").in("id", missingMentionedIds);
+    for (const p of mentionedProfiles ?? []) {
+      profileById.set(p.id, { id: p.id, full_name: p.full_name, avatar_url: null });
+    }
+  }
+
+  const mentionsByMessage = new Map<string, MentionCandidate[]>();
+  for (const r of mentionRows ?? []) {
+    const list = mentionsByMessage.get(r.message_id) ?? [];
+    list.push({ id: r.mentioned_user_id, fullName: profileById.get(r.mentioned_user_id)?.full_name ?? "Unknown" });
+    mentionsByMessage.set(r.message_id, list);
   }
 
   return messages.map((m) => ({
@@ -79,6 +100,7 @@ async function attachSendersAndReactions(
     createdAt: m.created_at,
     deletedAt: m.deleted_at,
     reactions: reactionsByMessage.get(m.id) ?? [],
+    mentions: mentionsByMessage.get(m.id) ?? [],
   }));
 }
 
@@ -143,19 +165,41 @@ export async function fetchChannelPhotos(channelId: string): Promise<GalleryPhot
     .filter((p): p is GalleryPhoto => p.photoUrl !== null);
 }
 
+// Tags each id in mentionedUserIds against the just-sent message (see
+// migration 0058) — a second insert rather than a column on messages
+// itself, mirroring how reactions/reports are already their own side
+// table. on conflict do nothing since the same user could in principle
+// be selected twice from the composer's autocomplete.
+async function tagMentions(messageId: string, mentionedUserIds: string[] | undefined) {
+  if (!mentionedUserIds || mentionedUserIds.length === 0) return;
+  const { error } = await supabase
+    .from("message_mentions")
+    .upsert(
+      mentionedUserIds.map((userId) => ({ message_id: messageId, mentioned_user_id: userId })),
+      { onConflict: "message_id,mentioned_user_id", ignoreDuplicates: true }
+    );
+  if (error) throw error;
+}
+
 export async function sendMessage(params: {
   channelId: string;
   senderId: string;
   body: string;
   messageType?: MessageType;
+  mentionedUserIds?: string[];
 }) {
-  const { error } = await supabase.from("messages").insert({
-    channel_id: params.channelId,
-    sender_id: params.senderId,
-    body: params.body,
-    message_type: params.messageType ?? "text",
-  });
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      channel_id: params.channelId,
+      sender_id: params.senderId,
+      body: params.body,
+      message_type: params.messageType ?? "text",
+    })
+    .select("id")
+    .single();
   if (error) throw error;
+  await tagMentions(data.id, params.mentionedUserIds);
 }
 
 export async function sendPhotoMessage(params: {
@@ -302,9 +346,11 @@ export function subscribeToNewMessages(channelId: string, onChange: () => void) 
       { event: "*", schema: "public", table: "messages", filter: `channel_id=eq.${channelId}` },
       onChange
     )
-    // message_reactions has no channel_id column to filter on, so this
-    // listens project-wide and lets the caller refetch; fine at MVP scale.
+    // message_reactions/message_mentions have no channel_id column to
+    // filter on, so these listen project-wide and let the caller refetch;
+    // fine at MVP scale.
     .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "message_mentions" }, onChange)
     .subscribe();
 
   return () => {

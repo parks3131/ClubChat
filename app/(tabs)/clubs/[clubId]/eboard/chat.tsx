@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import ChatScreen from "../../../../../components/ChatScreen";
+import { fetchEboardMembers } from "../../../../../lib/eboard";
 import { useEboard } from "./_layout";
 
 // Only a member can be here — index.tsx never links to /chat otherwise,
@@ -9,6 +10,15 @@ import { useEboard } from "./_layout";
 export default function EboardChatScreen() {
   const eboard = useEboard();
   const router = useRouter();
+
+  const eboardChannelId = eboard.channel?.id;
+  const fetchMentionCandidates = useCallback(
+    () =>
+      eboardChannelId
+        ? fetchEboardMembers(eboardChannelId).then((rows) => rows.map((r) => ({ id: r.userId, fullName: r.fullName })))
+        : Promise.resolve([]),
+    [eboardChannelId]
+  );
 
   useEffect(() => {
     if (!eboard.channel?.isMember) {
@@ -37,6 +47,7 @@ export default function EboardChatScreen() {
       highlightsPath={`/clubs/${eboard.clubId}/eboard/highlights`}
       backFallback={`/clubs/${eboard.clubId}/eboard`}
       titlePath={`/clubs/${eboard.clubId}/eboard/profile`}
+      fetchMentionCandidates={fetchMentionCandidates}
     />
   );
 }
