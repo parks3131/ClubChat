@@ -18,10 +18,14 @@ function formatEventDate(dateKey: string) {
 
 // Restructured club home (founder wireframe, task after #47): Chat and
 // Races & Meets surface directly here instead of a flat row-per-feature
-// list. Routines/Polls/Eboard & Council are deliberately not linked from
-// here anymore — still fully intact at their existing routes/RLS, just
-// pending a decision on where they land next, per explicit founder call
-// to leave them unreachable via nav rather than add a stopgap "More" menu.
+// list. Routines/Polls are deliberately not linked from here anymore —
+// still fully intact at their existing routes/RLS, just pending a decision
+// on where they land next, per explicit founder call to leave them
+// unreachable via nav rather than add a stopgap "More" menu. Eboard &
+// Council was added back to the hub in a later founder follow-up (every
+// club now gets one automatically at creation, see 0072) — admin-only,
+// same gate eboard/_layout.tsx already enforces, positioned below Club
+// Main Chat and above Races & Meets per that same request.
 export default function ClubHubScreen() {
   const club = useClub();
   const router = useRouter();
@@ -130,6 +134,19 @@ export default function ClubHubScreen() {
           <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
         </TouchableOpacity>
 
+        {club.isAdmin && (
+          <TouchableOpacity style={styles.card} onPress={() => router.push(`/clubs/${club.clubId}/eboard`)}>
+            <View style={[styles.iconBadge, { backgroundColor: colors.tertiary }]}>
+              <MaterialIcons name="shield" size={22} color={colors.onPrimary} />
+            </View>
+            <View style={styles.cardTextWrap}>
+              <Text style={styles.cardLabel}>EBOARD & COUNCIL</Text>
+              <Text style={styles.cardSubtitle}>Private space for admins</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
+          </TouchableOpacity>
+        )}
+
         <View style={styles.racesSection}>
           <View style={styles.racesSectionHeaderRow}>
             <Text style={styles.sectionHeader}>RACES AND MEETS</Text>
@@ -162,6 +179,13 @@ export default function ClubHubScreen() {
             ))
           )}
         </View>
+
+        {club.isAdmin && (
+          <TouchableOpacity style={styles.addGroupCard} onPress={() => router.push(`/clubs/${club.clubId}/races/create`)}>
+            <MaterialIcons name="add-circle-outline" size={20} color={colors.primary} />
+            <Text style={styles.addGroupLabel}>ADD GROUP</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -208,4 +232,17 @@ const styles = StyleSheet.create({
   cardTextWrap: { flex: 1 },
   cardLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
   cardSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
+  addGroupCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    padding: spacing.gutter,
+  },
+  addGroupLabel: { ...typography.labelSm, fontSize: 13, color: colors.primary, letterSpacing: 0.5 },
 });
