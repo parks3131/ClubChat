@@ -10,6 +10,7 @@ export default function ClubPollCreateScreen() {
       canCreate={club.isAdmin}
       listPath={`/clubs/${club.clubId}/polls`}
       pollPath={(pollId) => `/clubs/${club.clubId}/polls/${pollId}`}
+      chatPath={`/clubs/${club.clubId}/chat`}
     />
   );
 }

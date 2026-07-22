@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, typography } from "../constants/theme";
@@ -41,11 +41,19 @@ interface Props {
   canCreate: boolean;
   listPath: string;
   pollPath: (pollId: string) => string;
+  // Only club chat's "+" attach menu passes this (matches attachMenu's own
+  // club-chat-only scoping) — when the create form was reached from there
+  // (?from=chat, appended by ChatScreen), landing on the new poll's own
+  // detail screen after Create is redundant with the chat card the same
+  // creation already auto-posts (0071), and just adds an extra back-tap to
+  // return to the conversation. Falls back to pollPath when absent/unset.
+  chatPath?: string;
 }
 
-export function PollCreateScreen({ scope, canCreate, listPath, pollPath }: Props) {
+export function PollCreateScreen({ scope, canCreate, listPath, pollPath, chatPath }: Props) {
   const { session } = useAuth();
   const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string }>();
 
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState(["", ""]);
@@ -119,7 +127,7 @@ export function PollCreateScreen({ scope, canCreate, listPath, pollPath }: Props
         closesAt,
         createdBy: session.user.id,
       });
-      router.replace(pollPath(created.id));
+      router.replace(from === "chat" && chatPath ? chatPath : pollPath(created.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

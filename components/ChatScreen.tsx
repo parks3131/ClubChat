@@ -50,8 +50,9 @@ import {
 import { markChannelRead } from "../lib/notifications";
 import { pickDocumentOnWeb } from "../lib/pickDocumentOnWeb";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
-import { castVote, fetchPoll, isPollEffectivelyClosed, type PollDetail } from "../lib/polls";
+import { castVote, deletePoll, fetchPoll, setPollClosed, type PollDetail } from "../lib/polls";
 import { reportError } from "../lib/reportError";
+import { PollCard } from "./PollCard";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
 
@@ -130,12 +131,13 @@ export interface ChatScreenProps {
   // its own row-per-feature list — Eboard & Council isn't included here,
   // its placement is still an open founder decision.
   headerMenu?: { label: string; path: string; icon: MaterialIconName }[];
-  // A created club poll/event auto-posts into chat as its own message
-  // (0071_poll_event_chat_messages.sql) — these resolve where "View
-  // Poll"/"View Event" should navigate. Only club chat passes these,
-  // since only club-scoped polls/events post to chat for now (race/
-  // Eboard polls don't yet, matching attachMenu/headerMenu's scoping).
-  resolvePollPath?: (pollId: string) => string;
+  // A created club event auto-posts into chat as its own message
+  // (0071_poll_event_chat_messages.sql) — resolves where "View Event"
+  // should navigate. Only club chat passes this, since only club-scoped
+  // events post to chat for now (race/Eboard events don't yet, matching
+  // attachMenu/headerMenu's scoping). Polls no longer need an equivalent
+  // — the inline poll card renders the full PollCard UI directly (see
+  // PollMessageCard below) rather than linking out to a separate screen.
   resolveEventPath?: (eventId: string) => string;
 }
 
@@ -151,7 +153,6 @@ export default function ChatScreen({
   fetchMentionCandidates,
   attachMenu,
   headerMenu,
-  resolvePollPath,
   resolveEventPath,
 }: ChatScreenProps) {
   const router = useRouter();
@@ -175,7 +176,12 @@ export default function ChatScreen({
   const [pollDataByMessageId, setPollDataByMessageId] = useState<Map<string, PollDetail>>(new Map());
   const [eventDataByMessageId, setEventDataByMessageId] = useState<Map<string, DisplayCalendarEvent>>(new Map());
   const [votingPollOptionId, setVotingPollOptionId] = useState<string | null>(null);
-  const [pickerMessageId, setPickerMessageId] = useState<string | null>(null);
+  // The message currently showing the ⋮ actions popup (reaction row +
+  // Pin/Delete/Report) — replaces what used to be an always-visible text
+  // row under every message (founder request: too cluttered, wanted a
+  // WhatsApp-style press-to-reveal menu; long-press is a native-only
+  // gesture so a corner ⋮ is the interim trigger that also works on web).
+  const [actionsMessage, setActionsMessage] = useState<DisplayMessage | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState<{ uri: string; contentType: string } | null>(null);
   const [photoCaption, setPhotoCaption] = useState("");
   const [sendingPhoto, setSendingPhoto] = useState(false);
@@ -309,6 +315,33 @@ export default function ChatScreen({
       reportError(err);
     } finally {
       setVotingPollOptionId(null);
+    }
+  };
+
+  // Creator-only actions surfaced by the inline PollCard (see
+  // PollMessageCard below). Deleting cascades to remove the poll's own
+  // chat message too (messages.poll_id on delete cascade, 0071) — the
+  // existing messages-table realtime subscription already refetches on
+  // that change, so the card just disappears on its own; no local removal
+  // needed here.
+  const handleTogglePollClosed = async (messageId: string, pollId: string) => {
+    if (!session) return;
+    const current = pollDataByMessageId.get(messageId);
+    if (!current) return;
+    try {
+      await setPollClosed(pollId, !current.isClosed);
+      const updated = await fetchPoll(pollId, session.user.id);
+      setPollDataByMessageId((prev) => new Map(prev).set(messageId, updated));
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
+  const handleDeletePoll = async (pollId: string) => {
+    try {
+      await deletePoll(pollId);
+    } catch (err) {
+      reportError(err);
     }
   };
 
@@ -524,7 +557,7 @@ export default function ChatScreen({
 
   const handleReact = async (messageId: string, emoji: string) => {
     if (!session) return;
-    setPickerMessageId(null);
+    setActionsMessage(null);
     await toggleReaction(messageId, session.user.id, emoji);
     reload();
   };
@@ -726,9 +759,11 @@ export default function ChatScreen({
                   <PollMessageCard
                     poll={pollDataByMessageId.get(item.id) ?? null}
                     isMine={isMine}
+                    currentUserId={session?.user.id ?? ""}
                     votingOptionId={votingPollOptionId}
                     onVote={(optionId) => handleVotePollOption(item.id, item.pollId!, optionId)}
-                    onViewPoll={() => resolvePollPath && router.push(resolvePollPath(item.pollId!))}
+                    onToggleClosed={() => handleTogglePollClosed(item.id, item.pollId!)}
+                    onDelete={() => handleDeletePoll(item.pollId!)}
                   />
                 ) : item.messageType === "event" && item.eventId ? (
                   <EventMessageCard
@@ -744,41 +779,23 @@ export default function ChatScreen({
                 <View style={styles.bubbleFooter}>
                   <Text style={[styles.timestampInline, isMine && styles.timestampInlineMine]}>{formatTime(item.createdAt)}</Text>
                   {isMine && <MaterialIcons name="check-circle" size={13} color={colors.primary} />}
+                  {!item.deletedAt && (
+                    <TouchableOpacity
+                      style={styles.kebabButton}
+                      hitSlop={8}
+                      onPress={() => setActionsMessage(item)}
+                    >
+                      <MaterialIcons name="more-vert" size={16} color={isMine ? colors.onPrimary : colors.onSurfaceVariant} />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                {!item.deletedAt && (
-                  <View style={styles.actionsFooter}>
+                {!item.deletedAt && grouped.size > 0 && (
+                  <View style={styles.reactionsRow}>
                     {[...grouped.entries()].map(([emoji, count]) => (
                       <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
                         <Text style={[styles.reaction, myEmojis.has(emoji) && styles.reactionActive]}>
                           {emoji} {count}
                         </Text>
-                      </TouchableOpacity>
-                    ))}
-                    <TouchableOpacity onPress={() => setPickerMessageId(pickerMessageId === item.id ? null : item.id)}>
-                      <Text style={[styles.reaction, isMine && styles.reactionOnMine]}>+</Text>
-                    </TouchableOpacity>
-                    {isAdmin && (
-                      <TouchableOpacity onPress={() => handleTogglePin(item)}>
-                        <Text style={[styles.pinAction, isMine && styles.pinActionOnMine]}>{item.pinned ? "Unpin" : "Pin"}</Text>
-                      </TouchableOpacity>
-                    )}
-                    {(isAdmin || isMine) && (
-                      <TouchableOpacity onPress={() => handleDelete(item)}>
-                        <Text style={[styles.deleteAction, isMine && styles.deleteActionOnMine]}>Delete</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!isMine && (
-                      <TouchableOpacity onPress={() => handleReport(item)} disabled={reportedIds.has(item.id)}>
-                        <Text style={styles.reportAction}>{reportedIds.has(item.id) ? "Reported" : "Report"}</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
-                {pickerMessageId === item.id && (
-                  <View style={styles.pickerRow}>
-                    {REACTION_OPTIONS.map((emoji) => (
-                      <TouchableOpacity key={emoji} onPress={() => handleReact(item.id, emoji)}>
-                        <Text style={styles.pickerEmoji}>{emoji}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -961,7 +978,7 @@ export default function ChatScreen({
               style={styles.attachGridItem}
               onPress={() => {
                 setAttachMenuOpen(false);
-                router.push(attachMenu.createPollPath);
+                router.push(`${attachMenu.createPollPath}?from=chat`);
               }}
             >
               <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt3]}>
@@ -975,7 +992,7 @@ export default function ChatScreen({
               style={styles.attachGridItem}
               onPress={() => {
                 setAttachMenuOpen(false);
-                router.push(attachMenu.createEventPath);
+                router.push(`${attachMenu.createEventPath}?from=chat`);
               }}
             >
               <View style={[styles.attachGridIconBadge, styles.attachGridIconBadgeAlt4]}>
@@ -1059,6 +1076,67 @@ export default function ChatScreen({
           {viewerPhotoUrl && <Image source={{ uri: viewerPhotoUrl }} style={styles.viewerImage} resizeMode="contain" />}
         </TouchableOpacity>
       </Modal>
+
+      {/* The ⋮ actions popup — reaction row + Pin/Delete/Report, replacing
+          what used to be an always-visible text row under every message.
+          Long-press is the native-idiomatic trigger for this same menu
+          (WhatsApp-style) but isn't a discoverable gesture on web, so the
+          corner ⋮ is the trigger on every platform for now; onLongPress
+          can be added as an additional native-only trigger for the same
+          menu later without changing this modal at all. */}
+      <Modal visible={actionsMessage !== null} transparent animationType="fade" onRequestClose={() => setActionsMessage(null)}>
+        <TouchableOpacity style={styles.actionsBackdrop} activeOpacity={1} onPress={() => setActionsMessage(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.actionsCard} onPress={(e) => e.stopPropagation?.()}>
+            <View style={styles.actionsEmojiRow}>
+              {REACTION_OPTIONS.map((emoji) => (
+                <TouchableOpacity key={emoji} onPress={() => actionsMessage && handleReact(actionsMessage.id, emoji)}>
+                  <Text style={styles.actionsEmoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.actionsDivider} />
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.actionsMenuItem}
+                onPress={() => {
+                  if (actionsMessage) handleTogglePin(actionsMessage);
+                  setActionsMessage(null);
+                }}
+              >
+                <MaterialIcons name="push-pin" size={18} color={colors.onSurface} />
+                <Text style={styles.actionsMenuItemText}>{actionsMessage?.pinned ? "Unpin" : "Pin"}</Text>
+              </TouchableOpacity>
+            )}
+            {actionsMessage && (isAdmin || actionsMessage.senderId === session?.user.id) && (
+              <TouchableOpacity
+                style={styles.actionsMenuItem}
+                onPress={() => {
+                  handleDelete(actionsMessage);
+                  setActionsMessage(null);
+                }}
+              >
+                <MaterialIcons name="delete-outline" size={18} color={colors.error} />
+                <Text style={[styles.actionsMenuItemText, styles.actionsMenuItemTextDanger]}>Delete</Text>
+              </TouchableOpacity>
+            )}
+            {actionsMessage && actionsMessage.senderId !== session?.user.id && (
+              <TouchableOpacity
+                style={styles.actionsMenuItem}
+                disabled={reportedIds.has(actionsMessage.id)}
+                onPress={() => {
+                  handleReport(actionsMessage);
+                  setActionsMessage(null);
+                }}
+              >
+                <MaterialIcons name="flag" size={18} color={colors.onSurfaceVariant} />
+                <Text style={styles.actionsMenuItemText}>
+                  {reportedIds.has(actionsMessage.id) ? "Reported" : "Report"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1080,55 +1158,44 @@ function renderBodyWithMentions(body: string, mentions: MentionCandidate[], ment
   );
 }
 
-// The inline, votable poll card a "poll" chat message renders as
-// (0071_poll_event_chat_messages.sql) — reuses the exact same castVote/
-// fetchPoll lib/polls.ts already uses for the full PollDetailScreen, so
-// allow_multiple/is_private/closed/deadline behavior can't drift between
-// the two surfaces. "View Poll" covers what doesn't fit inline (per-
-// option voter list, creator close/reopen/delete).
+// The inline poll card a "poll" chat message renders as
+// (0071_poll_event_chat_messages.sql) — renders the same PollCard the full
+// Poll detail screen uses (status badge, creator/scope line, per-option
+// voter eye icon, creator-only Close/Delete), per a founder request that
+// chat's poll bubble shouldn't need a "View Poll" link-out for anything.
+// Reuses the exact same castVote/fetchPoll/setPollClosed/deletePoll
+// lib/polls.ts calls PollDetailScreen does, so behavior can't drift
+// between the two surfaces.
 function PollMessageCard({
   poll,
   isMine,
+  currentUserId,
   votingOptionId,
   onVote,
-  onViewPoll,
+  onToggleClosed,
+  onDelete,
 }: {
   poll: PollDetail | null;
   isMine: boolean;
+  currentUserId: string;
   votingOptionId: string | null;
   onVote: (optionId: string) => void;
-  onViewPoll: () => void;
+  onToggleClosed: () => void;
+  onDelete: () => void;
 }) {
   if (!poll) {
     return <ActivityIndicator size="small" color={isMine ? colors.onPrimary : colors.primary} />;
   }
-  const closed = isPollEffectivelyClosed(poll);
   return (
     <View style={styles.pollCard}>
-      <Text style={[styles.pollQuestion, isMine && styles.bodyMine]}>{poll.question}</Text>
-      <Text style={[styles.pollMeta, isMine && styles.pollMetaMine]}>
-        {poll.allowMultiple ? "Select one or more" : "Select one"}
-        {closed ? " · Closed" : ""}
-      </Text>
-      <View style={styles.pollOptions}>
-        {poll.options.map((option) => (
-          <TouchableOpacity
-            key={option.id}
-            style={[styles.pollOptionRow, option.votedByMe && styles.pollOptionRowSelected]}
-            disabled={closed || votingOptionId === option.id}
-            onPress={() => onVote(option.id)}
-          >
-            <Text style={styles.pollOptionText} numberOfLines={1}>
-              {option.votedByMe ? "✓ " : ""}
-              {option.text}
-            </Text>
-            <Text style={styles.pollOptionCount}>{option.voteCount}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <TouchableOpacity onPress={onViewPoll}>
-        <Text style={[styles.pollViewLink, isMine && styles.pollViewLinkMine]}>View Poll</Text>
-      </TouchableOpacity>
+      <PollCard
+        poll={poll}
+        currentUserId={currentUserId}
+        votingOptionId={votingOptionId}
+        onVote={onVote}
+        onToggleClosed={onToggleClosed}
+        onDelete={onDelete}
+      />
     </View>
   );
 }
@@ -1351,27 +1418,16 @@ const styles = StyleSheet.create({
   documentName: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface },
   documentSize: { ...typography.labelSm, fontSize: 11, color: colors.onSurfaceVariant },
   documentSizeMine: { color: colors.onPrimary, opacity: 0.8 },
-  pollCard: { gap: spacing.stackSm, minWidth: 220 },
-  pollQuestion: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface },
-  pollMeta: { ...typography.labelSm, fontSize: 11, color: colors.onSurfaceVariant },
-  pollMetaMine: { color: colors.onPrimary, opacity: 0.8 },
-  pollOptions: { gap: spacing.stackSm },
-  pollOptionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  // PollCard's own text is always dark-on-light (colors.onSurface etc,
+  // same as the full detail screen) — needs its own light backdrop here
+  // since it can land inside the orange gradient "mine" bubble
+  // (bubbleMine), not just the already-near-white "theirs" one.
+  pollCard: {
+    minWidth: 240,
     backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    paddingHorizontal: spacing.gutter,
-    paddingVertical: spacing.stackSm,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
   },
-  pollOptionRowSelected: { backgroundColor: colors.primaryFixed, borderColor: colors.primary },
-  pollOptionText: { ...typography.bodyMd, fontSize: 13, color: colors.onSurface, flexShrink: 1 },
-  pollOptionCount: { ...typography.statValue, fontSize: 13, color: colors.primaryContainer },
-  pollViewLink: { ...typography.labelSm, fontSize: 12, color: colors.primary, textAlign: "center" },
-  pollViewLinkMine: { color: colors.onPrimary, textDecorationLine: "underline" },
   eventCard: { gap: spacing.stackSm, minWidth: 200 },
   eventCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
   eventCardTitle: { ...typography.bodyMd, fontWeight: "700", fontSize: 15, color: colors.onSurface, flexShrink: 1 },
@@ -1388,27 +1444,25 @@ const styles = StyleSheet.create({
   timestampInline: { ...typography.labelSm, fontSize: 9, color: colors.onSurfaceVariant, textTransform: "none" },
   timestampInlineMine: { color: colors.onPrimary, opacity: 0.8 },
   bubbleFooter: { flexDirection: "row", alignItems: "center", gap: spacing.unit, marginTop: spacing.unit, justifyContent: "flex-end" },
-  actionsFooter: { flexDirection: "row", flexWrap: "wrap", gap: spacing.stackSm, marginTop: spacing.stackSm },
+  kebabButton: { marginLeft: 2, padding: 2 },
+  reactionsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.stackSm, marginTop: spacing.stackSm },
   reaction: { fontSize: 13, color: colors.onSurfaceVariant },
-  reactionOnMine: { color: colors.onPrimary },
   reactionActive: { color: colors.primary, fontWeight: "700" },
-  pickerRow: {
-    flexDirection: "row",
-    gap: spacing.stackSm,
-    marginTop: spacing.stackSm,
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.DEFAULT,
-    padding: spacing.stackSm,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    alignSelf: "flex-start",
-  },
-  pickerEmoji: { fontSize: 20 },
   pinAction: { fontSize: 13, color: colors.primary },
-  pinActionOnMine: { color: colors.onPrimary },
-  deleteAction: { fontSize: 13, color: colors.error },
-  deleteActionOnMine: { color: colors.onPrimary, textDecorationLine: "underline" },
-  reportAction: { fontSize: 13, color: colors.onSurfaceVariant },
+  actionsBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: spacing.marginMobile },
+  actionsCard: {
+    width: "100%",
+    maxWidth: 320,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radii.lg,
+    padding: spacing.gutter,
+  },
+  actionsEmojiRow: { flexDirection: "row", justifyContent: "space-between", paddingBottom: spacing.gutter },
+  actionsEmoji: { fontSize: 26 },
+  actionsDivider: { height: 1, backgroundColor: colors.outlineVariant, marginBottom: spacing.stackSm },
+  actionsMenuItem: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm + 4, paddingVertical: spacing.stackSm + 4 },
+  actionsMenuItemText: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface },
+  actionsMenuItemTextDanger: { color: colors.error },
   empty: { textAlign: "center", marginTop: 40, color: colors.onSurfaceVariant },
   systemRow: { alignItems: "center", marginVertical: spacing.unit },
   systemText: { ...typography.labelSm, color: colors.onSurfaceVariant, textTransform: "none", fontStyle: "italic" },

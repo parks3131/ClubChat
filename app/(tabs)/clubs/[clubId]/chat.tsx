@@ -31,7 +31,6 @@ export default function ClubChatScreen() {
         { label: "Routines", path: `/clubs/${club.clubId}/routines`, icon: "fitness-center" },
         { label: "Events", path: `/clubs/${club.clubId}/calendar`, icon: "event" },
       ]}
-      resolvePollPath={(pollId) => `/clubs/${club.clubId}/polls/${pollId}`}
       resolveEventPath={(eventId) => `/clubs/${club.clubId}/event/${eventId}`}
     />
   );

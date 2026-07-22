@@ -53,7 +53,7 @@ function KineticInput({ style, ...props }: TextInputProps) {
 }
 
 export default function CreateOrEditEventScreen() {
-  const { clubId, eventId } = useLocalSearchParams<{ clubId: string; eventId?: string }>();
+  const { clubId, eventId, from } = useLocalSearchParams<{ clubId: string; eventId?: string; from?: string }>();
   const club = useClub();
   const { session } = useAuth();
   const router = useRouter();
@@ -173,7 +173,11 @@ export default function CreateOrEditEventScreen() {
           endAt,
           createdBy: session.user.id,
         });
-        router.replace(`/clubs/${clubId}/event/${created.id}`);
+        // Reached from club chat's "+" attach menu (?from=chat, appended by
+        // ChatScreen) — the creation already auto-posts an event card into
+        // chat (0071), so land back there instead of on the new event's own
+        // detail screen, same reasoning as PollCreateScreen's chatPath.
+        router.replace(from === "chat" ? `/clubs/${clubId}/chat` : `/clubs/${clubId}/event/${created.id}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
