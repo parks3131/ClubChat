@@ -1,7 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, typography } from "../constants/theme";
 import { useAuth } from "../contexts/AuthProvider";
 import { fetchCalendarFeed, fetchGlobalCalendarFeed, type CalendarFeedItem } from "../lib/calendarFeed";
@@ -13,8 +13,10 @@ const CELLS_IN_GRID = 42; // 6 weeks x 7 days — fixed so paging months never c
 
 // Background/text pair per badge label, for the day-popup's item rows.
 // Covers every kind CalendarFeedItem can still be once polls are filtered
-// out before reaching this screen (see gridItems below) — 5 calendar_event
-// types + "Race/Meet" + "Eboard Meeting".
+// out before reaching this screen (see itemsByDay below) — 5 calendar_event
+// types + "Race/Meet" + "Eboard Meeting". The full Upcoming/Past list
+// (which does include polls) lives on its own separate screen now — see
+// components/EventsListScreen.tsx.
 const BADGE_STYLE: Record<string, { bg: string; fg: string }> = {
   Race: { bg: colors.primaryFixed, fg: colors.onPrimaryFixedVariant },
   Practice: { bg: colors.tertiaryFixed, fg: colors.onTertiaryFixedVariant },
@@ -43,7 +45,7 @@ function formatDayTitle(dateKey: string) {
   });
 }
 
-type CalendarScreenProps =
+export type CalendarScreenProps =
   // A specific club's feed — identical to what this screen always showed
   // before the bottom-tab Calendar existed. isAdmin gates the create FAB.
   | { mode: "club"; clubId: string; isAdmin: boolean }
@@ -52,16 +54,18 @@ type CalendarScreenProps =
   // event only makes sense inside one specific club.
   | { mode: "global" };
 
-// Month-grid calendar (founder request, replacing the old flat Upcoming/
-// Past list): each day that has a calendar_event, race, or Eboard meeting
-// gets a dark-circled marker; tapping a marked day opens a bottom-sheet
-// popup listing that day's items, each tappable through to its real
-// screen. Merges calendar_events, races you have access to, and Eboard
-// meetings (if you're a member) — see lib/calendarFeed.ts for the
-// per-source visibility rules. Polls are deliberately excluded from this
-// grid (a poll has a closing deadline, not a "when it happens" the way
-// the other 3 kinds do — confirmed explicitly rather than assumed) but
-// stay fully visible from each Polls tab/list on their own.
+// Month-grid calendar only (founder request: Calendar should show just
+// the grid — the full Upcoming/Past list lives on its own separate
+// screen, components/EventsListScreen.tsx, reached from chat's header
+// menu rather than a toggle on this same screen). Each day with a
+// calendar_event, race, or Eboard meeting gets a dark-circled marker;
+// tapping a marked day opens a small popup listing that day's items,
+// each tappable through to its real screen. Merges calendar_events,
+// races you have access to, and Eboard meetings (if you're a member) —
+// see lib/calendarFeed.ts for the per-source visibility rules. Polls are
+// excluded from this grid (a poll has a closing deadline, not a "when it
+// happens" the way the other 3 kinds do) but stay fully visible from
+// each Polls tab, and from the Events list.
 export default function CalendarScreen(props: CalendarScreenProps) {
   const { session } = useAuth();
   const router = useRouter();
@@ -147,6 +151,7 @@ export default function CalendarScreen(props: CalendarScreenProps) {
 
   return (
     <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
       <View style={styles.monthHeader}>
         <TouchableOpacity
           hitSlop={8}
@@ -186,20 +191,27 @@ export default function CalendarScreen(props: CalendarScreenProps) {
           const dayItems = itemsByDay.get(cell.dateKey);
           const hasItems = !!dayItems && dayItems.length > 0;
           const isToday = cell.dateKey === todayKey;
+          // Leading/trailing filler days from adjacent months are always
+          // non-interactive (disabled below) regardless of hasItems, but
+          // the marker fill used to ignore inMonth entirely — a filler
+          // day that happened to have items rendered the exact same
+          // solid dark circle a real, tappable marked day gets, which
+          // reads as a prominent, clickable marker sitting in the wrong
+          // month even though tapping it does nothing. Gating both the
+          // marker and its text on `cell.inMonth` means a filler day is
+          // always just a plain dimmed number, like every other filler
+          // day, regardless of whether it happens to have items.
+          const showMarker = hasItems && cell.inMonth;
           return (
             <TouchableOpacity
               key={cell.dateKey}
               style={styles.cell}
               disabled={!cell.inMonth || !hasItems}
-              onPress={() => setSelectedDayKey(cell.dateKey)}
+              onPress={() => setSelectedDayKey((prev) => (prev === cell.dateKey ? null : cell.dateKey))}
             >
-              <View style={[styles.dayMarker, isToday && styles.dayMarkerToday, hasItems && styles.dayMarkerFilled]}>
+              <View style={[styles.dayMarker, isToday && styles.dayMarkerToday, showMarker && styles.dayMarkerFilled]}>
                 <Text
-                  style={[
-                    styles.dayNumber,
-                    !cell.inMonth && styles.dayNumberOutOfMonth,
-                    hasItems && styles.dayNumberFilled,
-                  ]}
+                  style={[styles.dayNumber, !cell.inMonth && styles.dayNumberOutOfMonth, showMarker && styles.dayNumberFilled]}
                 >
                   {cell.date.getDate()}
                 </Text>
@@ -213,60 +225,56 @@ export default function CalendarScreen(props: CalendarScreenProps) {
         <Text style={styles.empty}>{props.mode === "global" ? "No events across your clubs yet." : "No events yet."}</Text>
       )}
 
+      {/* Inline, in-place list for whichever day is selected — replaces a
+          popup so tapping a different marked day just swaps this section's
+          content instead of needing to close one popup before opening the
+          next. */}
+      {selectedDayKey && (
+        <View style={styles.dayListSection}>
+          <Text style={styles.dayListTitle}>{formatDayTitle(selectedDayKey)}</Text>
+          {selectedDayItems.map((item) => {
+            const badgeStyle = BADGE_STYLE[item.badgeLabel] ?? BADGE_STYLE.Other;
+            const time = formatItemTime(item);
+            return (
+              <TouchableOpacity key={item.id} style={styles.dayListRow} onPress={() => router.push(item.path)}>
+                <View style={styles.dayListRowHeader}>
+                  <Text style={[styles.badge, { backgroundColor: badgeStyle.bg, color: badgeStyle.fg }]}>
+                    {item.badgeLabel.toUpperCase()}
+                  </Text>
+                  {item.clubName && <Text style={styles.clubTag}>{item.clubName}</Text>}
+                </View>
+                <Text style={styles.dayListRowTitle}>{item.title}</Text>
+                {(time || item.subtitle) && (
+                  <View style={styles.dayListRowMetaRow}>
+                    {time && <Text style={styles.dayListRowMeta}>{time}</Text>}
+                    {item.subtitle && (
+                      <View style={styles.dayListRowLocationRow}>
+                        <MaterialIcons name="location-on" size={13} color={colors.onSecondaryContainer} />
+                        <Text style={styles.dayListRowMeta}>{item.subtitle}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
+      </ScrollView>
+
       {props.mode === "club" && props.isAdmin && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push(`/clubs/${props.clubId}/event/create`)}>
           <MaterialIcons name="add" size={22} color={colors.onPrimaryContainer} />
         </TouchableOpacity>
       )}
-
-      <Modal visible={selectedDayKey !== null} transparent animationType="fade" onRequestClose={() => setSelectedDayKey(null)}>
-        <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setSelectedDayKey(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.sheet} onPress={(e) => e.stopPropagation?.()}>
-            <Text style={styles.sheetTitle}>{selectedDayKey && formatDayTitle(selectedDayKey)}</Text>
-            <ScrollView style={styles.sheetList}>
-              {selectedDayItems.map((item) => {
-                const badgeStyle = BADGE_STYLE[item.badgeLabel] ?? BADGE_STYLE.Other;
-                const time = formatItemTime(item);
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={styles.sheetRow}
-                    onPress={() => {
-                      setSelectedDayKey(null);
-                      router.push(item.path);
-                    }}
-                  >
-                    <View style={styles.sheetRowHeader}>
-                      <Text style={[styles.badge, { backgroundColor: badgeStyle.bg, color: badgeStyle.fg }]}>
-                        {item.badgeLabel.toUpperCase()}
-                      </Text>
-                      {item.clubName && <Text style={styles.clubTag}>{item.clubName}</Text>}
-                    </View>
-                    <Text style={styles.sheetRowTitle}>{item.title}</Text>
-                    {(time || item.subtitle) && (
-                      <View style={styles.sheetRowMetaRow}>
-                        {time && <Text style={styles.sheetRowMeta}>{time}</Text>}
-                        {item.subtitle && (
-                          <View style={styles.sheetRowLocationRow}>
-                            <MaterialIcons name="location-on" size={13} color={colors.onSecondaryContainer} />
-                            <Text style={styles.sheetRowMeta}>{item.subtitle}</Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
+  container: { flex: 1, backgroundColor: colors.surface },
+  scrollContent: { padding: spacing.marginMobile, paddingBottom: 96 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { textAlign: "center", marginTop: spacing.stackLg, color: colors.onSurfaceVariant },
   monthHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.stackMd },
@@ -309,17 +317,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  sheet: {
-    maxHeight: "70%",
-    backgroundColor: colors.surfaceContainerLowest,
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
-    padding: spacing.marginMobile,
+  dayListSection: {
+    marginTop: spacing.stackLg,
+    paddingTop: spacing.stackMd,
+    borderTopWidth: 1,
+    borderTopColor: colors.outlineVariant,
   },
-  sheetTitle: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginBottom: spacing.stackMd },
-  sheetList: { flexGrow: 0 },
-  sheetRow: {
+  dayListTitle: { ...typography.headlineLgMobile, fontSize: 18, color: colors.onSurface, marginBottom: spacing.stackMd },
+  dayListRow: {
     backgroundColor: colors.surfaceContainerLow,
     borderRadius: radii.lg,
     borderWidth: 1,
@@ -327,7 +332,7 @@ const styles = StyleSheet.create({
     padding: spacing.gutter,
     marginBottom: spacing.stackSm,
   },
-  sheetRowHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
+  dayListRowHeader: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
   badge: {
     ...typography.labelSm,
     fontSize: 10,
@@ -337,8 +342,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   clubTag: { ...typography.labelSm, fontSize: 10, color: colors.onSurfaceVariant, textTransform: "uppercase" },
-  sheetRowTitle: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onSurface, marginTop: spacing.stackSm },
-  sheetRowMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.gutter, marginTop: 4 },
-  sheetRowMeta: { ...typography.bodyMd, fontSize: 13, color: colors.secondary },
-  sheetRowLocationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  dayListRowTitle: { ...typography.headlineLgMobile, fontSize: 16, color: colors.onSurface, marginTop: spacing.stackSm },
+  dayListRowMetaRow: { flexDirection: "row", alignItems: "center", gap: spacing.gutter, marginTop: 4 },
+  dayListRowMeta: { ...typography.bodyMd, fontSize: 13, color: colors.secondary },
+  dayListRowLocationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
 });

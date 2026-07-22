@@ -181,6 +181,14 @@ export default function ClubLayout() {
             headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
           }}
         />
+        <Stack.Screen
+          name="events"
+          options={{
+            ...clubScreenOptions,
+            title: "Events",
+            headerLeft: makeBackHeaderLeft(router, `/clubs/${club.clubId}`),
+          }}
+        />
         <Stack.Screen name="news" options={{ headerShown: false }} />
         <Stack.Screen name="routines" options={{ headerShown: false }} />
         <Stack.Screen name="polls" options={{ headerShown: false }} />

@@ -29,7 +29,7 @@ export default function ClubChatScreen() {
       headerMenu={[
         { label: "Poll", path: `/clubs/${club.clubId}/polls`, icon: "how-to-vote" },
         { label: "Routines", path: `/clubs/${club.clubId}/routines`, icon: "fitness-center" },
-        { label: "Events", path: `/clubs/${club.clubId}/calendar`, icon: "event" },
+        { label: "Events", path: `/clubs/${club.clubId}/events`, icon: "event" },
       ]}
       resolveEventPath={(eventId) => `/clubs/${club.clubId}/event/${eventId}`}
     />
