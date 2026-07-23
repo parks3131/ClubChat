@@ -29,7 +29,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "ClubChat uses your photo library to set your profile picture."
+          "photosPermission": "ClubChat uses your photo library to set your profile picture.",
+          "cameraPermission": "ClubChat uses your camera to let you take and share photos in chat."
         }
       ],
       "expo-font"
