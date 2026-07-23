@@ -4088,3 +4088,297 @@ clicked into the chat (firing `mark_channel_read_and_log`), navigated
 back to Notifications — exactly one row remained, "Caught up on 2
 messages in X chat," light-shaded, no leftover dark duplicate. `npx tsc
 --noEmit` clean, no console errors, test data cleaned up.
+
+## Task 48: Club-navigation restructure (hub redesign) + News & Highlights
+
+Founder wireframe-driven club-navigation restructure, done incrementally
+with an explicit "one by one, tell me if there's a problem" approach, not
+folded into the numbered-task table until this entry was written
+retroactively (SPEC.md had accumulated this as unnumbered "Since task #47"
+prose for several sessions before being compressed back into the table —
+see this file's own docstring for the precedent of doing that compression
+pass once size gets unwieldy).
+
+Chat now hides the bottom tab bar entirely (full-screen). The club hub
+dropped its flat row-per-feature list for News & Highlights / Club Main
+Chat / a Races & Meets preview, with Routines/Polls/Eboard & Council
+deliberately left unlinked pending a founder decision on where they land
+next. A new Calendar bottom tab shows either the active club's feed or a
+merged cross-club feed depending on `CurrentClubProvider`'s `currentClub`
+(set by `clubs/[clubId]/_layout.tsx`, read by both the Calendar tab and
+the Clubs tab). The Clubs tab itself became context-aware — a shortcut
+into the active club's hub, then a second tap (or its header back button)
+out to the Main list, using the same `?from=` override pattern as the
+pre-existing `?from=profile` case rather than trusting `canGoBack()`.
+
+News & Highlights shipped as a real standalone admin-post feed
+(`club_posts` + `club_post_reactions`, migrations 0061-0065) — any club
+admin can create/edit/delete any post (confirmed explicitly via
+`AskUserQuestion`, not assumed by analogy — this codebase has both a
+creator-only precedent, Eboard Meetings, and an any-admin one, Race Meet
+Info/Routines/Events), members can react with the same emoji set chat
+uses, and creating a post notifies every other club member.
+
+Verified live via Playwright + direct SQL role changes, including a real
+bug caught mid-build: `news/_layout.tsx`'s header initially copied
+routines/polls/races/eboard's text-only title, dropping the club avatar
+that the top-level hub/chat/calendar screens show — founder-flagged live
+from their own concurrent testing session, fixed since this was a
+brand-new Stack, not a pre-existing one worth leaving alone.
+
+## Task 49: WhatsApp-style chat attach menu + document attachments
+
+Club chat's composer "+" became a WhatsApp-style expandable grid
+(Photos/Camera/Document always, Poll/Event admin-only), and its header
+gained a grid icon opening a Poll/Routines/Events quick-nav dropdown —
+both club-chat-only for now, by explicit founder scoping ("for now lets
+do for this but later we should do similarly to others"), leaving
+race/Eboard chat's single photo-icon composer untouched.
+
+Document attachments are a genuinely new capability (any file type,
+migrations 0066-0068 — new `message_type` value, two new `messages`
+columns, a new private storage bucket) rather than a UI-only change, so
+it went through the same "confirm scope before writing SQL"
+`AskUserQuestion` pass News & Highlights did.
+
+Caught one bug proactively rather than reactively: `expo-document-
+picker`'s web implementation turned out to use the exact same
+`dispatchEvent(new MouseEvent("click"))` pattern that caused the original
+`pickImageOnWeb` bug (real user-activation gotcha some browsers don't
+honor for a synthetic event) — noticed while reading the library's
+source before wiring it up, so `lib/pickDocumentOnWeb.ts` applies the
+same real-`.click()` fix from day one instead of waiting to hit the bug
+again.
+
+Verified live via Playwright, including a real document upload/open
+round-trip through the signed-URL flow — and the founder was already
+live-testing concurrently and posted 2 real documents mid-build.
+
+## Task 50: Poll/event auto-post to chat + Profile tab back-arrow fix
+
+Removed the Profile tab's own back arrow (a bottom-tab root showing a
+back button that jumps to a *different* tab was confusing, not a real
+"back") — `edit`/`privacy-policy`/`terms` keep theirs, only `index`'s
+`headerLeft` was dropped.
+
+A created poll/event now auto-posts into club chat as its own message
+(migrations 0069-0071) — a poll renders as a fully votable inline card
+(same `castVote`/`fetchPoll` from `lib/polls.ts` already uses, so
+behavior can't drift from the full Poll screen), an event as a
+title/date/location card with a "View Event" button. Fires regardless of
+entry point (confirmed live via a direct SQL insert into `polls`,
+bypassing the UI entirely, during verification) via a security-definer
+trigger the same shape as the existing join/leave system-message
+triggers — deleting the underlying poll/event cascades to remove its
+chat card too (confirmed live). Club-scoped only for now, matching the
+"+" attach menu's own scoping.
+
+## Task 51: Chat-first nav rework for Race and Eboard
+
+Extended the club-chat-only "+" attach menu and header quick-nav grid to
+Race and Eboard chat, and removed both of their own intermediate hub
+screens for members — the same restructure club chat already went
+through (task #48), applied one level down.
+
+`race/[raceId]/index.tsx` and `eboard/index.tsx` no longer show a
+member-only grid; a member is redirected straight into `/chat` on mount
+instead (the not-yet-a-member states — "no channel yet," "Request to
+join" — are unchanged, since those still need a real landing page). Race
+chat's "+" gets Poll only (no Event/Meeting concept there); its header
+grid gets Meet Information/Polls/Car Assignments & Groups, the exact 3
+rows its old hub grid used to hold. Eboard chat's "+" gets Poll and
+Meeting (any Eboard member can create either, mirroring the existing
+any-member rules for both); its header grid gets Meetings/Polls.
+
+A created Eboard meeting now auto-posts into Eboard chat the same way
+polls/events already did for club chat — new `meeting` message type +
+`messages.meeting_id`, a `post_meeting_chat_message()` trigger mirroring
+0071's shape (migration 0077). The existing `post_poll_chat_message()`
+trigger, previously club-scoped only ("race/Eboard skipped, for now"),
+was re-created in the same migration to route into that race's/Eboard's
+own channel instead of skipping — closing the exact carve-out its own
+comment flagged, now that race/Eboard chat have a poll-creation shortcut
+of their own.
+
+Caught one real bug before writing any code, not during live testing:
+chat's own `backFallback` prop (used when there's no navigation history
+to pop — direct URL entry, a page refresh) pointed at each hub screen,
+which would now bounce a member straight back to chat, an infinite loop
+with no way out. Fixed by retargeting `backFallback`, plus every sibling
+screen's `headerLeft` fallback that used to point at the hub
+(Meetings/Polls/Meet Information/Car Assignments), to the *grandparent*
+instead — the club hub for Eboard, the races list for Race.
+
+Verified live via Playwright: a member landing on `/eboard`,
+`/eboard/chat`, `/race/[id]`, and `/race/[id]/chat` via cold direct-URL
+navigation all settle on chat within about a second (the intermediate
+hub renders for one frame, never visibly), the chat back button lands on
+the correct grandparent with no loop, both attach-menu create-actions
+post a live inline card (confirmed for both a race poll and an Eboard
+meeting) with a working "View Poll"/"View Meeting" link out, and both
+header grids link to the correct 3/2 destinations.
+
+## Task 52: Club hub restyle (Telegram-style list) + per-user race pins
+
+Club hub restyle, founder-referenced against a Telegram-style group
+list — one continuous panel (circular icon avatars, thin dividers instead
+of each row being its own bordered card) replacing the old stack of
+separately-bordered cards, and a solid filled "Add Group" pill replacing
+the old dashed-outline button.
+
+Races & Meets now previews up to 5 upcoming races (was 2), each showing
+its own round avatar/letter-fallback instead of a generic flag icon, with
+dates dropped from the row (sort order unchanged, still soonest-first);
+"See all" opens a small popup with a search bar over every race instead
+of navigating to a whole new screen. The hub content needed wrapping in a
+`ScrollView` — a real bug a founder screenshot caught live: with 5
+bigger rows the "Add Group" button could get pushed below the fold with
+no way to scroll it into view.
+
+Chat's header quick-nav grid (club/race/Eboard) gained a "Members" row
+pointing at that scope's own roster screen.
+
+Races got a personal pin (a ⋮ menu, open to every member — not
+admin-gated, since this is each member's own curation of their own
+preview, not a shared setting) via a new `race_pins` table; migration
+0078 modeled this wrong first as a shared `races.pinned` column before a
+founder correction ("anyone can pin for themselves, not admin pins for
+all") — corrected in 0079 rather than edited in place, matching this
+file's own migration convention. Pin icon sits at the row's right end,
+right before the ⋮, at the founder's explicit direction.
+
+## Task 53: Highlights rows jump to their message in chat
+
+Pinned/Announcement/Report rows in Highlights are now tappable, jumping
+to and highlighting the exact message in chat (`?messageId=`, appended by
+`HighlightsScreen`, read by `ChatScreen`) — avatar taps and Reports'
+Delete/Dismiss buttons still work independently via `stopPropagation`.
+
+The target message is usually well outside `ChatScreen`'s normal
+newest-50 page, so a new `fetchMessagesAround()` (`lib/messages.ts`)
+fetches a window centered on it instead (≤50 before + ≤50 after) — this
+doesn't support paging further past that "after" edge, a real limitation
+if there happen to be 50+ newer messages, but the app has no "load newer"
+mechanism at all today (chat only ever loads upward from the live tail)
+and building one was out of scope here.
+
+Two real bugs found live, not from reading the code — both are their own
+lessons-learned entries in SPEC.md section 6 (the `scrollToIndex`/
+`onContentSizeChange`/`onStartReached` writeup, bugs 1-2: a `useRef`
+seeded from a route param at declaration time going stale on screen
+reuse, and a shared `onContentSizeChange` handler's "everything else"
+branch undoing a successful jump on a spurious re-fire).
+
+Also surfaced, but deliberately **not** fixed in this task (pre-existing,
+confirmed via `git stash` to reproduce identically on the pre-session
+code, and out of scope for what was asked): a fresh 50-message load
+doesn't reliably scroll all the way to the true bottom on this platform —
+this turned out to be the same underlying "can't measure what hasn't
+rendered yet" class of bug, and was fixed one task later (#54).
+
+## Task 54: Chat scroll-to-bottom fix, jump-to-latest, unread-aware entry
+
+The scroll-to-bottom issue flagged at the end of task #53 did in fact
+bite — chased down and fixed, plus two founder-requested chat entry
+changes landed alongside it.
+
+Added a small floating "jump to latest" ⌄ button (bottom-right, above the
+composer) that appears once the user has scrolled away from the bottom —
+whether from a manual scroll-up or a Highlights jump — and disappears
+once they're back at it; tapping it resumes auto-follow.
+
+Root-caused the scroll-to-bottom shortfall to `FlatList`'s default
+`initialNumToRender` (10) leaving most of a full page unrendered/
+unmeasured at mount — fixed by rendering the whole page eagerly
+(`initialNumToRender={PAGE_SIZE}`; chat bubbles are cheap enough, mostly
+text, that this isn't a real cost), which incidentally exposed a second,
+previously-latent bug: `onStartReached` firing immediately on mount
+(scroll position starts at 0, trivially "near the start"), auto-loading
+an unwanted extra older page before the real initial positioning had even
+settled. Fixed with a short grace-period ref (`readyForLoadEarlierRef`)
+that ignores that first spurious fire. Both are their own lessons-learned
+entries extending SPEC.md section 6's FlatList writeup (bugs 3-4).
+
+Separately, founder feedback reshaped what "entering a chat" should even
+mean: rather than always landing at the bottom, it now lands on the
+*first unread* message (per `channel_reads.last_read_at`, read via a new
+`fetchChannelLastReadAt()` *before* `markChannelRead` advances it — order
+matters, or there's no cutoff left to compute "unread" against) —
+falling back to the bottom once fully caught up — and critically, with
+**zero visible scroll motion** either way, reusing the same non-animated
+`scrollToIndex` machinery the Highlights jump already had rather than the
+old animated `scrollToEnd`. `PAGE_SIZE` dropped from 50 to 40 per
+explicit founder spec ("40 last messages always in the chat"). The two
+`markChannelRead`-related effects were merged into one (the unread cutoff
+must be read before, and in the same sequenced flow as, the call that
+overwrites it — two independent effects racing on that ordering was a
+real risk, not just a style preference).
+
+Verified live: seeded a real 25-read/15-unread split via direct
+`last_read_at` + message-timestamp manipulation — landed exactly on the
+first unread message with no visible motion, "jump to latest" correctly
+appeared (more content below), and disappeared once fully caught up on a
+second pass, landing quietly at the true bottom instead.
+
+## Task 55: Shareable join link, replacing the raw invite-code header/pill
+
+The invite code was displayed as a raw string ("Invite: XXXXXXXX") in the
+header of every club sub-screen (main hub, News, Routines, Polls, Races —
+5 duplicated copies of the same `headerRight`), overlapping the club name
+on narrower screens/devices — a real layout bug the founder screenshotted
+live from the iOS Simulator during this session's first native-build
+pass. It was also shown as a copy-only pill on the Club Profile screen.
+Both surfaced the invite code as raw text with no way to actually share
+it anywhere.
+
+This was always meant to grow into a real feature: SPEC.md's domain model
+section already documented `invite_code`/`join_club_by_code` (0002) as
+"a private, always-instant-join side channel... the intended base for a
+future shareable join-link (deliberately deferred, not built yet)" —
+section 5's status table had a standing placeholder row for exactly this,
+never implemented. This task built it.
+
+Design decisions confirmed via `AskUserQuestion` before writing code:
+reuse the existing `invite_code` column/RPC as the link's underlying
+token (rather than dropping it for a new mechanism — less migration
+surface, already RLS-safe, matches the plan already on record), and place
+the new action on the Club Profile screen (same place the old pill lived,
+alongside other admin-only club settings) rather than the hub.
+
+Implementation: `app.json` gains `"scheme": "clubchat"` (required for a
+custom-scheme deep link to open the installed app at all — needed a full
+`expo prebuild -p ios --clean` to bake into the native `Info.plist`,
+confirmed via `grep CFBundleURLSchemes`). `lib/clubs.ts`'s new
+`buildClubJoinLink(inviteCode)` wraps the code via `expo-linking`'s
+`Linking.createURL("/clubs/join", { queryParams: { code } })`. Club
+Profile's admin-only invite pill became a "Share join link" button
+(`Share.share`, branching content shape since RN's `url` field is
+iOS-only — Android would silently drop it, so the link has to be
+embedded in `message` there, which would duplicate it on iOS if both were
+set) plus a Copy icon. `/clubs/join` (`app/(tabs)/clubs/join.tsx`) now
+reads a `code` search param and auto-joins on mount, reusing the same
+`joinClubByCode` RPC path as pasting a code by hand — set inside a
+`useEffect` keyed on the param rather than a `useState`/`useRef`
+initializer, to avoid the exact "stale route param on screen reuse"
+class of bug documented in SPEC.md section 6's `scrollToIndex` writeup
+(a link tapped again with a different code while the screen instance is
+still mounted needs to actually re-fire).
+
+Two small drive-by fixes caught while touching this code: `expo-
+clipboard` was added as a new dependency because the existing "copy
+code" button's clipboard write was gated `Platform.OS === "web" &&
+navigator.clipboard` with no native branch at all — the button had never
+actually copied anything on iOS/Android, only silently flipped its own
+"copied" checkmark state. And `joinClubByCode` now lowercases the code
+before the RPC call — the stored `invite_code` is always lowercase
+(`substr(md5(...), 1, 8)`), but every UI surface displayed it
+uppercase-styled (`textTransform: "uppercase"`), so a user typing what
+they visually saw and pasting it into the manual-entry field would have
+gotten a false "Invalid invite code" rejection.
+
+Verified: `npx tsc --noEmit` clean, full `npm test` suite passing (35
+tests), confirmed the `clubchat://` scheme landed in the rebuilt native
+Info.plist. Live end-to-end verification (Share/Copy buttons, the actual
+deep-link auto-join round trip) was **not** done by Claude in this
+session — no Simulator UI automation tool was available — and was left
+for the founder to confirm.

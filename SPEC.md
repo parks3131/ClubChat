@@ -190,8 +190,9 @@ club is `open` (search-by-name joins instantly) or `request`
 (search-by-name files a request the admin must approve). The existing
 `invite_code` / `join_club_by_code` RPC is untouched and orthogonal to
 this — it's a private, always-instant-join side channel regardless of
-`join_policy`, and is the intended base for a future shareable join-link
-(deliberately deferred, not built yet).
+`join_policy`. Task #55 built the shareable join link this was always
+meant to become: `lib/clubs.ts`'s `buildClubJoinLink` wraps the same
+code in a `clubchat://` deep link that `/clubs/join` auto-consumes.
 
 **Notification** (task #35 — a `User`-scoped row, not nested under
 `Club` in the tree above since one user's notifications span every club
@@ -1627,7 +1628,7 @@ supabase/migrations/
 
 ## 5. Current status
 
-All 47 numbered tasks below are done. Full build narrative for any task
+All 55 numbered tasks below are done. Full build narrative for any task
 — bugs found, scope changes, verification steps — lives in
 `docs/HISTORY.md` under that task's own heading; this table intentionally
 only summarizes.
@@ -1646,11 +1647,10 @@ only summarizes.
 | 10 | Profile page — avatar upload, bio, "your clubs" | ✅ Done |
 | 11 | Promotion chat events, avatars in roster, tap-to-view member profile, city/DOB/school | ✅ Done |
 | 12 | Club profile screen, chat sender avatars | ✅ Done |
-| — | Shareable join link (wraps `invite_code` in a URL) | ⬜ Deliberately deferred |
 | 13 | Club navigation restructure (hub screen replaces bottom Tabs) | ✅ Done |
 | 14 | Chat: pinned-messages sticky strip, Highlights screen, timestamps, auto-scroll | ✅ Done |
 | 15 | Weekly routines | ✅ Done |
-| 16 | Race sub-flow: "Races & Meets" section, request/approve membership, race chat | ✅ Done — see `docs/HISTORY.md` task #16 for the founder-wireframe deviation from the original calendar-linked plan, the generalized `is_channel_member`/`is_channel_admin` design, and a real access-guard ordering bug caught during its own Playwright pass. |
+| 16 | Race sub-flow: "Races & Meets" section, request/approve membership, race chat | ✅ Done — see `docs/HISTORY.md` task #16 (founder-wireframe deviation from the original calendar-linked plan, see also section 1). |
 | 17 | Eboard & Council: private admin-only mini-club, one per club | ✅ Done |
 | 18 | Eboard & Council: Meetings (date+time, title, description, link) | ✅ Done — any eboard member can create, only the creator can edit/delete. |
 | 19 | Race: Car Assignments & Groups | ✅ Done — admin-only auto-numbered groups, one designated Incharge per group, caught a real infinite-render bug during its own Playwright pass. |
@@ -1668,247 +1668,51 @@ only summarizes.
 | 31 | Chat moderation — message delete + report | ✅ Done — soft-delete tombstone, admin-only Reports tab in Highlights. |
 | 32 | Privacy Policy + Terms of Service (in-app) | ✅ Done — not a substitute for real legal review before public launch. |
 | 33 | Bundle identifiers + `eas.json` build config | 🟡 Partial — bundle IDs + build profiles set; still needs the founder's own interactive `eas login`/`eas init`. |
-| 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see `docs/HISTORY.md` task #34 for the worktree-recovery story and two independently-shippable bugs found along the way (web image-picker click, react-native-web Switch color). |
-| 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see `docs/HISTORY.md` task #35 for the two-round `AskUserQuestion` design process and 3 bugs (2 fixed at ship, 1 founder-reported follow-up: decided requests now persist as tagged history instead of disappearing). |
+| 34 | Visual redesign — "Kinetic Performance System" (Stitch) rollout app-wide | ✅ Done — see `docs/HISTORY.md` task #34. |
+| 35 | Notifications — Strava-style cross-club inbox | ✅ Done — see `docs/HISTORY.md` task #35. |
 | 36 | Bug fixes: race-chat announcements silently failing + race roster missing "Remove" | ✅ Done — see `docs/HISTORY.md` task #36. |
 | 37 | Header styling consistency fix (Routines/Polls/Races/Eboard/Race never got the redesign treatment) | ✅ Done |
-| 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see `docs/HISTORY.md` task #38 for two real RLS bugs caught live, including a second variant of section 6's `INSERT...RETURNING` gotcha. |
+| 38 | Polls: Stitch redesign, optional deadline, Race/Eboard scoping | ✅ Done — see `docs/HISTORY.md` task #38 (a second `INSERT...RETURNING` RLS gotcha, see section 6). |
 | 39 | Polls in the unified Calendar | ✅ Done — see `docs/HISTORY.md` task #39. |
 | 40 | Eboard member removal + Delete Club/Race/Eboard | ✅ Done |
-| 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see `docs/HISTORY.md` task #41 for the `advisor`-caught scope ambiguities and a latent trigger-ordering bug found while tracing existing code. Later reversed for races by task #42/#44. |
-| 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — see `docs/HISTORY.md` task #42 for the full permission-matrix design, the `pg_dump`-restored RLS-impersonation verification technique, an enum-transaction migration failure caught on a later `supabase db reset` (split into 0042/0043/0044), and a founder-reported realtime-channel-reuse crash fixed as a follow-up. |
+| 41 | Admin auto-membership for Race/Eboard + calendar visibility | ✅ Done — see `docs/HISTORY.md` task #41. Later reversed for races by #42/#44. |
+| 42 | Owner/Admin/Member role hierarchy + race-channel membership rework | ✅ Done — see `docs/HISTORY.md` task #42. |
 | 43 | Polls: voter-view popup (avatar + name per option) + minute/hour/day custom deadlines | ✅ Done — see `docs/HISTORY.md` task #43. No migration, UI/lib-only. |
-| 44 | Notifications: real unread color shading + join-requests behave like chat-unread | ✅ Done — see `docs/HISTORY.md` task #44 for two real bugs found live: `club_join_request`'s stale target_path (fixed to `club-profile/members`), and `notify_club_join_request`/`notify_race_join_request` still filtering `role = 'admin'` post-task-#42, silently dropping notifications for a lone-Owner club. |
-| 45 | Poll-closing-soon notification (10 minutes before `closes_at`) | ✅ Done — see `docs/HISTORY.md` task #45. The app's first scheduled job (pg_cron, confirmed already available on this Postgres image) rather than a trigger, since there's no row-level event to react to. Found and fixed 2 more instances of task #44's `role = 'admin'` bug in `notify_announcement`/`notify_poll_created`'s race branches along the way. |
-| 46 | Race polls + race announcements: member-only access/audience, matching Eboard's model exactly | ✅ Done — see `docs/HISTORY.md` task #46. A club Admin/Owner can no longer see or create a race's polls without an actual `race_members` row — closes the one race feature that didn't already require real membership (`race/[raceId]/index.tsx`'s hub already gated everything else behind `isMember`). Creation deliberately stayed admin-gated (`is_race_member AND is_race_admin`, mirroring `is_channel_admin`'s pin/announce rule) rather than opening to every race participant. Same-session founder follow-up ("it all lives inside the channel") closed the last remaining instance: `notify_announcement`'s race branch also narrowed to `race_members` only, so a non-member manager no longer gets notified about a race chat announcement they can't open. Verified via full RLS impersonation and live seeded-data checks, not just reading the SQL back. |
-| 47 | Notifications: mark-read-on-blur timing + persisted "caught up" record for chat | ✅ Done — see `docs/HISTORY.md` task #47. Plain notification types now mark read on *leaving* the Notifications tab (not on opening it) so an unread item is actually visible dark for the whole visit, only turning light next time. New `mark_channel_read_and_log()` RPC (this app's first RPC-driven, rather than trigger-driven, `notifications` insert) logs an already-read `chat_caught_up` entry the moment a chat's unread state is cleared, so it persists in the feed as light-shaded history instead of vanishing — the live unread computation itself (`fetch_unread_channel_summaries()`) is unchanged. Same-session founder follow-up fixed a pre-existing `mergeFeedItems` bug (present since task #35, only now visible) that left a stale dark "N unread" row duplicated alongside its own new light "Caught up" entry — `chat_unread` items are no longer paginated, so a page-1 fetch now fully replaces the locally-tracked set instead of only ever adding to it. |
+| 44 | Notifications: real unread color shading + join-requests behave like chat-unread | ✅ Done — see `docs/HISTORY.md` task #44 (2 live bugs: stale `target_path`, a post-#42 `role = 'admin'` filter regression). |
+| 45 | Poll-closing-soon notification (10 minutes before `closes_at`) | ✅ Done — see `docs/HISTORY.md` task #45. First scheduled job (pg_cron); fixed 2 more instances of #44's role-filter bug. |
+| 46 | Race polls + race announcements: member-only access/audience, matching Eboard's model exactly | ✅ Done — see `docs/HISTORY.md` task #46. Closed the one race feature that didn't already require real `race_members` access. |
+| 47 | Notifications: mark-read-on-blur timing + persisted "caught up" record for chat | ✅ Done — see `docs/HISTORY.md` task #47. First RPC-driven (not trigger-driven) `notifications` insert. |
+| 48 | Club-navigation restructure (hub redesign) + News & Highlights | ✅ Done — see `docs/HISTORY.md` task #48. Full-screen chat, redesigned hub, `club_posts` feed. |
+| 49 | WhatsApp-style chat attach menu + document attachments | ✅ Done — see `docs/HISTORY.md` task #49. Any-file-type documents are a new capability (migrations 0066-0068), not just UI. |
+| 50 | Poll/event auto-post to chat + Profile tab back-arrow fix | ✅ Done — see `docs/HISTORY.md` task #50. |
+| 51 | Chat-first nav rework for Race and Eboard | ✅ Done — see `docs/HISTORY.md` task #51. Extends #48/#49's pattern down a level; Eboard meetings gain auto-post cards too. |
+| 52 | Club hub restyle (Telegram-style list) + per-user race pins | ✅ Done — see `docs/HISTORY.md` task #52. New `race_pins` table, corrected from an initial wrong admin-wide-column attempt. |
+| 53 | Highlights rows jump to their message in chat | ✅ Done — see `docs/HISTORY.md` task #53. Surfaced (deferred to #54) a pre-existing scroll-to-bottom bug. |
+| 54 | Chat scroll-to-bottom fix, jump-to-latest button, unread-aware entry | ✅ Done — see `docs/HISTORY.md` task #54. Chat now opens on the first unread message with zero visible scroll motion. |
+| 55 | Shareable join link, replacing the raw invite-code header/pill | ✅ Done — see `docs/HISTORY.md` task #55. Wraps `invite_code` in a `clubchat://` deep link; live UI round-trip still pending founder confirmation. |
 
 **Immediate next step**: of the six "ship as a real application" tasks
-identified in an earlier founder-requested audit, four are done (photo
-attachments #29, account deletion #30, chat moderation #31, Privacy
-Policy/Terms #32) and one is partially done (bundle ID + `eas.json` #33,
-blocked on the founder's own interactive `eas login`/`eas init`). The
-sixth — an App Store privacy nutrition label / Google Play Data Safety
-form — isn't a coding task; it has to be filled out at actual submission
-time, once the shipped build's behavior is final.
+from an earlier audit, 4 are done (#29-32) and 1 is partial (bundle ID +
+`eas.json` #33, blocked on the founder's own `eas login`/`eas init`). The
+6th — App Store privacy label / Google Play Data Safety form — isn't a
+coding task; fill it out at actual submission time.
 
-Beyond those six: the code-quality-audit gaps from task #25 that are
-still open (zero accessibility labels, hand-written `types/database.ts`
-— regenerate once a real hosted Supabase project exists, no error
-monitoring e.g. Sentry), and push notifications / OTA updates
-(`expo-updates`) aren't wired up — task #35's Notifications feature
-already computes a `body`/`target_path` per event, exactly what an
-`expo-notifications` payload would need. Task #34 also leaves one open
-thread: the Highlights/Races/Eboard visual rollout has no source mockup
-of its own (extrapolated from the club hub's established pattern) —
-worth a founder look to confirm it reads as intended everywhere.
+Beyond those six: task #25's still-open gaps (no accessibility labels,
+hand-written `types/database.ts` — regenerate once a real hosted
+Supabase project exists, no error monitoring), and push notifications /
+OTA updates (`expo-updates`) aren't wired up — task #35's Notifications
+already compute the `body`/`target_path` an `expo-notifications` payload
+would need. Task #34 also leaves the Highlights/Races/Eboard visual
+rollout unverified against a source mockup (extrapolated from the hub's
+pattern) — worth a founder look.
 
-Most recently: task #42 replaced the two-role `admin`/`member` system
-with a real Owner > Admin > Member hierarchy and reversed task #41's race
-auto-membership back to a request-to-join flow, task #43 added the poll
-voter-view popup and minute/hour/day custom deadlines, task #44 gave
-the Notifications feed real unread color shading plus fixed two live
-bugs — a stale join-request target_path and a role-filter regression
-from task #42 that silently dropped join-request notifications for any
-club with a lone Owner and no separate Admins — and task #45 added a
-poll-closing-soon notification via the app's first scheduled job
-(pg_cron), catching two more instances of that same role-filter bug
-along the way, task #46 closed the one race feature that still let
-a non-member club Admin/Owner in — race polls now require a real
-`race_members` row to see or create, matching Eboard's access model
-exactly — and task #47 fixed the Notifications feed's mark-read timing
-(now on leaving the tab, not opening it, so unread actually stays
-visible) and gave chat-unread rows a persisted, already-read history
-trace once resolved, via this app's first RPC-driven notification
-insert.
-
-**Since task #47** (not yet folded into numbered tasks above — a founder
-wireframe-driven club-navigation restructure, done incrementally with an
-explicit "one by one, tell me if there's a problem" approach): chat now
-hides the bottom tab bar entirely (full-screen); the club hub dropped its
-flat row-per-feature list for News & Highlights / Club Main Chat / a
-Races & Meets preview, with Routines/Polls/Eboard & Council deliberately
-left unlinked pending a founder decision on where they land next; a new
-Calendar bottom tab shows either the active club's feed or a merged
-cross-club feed depending on `CurrentClubProvider`'s `currentClub` (set
-by `clubs/[clubId]/_layout.tsx`, read by both the Calendar tab and the
-Clubs tab); the
-Clubs tab itself became context-aware — a shortcut into the active
-club's hub, then a second tap (or its header back button) out to the
-Main list, using the same `?from=` override pattern as the pre-existing
-`?from=profile` case rather than trusting `canGoBack()`; and News &
-Highlights shipped as a real standalone admin-post feed (`club_posts` +
-`club_post_reactions`, migrations 0061-0065) — any club admin can
-create/edit/delete any post (confirmed explicitly, not assumed by
-analogy — this codebase has both a creator-only precedent, Eboard
-Meetings, and an any-admin one, Race Meet Info/Routines/Events), members
-can react with the same emoji set chat uses, and creating a post
-notifies every other club member. Verified live via Playwright + direct
-SQL role changes, including a real bug caught mid-build: `news/
-_layout.tsx`'s header initially copied routines/polls/races/eboard's
-text-only title, dropping the club avatar that the top-level hub/chat/
-calendar screens show — founder-flagged live from their own concurrent
-testing session, fixed since this was a brand-new Stack, not a
-pre-existing one worth leaving alone.
-
-**Same session, right after**: club chat's composer "+" became a
-WhatsApp-style expandable grid (Photos/Camera/Document always, Poll/
-Event admin-only), and its header gained a grid icon opening a Poll/
-Routines/Events quick-nav dropdown — both club-chat-only for now, by
-explicit founder scoping ("for now lets do for this but later we should
-do similarly to others"), leaving race/Eboard chat's single photo-icon
-composer untouched. Document attachments are a genuinely new capability
-(any file type, migrations 0066-0068 — new message_type value, two new
-messages columns, a new private storage bucket) rather than a UI-only
-change, so it went through the same "confirm scope before writing SQL"
-AskUserQuestion pass News & Highlights did. Caught one bug proactively
-rather than reactively: `expo-document-picker`'s web implementation
-turned out to use the exact same `dispatchEvent(new
-MouseEvent("click"))` pattern that caused the original `pickImageOnWeb`
-bug (real user-activation gotcha some browsers don't honor for a
-synthetic event) — noticed while reading the library's source before
-wiring it up, so `lib/pickDocumentOnWeb.ts` applies the same real-
-`.click()` fix from day one instead of waiting to hit the bug again.
-Verified live via Playwright, including a real document upload/open
-round-trip through the signed-URL flow — and, again, the founder was
-already live-testing concurrently and posted 2 real documents mid-build.
-
-**Same session, next**: removed the Profile tab's own back arrow (a
-bottom-tab root showing a back button that jumps to a *different* tab
-was confusing, not a real "back") — `edit`/`privacy-policy`/`terms`
-keep theirs, only `index`'s `headerLeft` was dropped. Then: a created
-poll/event now auto-posts into club chat as its own message
-(migrations 0069-0071) — a poll renders as a fully votable inline card
-(same castVote/fetchPoll lib/polls.ts already uses, so behavior can't
-drift from the full Poll screen), an event as a title/date/location
-card with a "View Event" button. Fires regardless of entry point
-(confirmed live via a direct SQL insert into `polls`, bypassing the
-UI entirely, during verification) via a security-definer trigger the
-same shape as the existing join/leave system-message triggers —
-deleting the underlying poll/event cascades to remove its chat card
-too (confirmed live). Club-scoped only for now, matching the "+"
-attach menu's own scoping.
-
-**Same session, next**: extended the club-chat-only "+" attach menu and
-header quick-nav grid to Race and Eboard chat, and removed both of their
-own intermediate hub screens for members — the same restructure club chat
-already went through, applied one level down. `race/[raceId]/index.tsx`
-and `eboard/index.tsx` no longer show a member-only grid; a member is
-redirected straight into `/chat` on mount instead (the not-yet-a-member
-states — "no channel yet," "Request to join" — are unchanged, since
-those still need a real landing page). Race chat's "+" gets Poll only
-(no Event/Meeting concept there); its header grid gets Meet Information/
-Polls/Car Assignments & Groups, the exact 3 rows its old hub grid used to
-hold. Eboard chat's "+" gets Poll and Meeting (any Eboard member can
-create either, mirroring the existing any-member rules for both); its
-header grid gets Meetings/Polls. A created Eboard meeting now auto-posts
-into Eboard chat the same way polls/events already did for club chat —
-new `meeting` message type + `messages.meeting_id`, a
-`post_meeting_chat_message()` trigger mirroring 0071's shape (migration
-0077). The existing `post_poll_chat_message()` trigger, previously
-club-scoped only ("race/Eboard skipped, for now"), was re-created in the
-same migration to route into that race's/Eboard's own channel instead of
-skipping — closing the exact carve-out its own comment flagged, now that
-race/Eboard chat have a poll-creation shortcut of their own. Caught one
-real bug before writing any code, not during live testing: chat's own
-`backFallback` prop (used when there's no navigation history to pop —
-direct URL entry, a page refresh) pointed at each hub screen, which would
-now bounce a member straight back to chat, an infinite loop with no way
-out. Fixed by retargeting `backFallback`, plus every sibling screen's
-`headerLeft` fallback that used to point at the hub (Meetings/Polls/Meet
-Information/Car Assignments), to the *grandparent* instead — the club hub
-for Eboard, the races list for Race. Verified live via Playwright: a
-member landing on `/eboard`, `/eboard/chat`, `/race/[id]`, and
-`/race/[id]/chat` via cold direct-URL navigation all settle on chat
-within about a second (the intermediate hub renders for one frame, never
-visibly), the chat back button lands on the correct grandparent with no
-loop, both attach-menu create-actions post a live inline card (confirmed
-for both a race poll and an Eboard meeting) with a working "View
-Poll"/"View Meeting" link out, and both header grids link to the correct
-3/2 destinations.
-
-**Same session, next**: club hub restyle, founder-referenced against a
-Telegram-style group list — one continuous panel (circular icon avatars,
-thin dividers instead of each row being its own bordered card) replacing
-the old stack of separately-bordered cards, and a solid filled "Add
-Group" pill replacing the old dashed-outline button. Races & Meets now
-previews up to 5 upcoming races (was 2), each showing its own round
-avatar/letter-fallback instead of a generic flag icon, with dates
-dropped from the row (sort order unchanged, still soonest-first); "See
-all" opens a small popup with a search bar over every race instead of
-navigating to a whole new screen. The hub content needed wrapping in a
-`ScrollView` — a real bug a founder screenshot caught live: with 5 bigger
-rows the "Add Group" button could get pushed below the fold with no way
-to scroll to it. Chat's header quick-nav grid (club/race/Eboard) gained a
-"Members" row pointing at that scope's own roster screen. Races got a
-personal pin (a ⋮ menu, open to every member — not admin-gated, since
-this is each member's own curation of their own preview, not a shared
-setting) via a new `race_pins` table; migration 0078 modeled this wrong
-first as a shared `races.pinned` column before a founder correction
-("anyone can pin for themselves, not admin pins for all") — corrected in
-0079 rather than edited in place, matching this file's own migration
-convention. Pin icon sits at the row's right end, right before the ⋮, at
-the founder's explicit direction.
-
-**Same session, next**: Pinned/Announcement/Report rows in Highlights
-are now tappable, jumping to and highlighting the exact message in chat
-(`?messageId=`, appended by `HighlightsScreen`, read by `ChatScreen`) —
-avatar taps and Reports' Delete/Dismiss buttons still work independently
-via `stopPropagation`. The target message is usually well outside
-`ChatScreen`'s normal newest-50 page, so a new `fetchMessagesAround()`
-(`lib/messages.ts`) fetches a window centered on it instead (≤50 before +
-≤50 after) — this doesn't support paging further past that "after" edge,
-a real limitation if there happen to be 50+ newer messages, but the app
-has no "load newer" mechanism at all today (chat only ever loads upward
-from the live tail) and building one was out of scope here. Two real
-bugs found live, not from reading the code — both are now their own
-lessons-learned entries in section 6 below (FlatList scrollToIndex/
-onContentSizeChange gotchas). Also surfaced, but deliberately **not**
-fixed (pre-existing, confirmed via `git stash` to reproduce identically
-on the pre-session code, and out of scope for what was asked): a fresh
-50-message load doesn't reliably scroll all the way to the true bottom
-on this platform — likely the same underlying "can't measure what hasn't
-rendered yet" class of bug as the scrollToIndex ones below, just never
-noticed before because normal gradual usage rarely mounts cold with a
-full 50 fresh, never-rendered rows at once the way a bulk-inserted test
-fixture does. Worth a founder look if it turns out to bite real usage.
-
-**Same session, next**: that flagged scroll-to-bottom issue did in fact
-bite — chased down and fixed, plus two founder-requested chat entry
-changes landed alongside it. Added a small floating "jump to latest" ⌄
-button (bottom-right, above the composer) that appears once the user has
-scrolled away from the bottom — whether from a manual scroll-up or a
-Highlights jump — and disappears once they're back at it; tapping it
-resumes auto-follow. Root-caused the scroll-to-bottom shortfall to
-`FlatList`'s default `initialNumToRender` (10) leaving most of a full
-page unrendered/unmeasured at mount — fixed by rendering the whole page
-eagerly (`initialNumToRender={PAGE_SIZE}`; chat bubbles are cheap enough,
-mostly text, that this isn't a real cost), which incidentally exposed a
-second, previously-latent bug: `onStartReached` firing immediately on
-mount (scroll position starts at 0, trivially "near the start"),
-auto-loading an unwanted extra older page before the real initial
-positioning had even settled. Fixed with a short grace-period ref
-(`readyForLoadEarlierRef`) that ignores that first spurious fire. Both
-new lessons-learned entries extend the FlatList section below rather
-than duplicating it. Separately, founder feedback reshaped what "entering
-a chat" should even mean: rather than always landing at the bottom, it
-now lands on the *first unread* message (per `channel_reads
-.last_read_at`, read via a new `fetchChannelLastReadAt()` *before*
-`markChannelRead` advances it — order matters, or there's no cutoff left
-to compute "unread" against) — falling back to the bottom once fully
-caught up — and critically, with **zero visible scroll motion** either
-way, reusing the same non-animated `scrollToIndex` machinery the
-Highlights jump already had rather than the old animated `scrollToEnd`.
-`PAGE_SIZE` dropped from 50 to 40 per explicit founder spec ("40 last
-messages always in the chat"). The two `markChannelRead`-related effects
-were merged into one (the unread cutoff must be read before, and in the
-same sequenced flow as, the call that overwrites it — two independent
-effects racing on that ordering was a real risk, not just a style
-preference). Verified live: seeded a real 25-read/15-unread split via
-direct `last_read_at` + message-timestamp manipulation — landed exactly
-on the first unread message with no visible motion, "jump to latest"
-correctly appeared (more content below), and disappeared once fully
-caught up on a second pass, landing quietly at the true bottom instead.
+Most recently (tasks #48-55, rough arc): a founder wireframe-driven
+navigation restructure — full-screen chat-first nav, a redesigned hub,
+News & Highlights as a new feed — carried down into Race/Eboard chat and
+through two more hub restyles, followed by real chat scroll-bug fixes,
+and task #55 (this session) replacing the raw invite-code header/pill
+with a shareable `clubchat://` join link. See each row's `docs/
+HISTORY.md` pointer above for specifics.
 
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
@@ -2338,6 +2142,52 @@ faster.
 to it is just: create the project, run the migration files in the SQL
 Editor in order (`0001` → ... → latest), and swap the two
 `EXPO_PUBLIC_SUPABASE_*` values in `.env`.
+
+### Running natively via Xcode / iOS Simulator
+
+Builds and runs the actual compiled native app, not a browser JS bundle.
+No `ios/`/`android/` folder is committed (gitignored, generated on
+demand — Expo's "Continuous Native Generation"): never hand-edit `ios/`,
+re-run `prebuild` instead whenever `app.json` changes.
+
+```bash
+# One-time: install Xcode from the App Store (~15GB), then:
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+
+npx expo prebuild -p ios   # generates ios/, also installs CocoaPods + runs pod install
+npx expo run:ios            # build + launch in the Simulator
+```
+
+Three real gotchas hit getting this working:
+- **Fresh Xcode ships with zero Simulator runtimes** — `run:ios` fails
+  with `No iOS devices available in Simulator.app` until one's
+  downloaded: `xcodebuild -downloadPlatform iOS` (~8.5GB, several
+  minutes, plus an unpack step not reflected in the progress %).
+- **A two-finger trackpad scroll does not scroll a list in the
+  Simulator** — only a real click-and-drag (mouse down, move, up)
+  translates to a touch event. Looks identical to a broken
+  `FlatList`/`ScrollView`; check this before assuming an app bug.
+- **Local Supabase must be started separately** — `run:ios` doesn't do
+  it. The Simulator shares the Mac's network namespace, so
+  `127.0.0.1:54321` works unchanged once both Docker Desktop and
+  `supabase start` are actually up (`open -a Docker` first if needed). A
+  "fetch failed" sign-in error with no other symptom usually just means
+  one of those two isn't running — check `docker ps` before suspecting
+  the app.
+
+**Real physical device**: `npx expo run:ios --device`, enable Developer
+Mode (Settings → Privacy & Security, reboots the phone), sign with an
+Apple ID under Xcode's Signing & Capabilities (free account fine for
+local testing, expires after 7 days), then trust the dev cert under
+Settings → General → VPN & Device Management on first launch. Critically,
+`127.0.0.1` there means the phone itself, not the Mac — swap
+`EXPO_PUBLIC_SUPABASE_URL` in `.env` to the Mac's LAN IP
+(`ipconfig getifaddr en0`), same WiFi required.
+
+For a shareable build with no cabling (TestFlight-style), see `eas.json`
+(task #33) — `eas build --platform ios --profile preview` is a separate,
+cloud-based path from everything above.
 
 ## 8. How to keep working from here
 
