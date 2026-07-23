@@ -23,7 +23,7 @@ import {
   type TextStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { colors, radii, spacing, typography, type MaterialIconName } from "../constants/theme";
 import { useAuth } from "../contexts/AuthProvider";
 import { useNotifications } from "../contexts/NotificationsProvider";
@@ -32,6 +32,7 @@ import { fetchMeeting, type EboardMeeting } from "../lib/eboard";
 import {
   deleteMessage,
   fetchMessages,
+  fetchMessagesAround,
   reportMessage,
   sendDocumentMessage,
   sendMessage,
@@ -210,6 +211,23 @@ export default function ChatScreen({
   // scrolling to the bottom (its default behavior on every other change).
   const olderPagePrependedCountRef = useRef<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  // "Jump to this message" from a Highlights row (?messageId=..., appended
+  // by HighlightsScreen) — fetched as its own centered window (see
+  // fetchMessagesAround in lib/messages.ts) rather than the plain newest-N
+  // page, since a pinned/announced message is often well outside that.
+  // pendingScrollToMessageIdRef tracks the still-unhandled jump across
+  // renders without re-triggering on every subsequent `messages` update.
+  // Deliberately NOT initialized from targetMessageId here — this route
+  // can be reached from Highlights with a fresh ?messageId= while React
+  // Navigation reuses an already-mounted ChatScreen instance for the same
+  // path (chat -> highlights -> chat again is a pop, not a fresh push),
+  // so a useRef(initialValue) captured once at first mount would silently
+  // go stale. It's set instead inside the data-loading effect below,
+  // which already re-runs whenever targetMessageId changes.
+  // highlightedMessageId drives a brief visual flash once landed.
+  const { messageId: targetMessageId } = useLocalSearchParams<{ messageId?: string }>();
+  const pendingScrollToMessageIdRef = useRef<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   // The header is fully custom (glass-blur, matching the Stitch chat
   // redesign) rather than the native Stack header — hide the native one
@@ -262,16 +280,21 @@ export default function ChatScreen({
 
   useEffect(() => {
     setLoading(true);
-    fetchMessages(channelId, { limit: PAGE_SIZE })
-      .then((initial) => {
-        setMessages(initial);
-        setHasMoreOlder(initial.length === PAGE_SIZE);
-      })
-      .finally(() => setLoading(false));
+    pendingScrollToMessageIdRef.current = targetMessageId ?? null;
+    const initialLoad = targetMessageId
+      ? fetchMessagesAround(channelId, targetMessageId).then(({ messages: initial, hasMoreOlder: more }) => {
+          setMessages(initial);
+          setHasMoreOlder(more);
+        })
+      : fetchMessages(channelId, { limit: PAGE_SIZE }).then((initial) => {
+          setMessages(initial);
+          setHasMoreOlder(initial.length === PAGE_SIZE);
+        });
+    initialLoad.finally(() => setLoading(false));
 
     const unsubscribe = subscribeToNewMessages(channelId, reload);
     return unsubscribe;
-  }, [channelId, reload]);
+  }, [channelId, reload, targetMessageId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -638,6 +661,26 @@ export default function ChatScreen({
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.list, { paddingTop: listPaddingTop }]}
         onContentSizeChange={() => {
+          // "Jump to this message" (see the ref's own comment above) takes
+          // priority over every other case below. FlatList can fire this
+          // once already, with an empty/stale `data`, before the async
+          // fetch has actually resolved — bail without consuming the ref
+          // in that case so the *real* content-size change (once messages
+          // are in) still gets a turn, instead of silently losing the jump.
+          const targetId = pendingScrollToMessageIdRef.current;
+          if (targetId !== null) {
+            if (messages.length === 0) return;
+            pendingScrollToMessageIdRef.current = null;
+            const index = messages.findIndex((m) => m.id === targetId);
+            if (index !== -1) {
+              requestAnimationFrame(() => {
+                flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 });
+              });
+              setHighlightedMessageId(targetId);
+              setTimeout(() => setHighlightedMessageId((current) => (current === targetId ? null : current)), 2500);
+            }
+            return;
+          }
           // After prepending an older page, jump back to the message the
           // user was reading (now sitting right below the new page)
           // instead of the default scroll-to-bottom every other change
@@ -650,6 +693,15 @@ export default function ChatScreen({
             });
             return;
           }
+          // Skip the default scroll-to-bottom entirely while viewing a
+          // jumped-to message (?messageId= still set) — this callback
+          // keeps re-firing on this platform even when content hasn't
+          // actually grown (see the jump branch above), and without this
+          // guard every one of those spurious re-fires would immediately
+          // yank the view back down right after the jump lands. A
+          // realtime reload merging in new messages while reading old
+          // history shouldn't move the view either, same reasoning.
+          if (targetMessageId) return;
           // Same rAF-wrapped pattern as the prepend branch above: calling
           // scrollToEnd synchronously inside this callback can land short
           // of the true bottom by roughly one row — the DOM/layout for the
@@ -660,10 +712,24 @@ export default function ChatScreen({
         }}
         onScrollToIndexFailed={(info) => {
           // FlatList can fail to scroll to an index it hasn't measured yet
-          // when row heights vary — standard workaround is a short retry.
+          // when row heights vary. A blind retry at the exact same index
+          // fails identically forever, since nothing forces it to render/
+          // measure any further than it already has — the fix (standard
+          // for this exact FlatList gotcha) is scrolling to an *estimated*
+          // offset first (its own avg item height × index), which forces
+          // more of the list to render past what's currently measured, and
+          // only then retrying `scrollToIndex` for the precise position.
+          flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
           setTimeout(() => {
-            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-          }, 50);
+            // Match the jump branch's own viewPosition so a retry doesn't
+            // settle the target flush against the top edge, behind the
+            // floating header/pinned-notice overlay.
+            flatListRef.current?.scrollToIndex({
+              index: info.index,
+              animated: false,
+              viewPosition: targetMessageId ? 0.3 : undefined,
+            });
+          }, 100);
         }}
         onStartReached={handleLoadEarlier}
         onStartReachedThreshold={0.5}
@@ -691,6 +757,7 @@ export default function ChatScreen({
           }
 
           const isMine = item.senderId === session?.user.id;
+          const isJumpTarget = item.id === highlightedMessageId;
 
           if (item.messageType === "announcement" && !item.deletedAt) {
             return (
@@ -720,7 +787,7 @@ export default function ChatScreen({
           }
 
           return (
-            <View style={[styles.messageRow, isMine && styles.messageRowMine]}>
+            <View style={[styles.messageRow, isMine && styles.messageRowMine, isJumpTarget && styles.messageRowJumpTarget]}>
               <TouchableOpacity onPress={() => router.push(memberPath(item.senderId))}>
                 {item.senderAvatarUrl ? (
                   <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
@@ -1461,6 +1528,15 @@ const styles = StyleSheet.create({
   loadEarlierRow: { alignItems: "center", paddingVertical: spacing.stackSm },
   messageRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.stackSm, marginBottom: spacing.unit },
   messageRowMine: { justifyContent: "flex-end" },
+  // Brief flash on the message a Highlights row jumped to (see
+  // pendingScrollToMessageIdRef above) — cleared automatically after 2.5s.
+  messageRowJumpTarget: {
+    backgroundColor: colors.secondaryContainer + "50",
+    borderRadius: radii.lg,
+    marginHorizontal: -spacing.stackSm,
+    paddingHorizontal: spacing.stackSm,
+    paddingVertical: spacing.unit,
+  },
   avatar: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.05)" },
   avatarPlaceholder: { backgroundColor: colors.surfaceContainerHigh, alignItems: "center", justifyContent: "center" },
   avatarInitial: { ...typography.labelSm, fontSize: 13, color: colors.primary },

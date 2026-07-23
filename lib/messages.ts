@@ -170,6 +170,53 @@ export async function fetchMessages(
   return attachSendersAndReactions(data ?? []);
 }
 
+const MESSAGE_COLUMNS =
+  "id, channel_id, sender_id, message_type, body, media_url, document_name, document_size_bytes, poll_id, event_id, meeting_id, pinned, created_at, deleted_at";
+
+// Powers "jump to this message in chat" from a Pinned/Announcement/Report
+// row in Highlights — the target message is often well outside the plain
+// newest-N page ChatScreen normally loads, so this fetches a window
+// centered on it instead: up to 50 at-or-before it (that page's own
+// `hasMoreOlder`-style cursor for the existing scroll-up-to-load-more
+// flow to keep working unchanged) plus up to 50 strictly after it.
+// Deliberately doesn't support paging further past that "after" edge —
+// a real limitation if there happen to be 50+ newer messages, but this
+// app has no "load newer" mechanism at all today (chat only ever loads
+// upward from the live tail), and building one is out of scope here.
+export async function fetchMessagesAround(
+  channelId: string,
+  targetMessageId: string
+): Promise<{ messages: DisplayMessage[]; hasMoreOlder: boolean }> {
+  const { data: target, error: targetError } = await supabase
+    .from("messages")
+    .select("created_at")
+    .eq("id", targetMessageId)
+    .single();
+  if (targetError) throw targetError;
+
+  const [{ data: before, error: beforeError }, { data: after, error: afterError }] = await Promise.all([
+    supabase
+      .from("messages")
+      .select(MESSAGE_COLUMNS)
+      .eq("channel_id", channelId)
+      .lte("created_at", target.created_at)
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("messages")
+      .select(MESSAGE_COLUMNS)
+      .eq("channel_id", channelId)
+      .gt("created_at", target.created_at)
+      .order("created_at", { ascending: true })
+      .limit(50),
+  ]);
+  if (beforeError) throw beforeError;
+  if (afterError) throw afterError;
+
+  const combined = [...(before ?? []).reverse(), ...(after ?? [])];
+  return { messages: await attachSendersAndReactions(combined), hasMoreOlder: (before ?? []).length === 50 };
+}
+
 export interface GalleryPhoto {
   id: string;
   photoUrl: string;

@@ -336,12 +336,29 @@ app/                          Expo Router file-based routes
   (tabs)/clubs/[clubId]/index.tsx
                                 Hub screen — restructured (task after #47,
                                 founder wireframe) from the original flat
-                                row-per-feature list down to: News &
-                                Highlights, Club Main Chat, and a Races &
-                                Meets card showing the 2 nearest upcoming
-                                races + "See all". Routines/Polls/Eboard &
-                                Council are deliberately unlinked from here
-                                (routes/RLS untouched, just pending a
+                                row-per-feature list down to one
+                                continuous panel (circular icon avatars,
+                                thin dividers instead of per-row bordered
+                                cards — a later founder-referenced restyle
+                                against a Telegram-style group list):
+                                News & Highlights, Club Main Chat, and a
+                                Races & Meets section showing up to 5
+                                upcoming races, each with its own round
+                                avatar/letter-fallback (no date shown —
+                                sort order stays chronological
+                                regardless), a per-user pin (⋮ menu, open
+                                to every member — see lib/races.ts's
+                                `race_pins`) with the pin icon at the
+                                row's right end, and a "See all" that
+                                opens a small search-over-every-race popup
+                                instead of navigating to a new screen.
+                                Wrapped in a `ScrollView` — a real bug a
+                                founder screenshot caught live, the bigger
+                                5-row preview could push the "Add Group"
+                                button below the fold with nothing to
+                                scroll it into view. Routines/Polls/Eboard
+                                & Council are deliberately unlinked from
+                                here (routes/RLS untouched, just pending a
                                 decision on where they land next — an
                                 explicit founder call against a stopgap
                                 "More" menu). Landing point when entering a
@@ -354,13 +371,15 @@ app/                          Expo Router file-based routes
                                 gotcha (section 6).
   (tabs)/clubs/[clubId]/chat.tsx
                                 Thin wrapper around shared
-                                components/ChatScreen.tsx — the only call
-                                site passing `attachMenu` (Poll/Event
-                                create paths) and `headerMenu` (Poll/
-                                Routines/Events quick-nav); race/Eboard
-                                chat wrappers pass neither, so they keep
-                                ChatScreen's original single-icon
-                                behavior untouched.
+                                components/ChatScreen.tsx, passing
+                                `attachMenu` (Poll/Event create paths) and
+                                `headerMenu` (Members/Poll/Routines/
+                                Events quick-nav) — race/Eboard chat get
+                                their own equivalents now too (task after
+                                #47's chat-first nav rework, see section
+                                5), scoped to what each concept actually
+                                has (race: Poll only; Eboard: Poll +
+                                Meeting).
   (tabs)/clubs/[clubId]/calendar.tsx
                                 Thin wrapper around shared
                                 components/CalendarScreen.tsx (`mode:
@@ -703,13 +722,36 @@ components/ChatScreen.tsx       Chat UI/logic (messages, reactions, pin/
                                  dismissible overlay (doesn't unpin);
                                  announcement toggle is a compact
                                  megaphone icon in the input row (not a
-                                 full-width banner).
+                                 full-width banner). Reads its own
+                                 `?messageId=` search param (appended by
+                                 HighlightsScreen's now-tappable rows) to
+                                 jump to and briefly highlight a specific
+                                 message — loads a `fetchMessagesAround`
+                                 window instead of the plain newest-page
+                                 when set, and suppresses the normal
+                                 scroll-to-bottom default entirely while
+                                 it's set, so viewing old history isn't
+                                 yanked back to the tail by a realtime
+                                 reload merging in new messages. See
+                                 section 6 for two real FlatList bugs
+                                 (`scrollToIndex`/`onContentSizeChange`)
+                                 hit and fixed building this.
 components/HighlightsScreen.tsx  Same extraction, for the Pinned/
                                  Announcements screen — Pinned/
                                  Announcements/admin-only "Reports (N)"
                                  (`isAdmin` prop) tabs, photo-message
                                  rendering, same custom glass header as
-                                 ChatScreen (`backFallback` prop).
+                                 ChatScreen (`backFallback` prop). Every
+                                 row (Pinned/Announcements/Reports) is
+                                 tappable, jumping to that exact message
+                                 in chat via `${backFallback}?messageId=
+                                 ${item.id}` — `backFallback` already
+                                 equals that scope's own chat route in
+                                 all 3 call sites, so no new prop was
+                                 needed. The avatar tap (member profile)
+                                 and Reports' Delete/Dismiss buttons stay
+                                 independent via `stopPropagation` on the
+                                 now-outer-Touchable row.
 components/CalendarScreen.tsx    Extracted from the old per-club-only
                                  calendar.tsx (task after #47's Calendar
                                  tab) — `mode: "club"` (clubId + isAdmin,
@@ -801,7 +843,22 @@ lib/messages.ts                 fetchMessages(channelId, options?: {limit?:
                                  scroll-up-to-load-more via FlatList's
                                  onStartReached / sendMessage / reactions
                                  / realtime subscription — chat backend,
-                                 channel-agnostic. sendPhotoMessage
+                                 channel-agnostic. fetchMessagesAround
+                                 (channelId, targetMessageId) — powers
+                                 Highlights' "jump to this message,"
+                                 fetching a window centered on it (≤50
+                                 at-or-before + ≤50 strictly after)
+                                 instead of the plain newest-N page, since
+                                 the target is often well outside that;
+                                 returns `hasMoreOlder` too, so the
+                                 existing scroll-up-to-load-more keeps
+                                 working unchanged from this window's own
+                                 oldest message. No "load newer" beyond
+                                 its own after-window — out of scope, this
+                                 app has no such mechanism at all yet
+                                 (see section 6 for two real FlatList bugs
+                                 hit wiring the scroll/highlight side of
+                                 this up in ChatScreen). sendPhotoMessage
                                  (upload to the private message-photos
                                  bucket, then insert) + DisplayMessage
                                  .photoUrl, resolved as a batched
@@ -938,8 +995,15 @@ lib/polls.ts                     fetchPolls / createPoll / fetchPoll /
                                  server-side `is_poll_closed` check.
                                  `PollVoter` interface (`userId`/
                                  `fullName`/`avatarUrl`).
-lib/races.ts                     fetchRaces (per-race access + request
-                                 status for the current user) /
+lib/races.ts                     fetchRaces(clubId, userId, isClubAdmin)
+                                 (per-race access + request status for
+                                 the current user, plus `pinned` — looked
+                                 up per-caller from `race_pins`, never
+                                 shared/admin-set) / setRacePinned(raceId,
+                                 userId, pinned) — upserts/deletes the
+                                 caller's own race_pins row, no admin
+                                 check (RLS already scopes it to
+                                 `user_id = auth.uid()` regardless) /
                                  createRace / requestJoinRace / fetchRace
                                  (`channelId: string | null`, since a
                                  manager who isn't a member can't read
@@ -1538,6 +1602,27 @@ supabase/migrations/
                                  get their own "+" poll-creation shortcut,
                                  by routing to that race's/Eboard's own
                                  channel instead of skipping.
+  0078_race_pinned.sql            Founder wireframe follow-up (club hub
+                                 restyle, see section 5) — added
+                                 races.pinned, a shared column, admin-only
+                                 via the existing races UPDATE policy.
+                                 Modeled the feature wrong: pinning turned
+                                 out to be personal per-member curation,
+                                 not an admin-wide setting. Superseded one
+                                 migration later by 0079 rather than
+                                 edited in place, per this file's own
+                                 migration convention.
+  0079_race_pins_per_user.sql     Corrects 0078: drops races.pinned,
+                                 replaces it with race_pins (race_id,
+                                 user_id, created_at — presence of the row
+                                 *is* the pin), same shape as
+                                 channel_reads (0031) — a single "for all"
+                                 policy scoped to `user_id = auth.uid()`,
+                                 no membership check needed on insert
+                                 (mirrors channel_reads' own policy
+                                 exactly). Every club member can pin any
+                                 race they can see; it only affects their
+                                 own hub preview.
 ```
 
 ## 5. Current status
@@ -1742,6 +1827,52 @@ for both a race poll and an Eboard meeting) with a working "View
 Poll"/"View Meeting" link out, and both header grids link to the correct
 3/2 destinations.
 
+**Same session, next**: club hub restyle, founder-referenced against a
+Telegram-style group list — one continuous panel (circular icon avatars,
+thin dividers instead of each row being its own bordered card) replacing
+the old stack of separately-bordered cards, and a solid filled "Add
+Group" pill replacing the old dashed-outline button. Races & Meets now
+previews up to 5 upcoming races (was 2), each showing its own round
+avatar/letter-fallback instead of a generic flag icon, with dates
+dropped from the row (sort order unchanged, still soonest-first); "See
+all" opens a small popup with a search bar over every race instead of
+navigating to a whole new screen. The hub content needed wrapping in a
+`ScrollView` — a real bug a founder screenshot caught live: with 5 bigger
+rows the "Add Group" button could get pushed below the fold with no way
+to scroll to it. Chat's header quick-nav grid (club/race/Eboard) gained a
+"Members" row pointing at that scope's own roster screen. Races got a
+personal pin (a ⋮ menu, open to every member — not admin-gated, since
+this is each member's own curation of their own preview, not a shared
+setting) via a new `race_pins` table; migration 0078 modeled this wrong
+first as a shared `races.pinned` column before a founder correction
+("anyone can pin for themselves, not admin pins for all") — corrected in
+0079 rather than edited in place, matching this file's own migration
+convention. Pin icon sits at the row's right end, right before the ⋮, at
+the founder's explicit direction.
+
+**Same session, next**: Pinned/Announcement/Report rows in Highlights
+are now tappable, jumping to and highlighting the exact message in chat
+(`?messageId=`, appended by `HighlightsScreen`, read by `ChatScreen`) —
+avatar taps and Reports' Delete/Dismiss buttons still work independently
+via `stopPropagation`. The target message is usually well outside
+`ChatScreen`'s normal newest-50 page, so a new `fetchMessagesAround()`
+(`lib/messages.ts`) fetches a window centered on it instead (≤50 before +
+≤50 after) — this doesn't support paging further past that "after" edge,
+a real limitation if there happen to be 50+ newer messages, but the app
+has no "load newer" mechanism at all today (chat only ever loads upward
+from the live tail) and building one was out of scope here. Two real
+bugs found live, not from reading the code — both are now their own
+lessons-learned entries in section 6 below (FlatList scrollToIndex/
+onContentSizeChange gotchas). Also surfaced, but deliberately **not**
+fixed (pre-existing, confirmed via `git stash` to reproduce identically
+on the pre-session code, and out of scope for what was asked): a fresh
+50-message load doesn't reliably scroll all the way to the true bottom
+on this platform — likely the same underlying "can't measure what hasn't
+rendered yet" class of bug as the scrollToIndex ones below, just never
+noticed before because normal gradual usage rarely mounts cold with a
+full 50 fresh, never-rendered rows at once the way a bulk-inserted test
+fixture does. Worth a founder look if it turns out to bite real usage.
+
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
 ### The big one: `INSERT ... RETURNING` also enforces the SELECT policy
@@ -1845,6 +1976,72 @@ a "look this row up again by id" function — even with no trigger
 anywhere in the picture. This is the same family of bug as the `clubs`
 gotcha above (RETURNING re-checks SELECT), but triggered by the shape of
 the SELECT policy itself, not by a trigger's timing.
+
+### FlatList `scrollToIndex`/`onContentSizeChange`: two gotchas hit building "jump to this message"
+
+Building Highlights' "tap a pinned/announcement to jump to it in chat"
+(a `FlatList.scrollToIndex` to an arbitrary, often-unmeasured message far
+outside the normal newest-50 page) hit two distinct bugs, both only
+caught by watching it fail live in Playwright, not by reading the code.
+
+**Bug 1 — a `useRef(initialValue)` capturing a route param goes stale
+when the screen instance is reused.** The pending-scroll target was
+first stored as `useRef<string | null>(targetMessageId ?? null)`
+(`targetMessageId` read via `useLocalSearchParams`). This works on a
+literal first mount, but React Navigation can reuse an already-mounted
+screen instance for the same route path when navigating to it again with
+different search params (chat → Highlights → chat again with a new
+`?messageId=` is a stack *pop* back to the existing chat screen, not a
+fresh push) — `useRef`'s initializer only ever runs once, at that
+original mount, so it never picks up the new param. The jump silently
+never fired; chat just fell through to whatever the "no target" default
+behavior was. **Fix**: don't seed the ref from a hook value at
+declaration time — set it inside the same effect that already reacts to
+that value changing (here, the message-loading effect, keyed on
+`[channelId, reload, targetMessageId]`), so it can never drift out of
+sync with the param that's supposed to drive it.
+
+**Bug 2 — retrying a failed `scrollToIndex` at the identical index fails
+identically forever, and a "default: scroll to bottom" branch will
+silently undo a successful jump.** Two compounding issues, both found by
+adding temporary `console.log`s to the `onContentSizeChange`/
+`onScrollToIndexFailed` handlers and reading the actual sequence rather
+than guessing from the (plausible-looking) code:
+1. `onScrollToIndexFailed` fires when the target index is beyond what
+   FlatList has measured so far (`highestMeasuredFrameIndex` in the
+   callback's `info`). The obvious "just retry after a short delay" (this
+   codebase's existing pattern for the *adjacent* "restore scroll
+   position after prepending an older page" feature) retries the exact
+   same call, which forces nothing new to render or get measured, so it
+   fails identically on every retry. **Fix**: first `scrollToOffset` to
+   an *estimated* position (`info.averageItemLength * info.index` — both
+   given for exactly this purpose), which forces FlatList to render/
+   measure further out, and only then retry `scrollToIndex` for the
+   precise position.
+2. `onContentSizeChange` on this platform fires repeatedly even when
+   content hasn't actually grown (not just once per real size change,
+   which the existing prepend-scroll-restore logic implicitly assumed
+   from day one — a latent assumption never violated until this feature
+   exercised the callback via a different, non-growing path). Its
+   original code had exactly two cases — "just prepended an older page"
+   and "everything else: scroll to bottom" — so once the jump branch
+   consumed its one-shot flag, every subsequent spurious re-fire fell
+   into "everything else" and called `scrollToEnd()`, yanking the view
+   straight back down to the tail immediately after the jump had
+   correctly landed. **Fix**: while a jump target is active
+   (`targetMessageId` still set — i.e. still viewing history the user
+   explicitly navigated to, not the live tail), skip the default
+   scroll-to-bottom branch entirely, including for realtime reloads that
+   merge in new messages while reading old history.
+
+**Takeaway**: for any `scrollToIndex`-to-an-arbitrary-position feature on
+FlatList, (a) never seed one-shot "pending action" state from a hook
+value at a `useRef` declaration — set it inside the effect that reacts to
+that value, and (b) audit every existing branch of a shared
+`onContentSizeChange`/`onScrollToIndexFailed` handler for "runs on every
+fire, not just the one you're adding a case for" — a working two-case
+handler can have a hidden assumption ("this only fires once per real
+resize") that a third case quietly violates.
 
 ### Minor gotchas encountered along the way
 

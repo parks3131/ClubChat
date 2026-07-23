@@ -172,7 +172,14 @@ export default function HighlightsScreen({ channelId, memberPath, isAdmin = fals
             <Text style={styles.empty}>{reportsLoaded ? "No reported messages." : ""}</Text>
           }
           renderItem={({ item }) => (
-            <ReportRow item={item} memberPath={memberPath} router={router} onDelete={handleDeleteReported} onDismiss={handleDismiss} />
+            <ReportRow
+              item={item}
+              memberPath={memberPath}
+              router={router}
+              onDelete={handleDeleteReported}
+              onDismiss={handleDismiss}
+              onOpenInChat={() => router.push(`${backFallback}?messageId=${item.id}`)}
+            />
           )}
         />
       ) : (
@@ -183,7 +190,15 @@ export default function HighlightsScreen({ channelId, memberPath, isAdmin = fals
           ListEmptyComponent={
             <Text style={styles.empty}>{tab === "pinned" ? "No pinned messages yet." : "No announcements yet."}</Text>
           }
-          renderItem={({ item }) => <HighlightRow item={item} tab={tab} memberPath={memberPath} router={router} />}
+          renderItem={({ item }) => (
+            <HighlightRow
+              item={item}
+              tab={tab}
+              memberPath={memberPath}
+              router={router}
+              onOpenInChat={() => router.push(`${backFallback}?messageId=${item.id}`)}
+            />
+          )}
         />
       )}
     </View>
@@ -195,15 +210,22 @@ function HighlightRow({
   tab,
   memberPath,
   router,
+  onOpenInChat,
 }: {
   item: DisplayMessage;
   tab: Tab;
   memberPath: (userId: string) => string;
   router: ReturnType<typeof useRouter>;
+  onOpenInChat: () => void;
 }) {
   return (
-    <View style={styles.row}>
-      <TouchableOpacity onPress={() => router.push(memberPath(item.senderId))}>
+    <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={onOpenInChat}>
+      <TouchableOpacity
+        onPress={(e) => {
+          e.stopPropagation?.();
+          router.push(memberPath(item.senderId));
+        }}
+      >
         {item.senderAvatarUrl ? (
           <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
         ) : (
@@ -229,7 +251,7 @@ function HighlightRow({
           <Text style={styles.body}>{item.body ? renderBodyWithMentions(item.body, item.mentions) : null}</Text>
         )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -239,16 +261,23 @@ function ReportRow({
   router,
   onDelete,
   onDismiss,
+  onOpenInChat,
 }: {
   item: ReportedMessage;
   memberPath: (userId: string) => string;
   router: ReturnType<typeof useRouter>;
   onDelete: (item: ReportedMessage) => void;
   onDismiss: (item: ReportedMessage) => void;
+  onOpenInChat: () => void;
 }) {
   return (
-    <View style={styles.row}>
-      <TouchableOpacity onPress={() => router.push(memberPath(item.senderId))}>
+    <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={onOpenInChat}>
+      <TouchableOpacity
+        onPress={(e) => {
+          e.stopPropagation?.();
+          router.push(memberPath(item.senderId));
+        }}
+      >
         {item.senderAvatarUrl ? (
           <Image source={{ uri: item.senderAvatarUrl }} style={styles.avatar} />
         ) : (
@@ -277,16 +306,26 @@ function ReportRow({
         )}
         <View style={styles.reportActions}>
           {!item.deletedAt && (
-            <TouchableOpacity onPress={() => onDelete(item)}>
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onDelete(item);
+              }}
+            >
               <Text style={styles.deleteAction}>Delete message</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => onDismiss(item)}>
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onDismiss(item);
+            }}
+          >
             <Text style={styles.dismissAction}>Dismiss</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
