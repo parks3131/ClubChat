@@ -4381,4 +4381,5 @@ tests), confirmed the `clubchat://` scheme landed in the rebuilt native
 Info.plist. Live end-to-end verification (Share/Copy buttons, the actual
 deep-link auto-join round trip) was **not** done by Claude in this
 session — no Simulator UI automation tool was available — and was left
-for the founder to confirm.
+for the founder to confirm; founder confirmed working live shortly
+after.

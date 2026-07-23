@@ -1689,7 +1689,7 @@ only summarizes.
 | 52 | Club hub restyle (Telegram-style list) + per-user race pins | ✅ Done — see `docs/HISTORY.md` task #52. New `race_pins` table, corrected from an initial wrong admin-wide-column attempt. |
 | 53 | Highlights rows jump to their message in chat | ✅ Done — see `docs/HISTORY.md` task #53. Surfaced (deferred to #54) a pre-existing scroll-to-bottom bug. |
 | 54 | Chat scroll-to-bottom fix, jump-to-latest button, unread-aware entry | ✅ Done — see `docs/HISTORY.md` task #54. Chat now opens on the first unread message with zero visible scroll motion. |
-| 55 | Shareable join link, replacing the raw invite-code header/pill | ✅ Done — see `docs/HISTORY.md` task #55. Wraps `invite_code` in a `clubchat://` deep link; live UI round-trip still pending founder confirmation. |
+| 55 | Shareable join link, replacing the raw invite-code header/pill | ✅ Done — see `docs/HISTORY.md` task #55. Wraps `invite_code` in a `clubchat://` deep link; founder-confirmed working live (Share/Copy + deep-link auto-join). |
 
 **Immediate next step**: of the six "ship as a real application" tasks
 from an earlier audit, 4 are done (#29-32) and 1 is partial (bundle ID +
