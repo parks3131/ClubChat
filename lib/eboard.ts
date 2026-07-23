@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { readUploadBody } from "./uploadBody";
 import type { JoinRequestStatus } from "../types/database";
 
 export interface EboardChannel {
@@ -80,13 +81,12 @@ export async function updateEboardProfile(eboardChannelId: string, params: { nam
 }
 
 export async function uploadEboardAvatar(eboardChannelId: string, fileUri: string, contentType: string): Promise<string> {
-  const response = await fetch(fileUri);
-  const blob = await response.blob();
+  const body = await readUploadBody(fileUri);
   const path = `${eboardChannelId}/avatar`;
 
   const { error: uploadError } = await supabase.storage
     .from("eboard-avatars")
-    .upload(path, blob, { contentType, upsert: true });
+    .upload(path, body, { contentType, upsert: true });
   if (uploadError) throw uploadError;
 
   const { data } = supabase.storage.from("eboard-avatars").getPublicUrl(path);

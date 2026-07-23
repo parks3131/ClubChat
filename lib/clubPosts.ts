@@ -1,4 +1,6 @@
 import { supabase } from "./supabase";
+import { readUploadBody } from "./uploadBody";
+import { randomUUID } from "./uuid";
 
 export interface ClubPost {
   id: string;
@@ -75,14 +77,13 @@ export async function uploadClubPostPhoto(
   clubId: string,
   photo: { uri: string; contentType: string }
 ): Promise<string> {
-  const response = await fetch(photo.uri);
-  const blob = await response.blob();
+  const body = await readUploadBody(photo.uri);
   const ext = photo.contentType.split("/")[1] ?? "jpg";
-  const path = `${clubId}/${crypto.randomUUID()}.${ext}`;
+  const path = `${clubId}/${randomUUID()}.${ext}`;
 
   const { error } = await supabase.storage
     .from("club-post-photos")
-    .upload(path, blob, { contentType: photo.contentType });
+    .upload(path, body, { contentType: photo.contentType });
   if (error) throw error;
   return path;
 }

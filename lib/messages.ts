@@ -1,5 +1,7 @@
 import type { MentionCandidate } from "./mentions";
 import { supabase } from "./supabase";
+import { readUploadBody } from "./uploadBody";
+import { randomUUID } from "./uuid";
 import type { MessageType } from "../types/database";
 
 export interface DisplayMessage {
@@ -290,14 +292,13 @@ export async function sendPhotoMessage(params: {
   contentType: string;
   caption?: string;
 }) {
-  const response = await fetch(params.fileUri);
-  const blob = await response.blob();
+  const body = await readUploadBody(params.fileUri);
   const ext = params.contentType.split("/")[1] ?? "jpg";
-  const path = `${params.channelId}/${crypto.randomUUID()}.${ext}`;
+  const path = `${params.channelId}/${randomUUID()}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
     .from("message-photos")
-    .upload(path, blob, { contentType: params.contentType });
+    .upload(path, body, { contentType: params.contentType });
   if (uploadError) throw uploadError;
 
   // body and media_url already coexist on one row (see DisplayMessage) —
@@ -325,14 +326,13 @@ export async function sendDocumentMessage(params: {
   fileName: string;
   fileSizeBytes: number;
 }) {
-  const response = await fetch(params.fileUri);
-  const blob = await response.blob();
+  const body = await readUploadBody(params.fileUri);
   const ext = params.fileName.includes(".") ? params.fileName.split(".").pop() : "bin";
-  const path = `${params.channelId}/${crypto.randomUUID()}.${ext}`;
+  const path = `${params.channelId}/${randomUUID()}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
     .from("message-documents")
-    .upload(path, blob, { contentType: params.contentType });
+    .upload(path, body, { contentType: params.contentType });
   if (uploadError) throw uploadError;
 
   const { error } = await supabase.from("messages").insert({

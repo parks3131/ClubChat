@@ -1,5 +1,6 @@
 import * as Linking from "expo-linking";
 import { supabase } from "./supabase";
+import { readUploadBody } from "./uploadBody";
 import type { ClubJoinPolicy, ClubRole, JoinRequestStatus } from "../types/database";
 
 export interface ClubWithRole {
@@ -158,13 +159,12 @@ export async function updateClubProfile(
 }
 
 export async function uploadClubAvatar(clubId: string, fileUri: string, contentType: string): Promise<string> {
-  const response = await fetch(fileUri);
-  const blob = await response.blob();
+  const body = await readUploadBody(fileUri);
   const path = `${clubId}/avatar`;
 
   const { error: uploadError } = await supabase.storage
     .from("club-avatars")
-    .upload(path, blob, { contentType, upsert: true });
+    .upload(path, body, { contentType, upsert: true });
   if (uploadError) throw uploadError;
 
   const { data } = supabase.storage.from("club-avatars").getPublicUrl(path);

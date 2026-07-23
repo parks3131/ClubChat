@@ -2,6 +2,7 @@
   "expo": {
     "name": "Club_Chat",
     "slug": "Club_Chat",
+    "owner": "parks3131",
     "scheme": "clubchat",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +20,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,6 +39,12 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "18982e70-f36a-4df6-a816-dc0d87b2dbb5"
+      }
+    }
   }
 }

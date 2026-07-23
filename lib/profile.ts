@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { readUploadBody } from "./uploadBody";
 
 export interface Profile {
   id: string;
@@ -66,13 +67,12 @@ export async function updateProfile(
 // regardless, and always overwriting the same path keeps "one avatar per
 // user" simple (upsert instead of tracking/deleting old files).
 export async function uploadAvatar(userId: string, fileUri: string, contentType: string): Promise<string> {
-  const response = await fetch(fileUri);
-  const blob = await response.blob();
+  const body = await readUploadBody(fileUri);
   const path = `${userId}/avatar`;
 
   const { error: uploadError } = await supabase.storage
     .from("avatars")
-    .upload(path, blob, { contentType, upsert: true });
+    .upload(path, body, { contentType, upsert: true });
   if (uploadError) throw uploadError;
 
   const { data } = supabase.storage.from("avatars").getPublicUrl(path);
