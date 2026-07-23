@@ -49,7 +49,7 @@ import {
   matchTrailingMentionQuery,
   type MentionCandidate,
 } from "../lib/mentions";
-import { markChannelRead } from "../lib/notifications";
+import { fetchChannelLastReadAt, markChannelRead } from "../lib/notifications";
 import { pickDocumentOnWeb } from "../lib/pickDocumentOnWeb";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
 import { castVote, deletePoll, fetchPoll, setPollClosed, type PollDetail } from "../lib/polls";
@@ -70,7 +70,10 @@ function formatTime(iso: string) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const PAGE_SIZE = 50;
+// Founder call: always keep the last 40 messages loaded by default on
+// entry, loading further history only on scroll-up — not the whole
+// channel — to keep the initial load light.
+const PAGE_SIZE = 40;
 const HEADER_HEIGHT = 92;
 const PINNED_NOTICE_HEIGHT = 72;
 
@@ -211,23 +214,50 @@ export default function ChatScreen({
   // scrolling to the bottom (its default behavior on every other change).
   const olderPagePrependedCountRef = useRef<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  // "Jump to this message" from a Highlights row (?messageId=..., appended
-  // by HighlightsScreen) — fetched as its own centered window (see
-  // fetchMessagesAround in lib/messages.ts) rather than the plain newest-N
-  // page, since a pinned/announced message is often well outside that.
-  // pendingScrollToMessageIdRef tracks the still-unhandled jump across
-  // renders without re-triggering on every subsequent `messages` update.
-  // Deliberately NOT initialized from targetMessageId here — this route
-  // can be reached from Highlights with a fresh ?messageId= while React
-  // Navigation reuses an already-mounted ChatScreen instance for the same
-  // path (chat -> highlights -> chat again is a pop, not a fresh push),
-  // so a useRef(initialValue) captured once at first mount would silently
-  // go stale. It's set instead inside the data-loading effect below,
-  // which already re-runs whenever targetMessageId changes.
-  // highlightedMessageId drives a brief visual flash once landed.
+  // Initial-landing target for this mount/reload — covers two cases that
+  // share the same "jump to a specific row, no scroll-to-bottom default"
+  // machinery:
+  //  1. A Highlights row's ?messageId= (fetched as its own centered
+  //     window via fetchMessagesAround, since a pinned/announced message
+  //     is often well outside the plain newest-page) — animated, with a
+  //     brief highlight flash, so it's visually obvious you jumped.
+  //  2. Plain chat entry — lands on the first *unread* message (per
+  //     channel_reads.last_read_at, read before markChannelRead advances
+  //     it) so opening a chat never yanks you through a visible
+  //     scroll-to-bottom motion; falls back to the last loaded message
+  //     (silently, still no visible motion) once fully caught up.
+  // Tracks the still-unhandled jump across renders without re-triggering
+  // on every subsequent `messages` update. Deliberately NOT initialized
+  // from targetMessageId here — this route can be reached from
+  // Highlights with a fresh ?messageId= while React Navigation reuses an
+  // already-mounted ChatScreen instance for the same path (chat ->
+  // highlights -> chat again is a pop, not a fresh push), so a
+  // useRef(initialValue) captured once at first mount would silently go
+  // stale. It's set instead inside the data-loading effect below, which
+  // already re-runs whenever targetMessageId changes.
   const { messageId: targetMessageId } = useLocalSearchParams<{ messageId?: string }>();
-  const pendingScrollToMessageIdRef = useRef<string | null>(null);
+  const pendingScrollToMessageIdRef = useRef<{ id: string; animated: boolean; highlight: boolean } | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  // A fresh mount/reload starts scrolled to offset 0 (the top) by
+  // definition, before the initial scroll-to-bottom (or jump-to-message)
+  // has had a chance to run — which trivially satisfies FlatList's own
+  // "near the start" check, firing onStartReached immediately and loading
+  // an unwanted extra older page right as the real scroll is still
+  // settling. Sat false until shortly after that initial scroll attempt
+  // has had time to land, so handleLoadEarlier can ignore this spurious
+  // first fire; only ever matters right after a (re)load, so a ref (no
+  // re-render needed) rather than state.
+  const readyForLoadEarlierRef = useRef(false);
+  // Whether new content should auto-scroll the view down — true once the
+  // user is at/near the bottom (updated live by onScroll below), false
+  // while they've scrolled up to read history, so a realtime reload
+  // merging in someone else's new message doesn't yank the view out from
+  // under them. Starts false for a Highlights-jump load (landing deep in
+  // history is the whole point) — reset inside the data-loading effect,
+  // same reasoning as pendingScrollToMessageIdRef above, not seeded once
+  // here, so a reused screen instance picks up a *new* jump correctly.
+  // Doubles as the "jump to latest" button's visibility (`!followTail`).
+  const [followTail, setFollowTail] = useState(!targetMessageId);
 
   // The header is fully custom (glass-blur, matching the Stitch chat
   // redesign) rather than the native Stack header — hide the native one
@@ -280,20 +310,80 @@ export default function ChatScreen({
 
   useEffect(() => {
     setLoading(true);
-    pendingScrollToMessageIdRef.current = targetMessageId ?? null;
-    const initialLoad = targetMessageId
-      ? fetchMessagesAround(channelId, targetMessageId).then(({ messages: initial, hasMoreOlder: more }) => {
+    readyForLoadEarlierRef.current = false;
+    // Placeholder, non-null pending target — set synchronously, before
+    // either branch below `await`s anything, so an onContentSizeChange
+    // fire during that window (e.g. leftover content from a previous
+    // channel still mounted) can't fall through to the default
+    // scroll-to-bottom branch before the real target is known. Matches
+    // nothing in `messages`, so it's a harmless no-op if ever consumed
+    // as-is; each branch overwrites it with the real target once ready.
+    pendingScrollToMessageIdRef.current = { id: "", animated: false, highlight: false };
+    let cancelled = false;
+
+    async function load() {
+      if (targetMessageId) {
+        // Highlights jump: animated, with a highlight flash — deliberately
+        // visible, unlike the plain-entry case below.
+        pendingScrollToMessageIdRef.current = { id: targetMessageId, animated: true, highlight: true };
+        setFollowTail(false);
+        try {
+          const { messages: initial, hasMoreOlder: more } = await fetchMessagesAround(channelId, targetMessageId);
+          if (cancelled) return;
           setMessages(initial);
           setHasMoreOlder(more);
-        })
-      : fetchMessages(channelId, { limit: PAGE_SIZE }).then((initial) => {
-          setMessages(initial);
-          setHasMoreOlder(initial.length === PAGE_SIZE);
-        });
-    initialLoad.finally(() => setLoading(false));
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      // Plain entry: land on the first unread message, no visible scroll
+      // motion at all (not even the old animated scroll-to-bottom) — read
+      // the *old* last_read_at before markChannelRead below advances it,
+      // or there'd be nothing left to compute "unread" against.
+      setFollowTail(true);
+      const lastReadAt = session ? await fetchChannelLastReadAt(channelId, session.user.id).catch(() => null) : null;
+      try {
+        const initial = await fetchMessages(channelId, { limit: PAGE_SIZE });
+        if (cancelled) return;
+        setMessages(initial);
+        setHasMoreOlder(initial.length === PAGE_SIZE);
+
+        const firstUnread = lastReadAt ? initial.find((m) => m.createdAt > lastReadAt) : undefined;
+        const landingTarget = firstUnread ?? initial[initial.length - 1];
+        pendingScrollToMessageIdRef.current = landingTarget
+          ? { id: landingTarget.id, animated: false, highlight: false }
+          : null;
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+
+      // Clearing the "N unread" row happens once we've already captured
+      // the cutoff needed to land on the right message above — opening a
+      // chat is what actually clears it (see lib/notifications.ts);
+      // merely viewing the Notifications tab deliberately does not.
+      if (session) {
+        markChannelRead(channelId, session.user.id).then(refetchNotifications).catch(() => {});
+      }
+    }
+
+    load().finally(() => {
+      if (cancelled) return;
+      // Longer than the scroll-settle retries elsewhere so
+      // onStartReached's spurious first-fire (see readyForLoadEarlierRef's
+      // own comment) is reliably ignored before "load earlier" is allowed
+      // to act on a real one.
+      setTimeout(() => {
+        readyForLoadEarlierRef.current = true;
+      }, 600);
+    });
 
     const unsubscribe = subscribeToNewMessages(channelId, reload);
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [channelId, reload, targetMessageId]);
 
   useEffect(() => {
@@ -383,18 +473,9 @@ export default function ChatScreen({
     }
   };
 
-  // Opening a chat is what actually clears its "N unread" row in the
-  // Notifications feed (see lib/notifications.ts) — merely viewing the
-  // Notifications tab deliberately does not.
-  useEffect(() => {
-    if (!session) return;
-    markChannelRead(channelId, session.user.id)
-      .then(refetchNotifications)
-      .catch(() => {});
-  }, [channelId, session, refetchNotifications]);
 
   const handleLoadEarlier = async () => {
-    if (!hasMoreOlder || loadingOlder || messages.length === 0) return;
+    if (!readyForLoadEarlierRef.current || !hasMoreOlder || loadingOlder || messages.length === 0) return;
     setLoadingOlder(true);
     try {
       const older = await fetchMessages(channelId, {
@@ -659,6 +740,12 @@ export default function ChatScreen({
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
+        // Default initialNumToRender (10) leaves most of a full 50-message
+        // page unrendered/unmeasured at mount, which is the root cause
+        // behind both the scrollToIndex and scrollToEnd gotchas below —
+        // rendering the whole page up front sidesteps it, and chat bubbles
+        // are cheap enough (mostly text) that this isn't a real perf cost.
+        initialNumToRender={PAGE_SIZE}
         contentContainerStyle={[styles.list, { paddingTop: listPaddingTop }]}
         onContentSizeChange={() => {
           // "Jump to this message" (see the ref's own comment above) takes
@@ -667,17 +754,19 @@ export default function ChatScreen({
           // fetch has actually resolved — bail without consuming the ref
           // in that case so the *real* content-size change (once messages
           // are in) still gets a turn, instead of silently losing the jump.
-          const targetId = pendingScrollToMessageIdRef.current;
-          if (targetId !== null) {
+          const target = pendingScrollToMessageIdRef.current;
+          if (target !== null) {
             if (messages.length === 0) return;
             pendingScrollToMessageIdRef.current = null;
-            const index = messages.findIndex((m) => m.id === targetId);
+            const index = messages.findIndex((m) => m.id === target.id);
             if (index !== -1) {
               requestAnimationFrame(() => {
-                flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 });
+                flatListRef.current?.scrollToIndex({ index, animated: target.animated, viewPosition: 0.3 });
               });
-              setHighlightedMessageId(targetId);
-              setTimeout(() => setHighlightedMessageId((current) => (current === targetId ? null : current)), 2500);
+              if (target.highlight) {
+                setHighlightedMessageId(target.id);
+                setTimeout(() => setHighlightedMessageId((current) => (current === target.id ? null : current)), 2500);
+              }
             }
             return;
           }
@@ -693,21 +782,31 @@ export default function ChatScreen({
             });
             return;
           }
-          // Skip the default scroll-to-bottom entirely while viewing a
-          // jumped-to message (?messageId= still set) — this callback
-          // keeps re-firing on this platform even when content hasn't
-          // actually grown (see the jump branch above), and without this
-          // guard every one of those spurious re-fires would immediately
-          // yank the view back down right after the jump lands. A
-          // realtime reload merging in new messages while reading old
-          // history shouldn't move the view either, same reasoning.
-          if (targetMessageId) return;
+          // Skip the default scroll-to-bottom unless the user is already
+          // at/near the bottom (`followTail`, kept live by onScroll below)
+          // — covers both a Highlights jump landing deep in history
+          // (followTail seeded false for that load, see the effect above)
+          // and plain manual scroll-up during live chat: a realtime
+          // reload merging in someone else's new message shouldn't yank
+          // the view back down in either case. This also matters because
+          // this callback keeps re-firing on this platform even when
+          // content hasn't actually grown (see the jump branch above) —
+          // without this guard, those spurious re-fires would undo a
+          // landed jump immediately.
+          if (!followTail) return;
           // Same rAF-wrapped pattern as the prepend branch above: calling
           // scrollToEnd synchronously inside this callback can land short
-          // of the true bottom by roughly one row — the DOM/layout for the
-          // just-added content hasn't fully committed yet at this point.
+          // of the true bottom — the DOM/layout for the just-added content
+          // hasn't fully committed yet at this point. For a big cold load
+          // (e.g. the initial 50-message page) a single follow-up call can
+          // still fall well short, since FlatList only knows about content
+          // it's rendered/measured so far; two more delayed retries give
+          // virtualization time to catch up, same fix as the "jump to
+          // latest" button below. Harmless no-ops once actually at bottom.
           requestAnimationFrame(() => {
             flatListRef.current?.scrollToEnd({ animated: true });
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 400);
           });
         }}
         onScrollToIndexFailed={(info) => {
@@ -721,16 +820,21 @@ export default function ChatScreen({
           // only then retrying `scrollToIndex` for the precise position.
           flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
           setTimeout(() => {
-            // Match the jump branch's own viewPosition so a retry doesn't
+            // Match the jump branch's own viewPosition (used for every
+            // scrollToIndex call in this FlatList — the initial landing,
+            // whether on the first unread message or a Highlights jump,
+            // and the prepend-restore branch below) so a retry doesn't
             // settle the target flush against the top edge, behind the
             // floating header/pinned-notice overlay.
-            flatListRef.current?.scrollToIndex({
-              index: info.index,
-              animated: false,
-              viewPosition: targetMessageId ? 0.3 : undefined,
-            });
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.3 });
           }, 100);
         }}
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+          const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+          setFollowTail(distanceFromBottom < 150);
+        }}
+        scrollEventThrottle={100}
         onStartReached={handleLoadEarlier}
         onStartReachedThreshold={0.5}
         ListHeaderComponent={
@@ -1106,6 +1210,34 @@ export default function ChatScreen({
             </TouchableOpacity>
           )}
         </View>
+      )}
+
+      {/* "Jump to latest" — appears once the user has scrolled away from
+          the bottom (followTail false, see onScroll above), whether from
+          reading history after a Highlights jump or just scrolling up
+          during normal live chat. Tapping it resumes auto-follow. */}
+      {!followTail && (
+        <TouchableOpacity
+          style={styles.jumpToLatestButton}
+          onPress={() => {
+            setFollowTail(true);
+            // A single scrollToEnd from far up the list often falls short
+            // of the true bottom — FlatList only knows about content it's
+            // rendered/measured so far, and jumping from way up means most
+            // of what's below hasn't been yet. Same root cause as the
+            // scrollToIndex gotcha in onScrollToIndexFailed above; the fix
+            // here is simpler since scrollToEnd needs no target index —
+            // just call it again after each attempt gives virtualization
+            // a moment to render further down.
+            requestAnimationFrame(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
+              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 400);
+            });
+          }}
+        >
+          <MaterialIcons name="expand-more" size={22} color={colors.onPrimary} />
+        </TouchableOpacity>
       )}
 
       {mentionSuggestions.length > 0 && (
@@ -1745,6 +1877,22 @@ const styles = StyleSheet.create({
   attachGridIconBadgeAlt3: { backgroundColor: colors.inverseSurface },
   attachGridIconBadgeAlt4: { backgroundColor: colors.error },
   attachGridLabel: { ...typography.labelSm, fontSize: 11, color: colors.onSurface, textTransform: "none" },
+  jumpToLatestButton: {
+    position: "absolute",
+    right: spacing.gutter,
+    bottom: 84,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",

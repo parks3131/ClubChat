@@ -1873,6 +1873,43 @@ noticed before because normal gradual usage rarely mounts cold with a
 full 50 fresh, never-rendered rows at once the way a bulk-inserted test
 fixture does. Worth a founder look if it turns out to bite real usage.
 
+**Same session, next**: that flagged scroll-to-bottom issue did in fact
+bite — chased down and fixed, plus two founder-requested chat entry
+changes landed alongside it. Added a small floating "jump to latest" ⌄
+button (bottom-right, above the composer) that appears once the user has
+scrolled away from the bottom — whether from a manual scroll-up or a
+Highlights jump — and disappears once they're back at it; tapping it
+resumes auto-follow. Root-caused the scroll-to-bottom shortfall to
+`FlatList`'s default `initialNumToRender` (10) leaving most of a full
+page unrendered/unmeasured at mount — fixed by rendering the whole page
+eagerly (`initialNumToRender={PAGE_SIZE}`; chat bubbles are cheap enough,
+mostly text, that this isn't a real cost), which incidentally exposed a
+second, previously-latent bug: `onStartReached` firing immediately on
+mount (scroll position starts at 0, trivially "near the start"),
+auto-loading an unwanted extra older page before the real initial
+positioning had even settled. Fixed with a short grace-period ref
+(`readyForLoadEarlierRef`) that ignores that first spurious fire. Both
+new lessons-learned entries extend the FlatList section below rather
+than duplicating it. Separately, founder feedback reshaped what "entering
+a chat" should even mean: rather than always landing at the bottom, it
+now lands on the *first unread* message (per `channel_reads
+.last_read_at`, read via a new `fetchChannelLastReadAt()` *before*
+`markChannelRead` advances it — order matters, or there's no cutoff left
+to compute "unread" against) — falling back to the bottom once fully
+caught up — and critically, with **zero visible scroll motion** either
+way, reusing the same non-animated `scrollToIndex` machinery the
+Highlights jump already had rather than the old animated `scrollToEnd`.
+`PAGE_SIZE` dropped from 50 to 40 per explicit founder spec ("40 last
+messages always in the chat"). The two `markChannelRead`-related effects
+were merged into one (the unread cutoff must be read before, and in the
+same sequenced flow as, the call that overwrites it — two independent
+effects racing on that ordering was a real risk, not just a style
+preference). Verified live: seeded a real 25-read/15-unread split via
+direct `last_read_at` + message-timestamp manipulation — landed exactly
+on the first unread message with no visible motion, "jump to latest"
+correctly appeared (more content below), and disappeared once fully
+caught up on a second pass, landing quietly at the true bottom instead.
+
 ## 6. Errors hit and lessons learned (read this before touching RLS)
 
 ### The big one: `INSERT ... RETURNING` also enforces the SELECT policy
@@ -1977,7 +2014,7 @@ anywhere in the picture. This is the same family of bug as the `clubs`
 gotcha above (RETURNING re-checks SELECT), but triggered by the shape of
 the SELECT policy itself, not by a trigger's timing.
 
-### FlatList `scrollToIndex`/`onContentSizeChange`: two gotchas hit building "jump to this message"
+### FlatList `scrollToIndex`/`onContentSizeChange`/`onStartReached`: four gotchas hit building "jump to this message" and the unread-aware entry that followed
 
 Building Highlights' "tap a pinned/announcement to jump to it in chat"
 (a `FlatList.scrollToIndex` to an arbitrary, often-unmeasured message far
@@ -2034,14 +2071,60 @@ than guessing from the (plausible-looking) code:
    scroll-to-bottom branch entirely, including for realtime reloads that
    merge in new messages while reading old history.
 
-**Takeaway**: for any `scrollToIndex`-to-an-arbitrary-position feature on
-FlatList, (a) never seed one-shot "pending action" state from a hook
-value at a `useRef` declaration — set it inside the effect that reacts to
-that value, and (b) audit every existing branch of a shared
+**Takeaway (bugs 1-2)**: for any `scrollToIndex`-to-an-arbitrary-position
+feature on FlatList, (a) never seed one-shot "pending action" state from
+a hook value at a `useRef` declaration — set it inside the effect that
+reacts to that value, and (b) audit every existing branch of a shared
 `onContentSizeChange`/`onScrollToIndexFailed` handler for "runs on every
 fire, not just the one you're adding a case for" — a working two-case
 handler can have a hidden assumption ("this only fires once per real
 resize") that a third case quietly violates.
+
+**Bug 3 — a single `scrollToEnd()` (or `scrollToIndex`) from far up a
+long, mostly-unrendered list falls well short of the true end, and
+retrying it doesn't help.** Flagged as a known-but-deferred issue two
+sessions earlier (a fresh 50-message load not reliably reaching the true
+bottom, confirmed via `git stash` to be pre-existing) — it came back to
+actually bite once a "jump to latest" button needed that same call to
+work reliably from any scroll position, not just from one row up. Same
+root cause as bugs 1-2's `scrollToIndex` failures: FlatList's default
+`initialNumToRender` (10) means most of a 40-50 row page is genuinely
+unrendered/unmeasured at mount, and `scrollToEnd`'s notion of "the end"
+is only as good as what's been measured so far — retrying the same call
+after a short delay helps only a little per attempt, requiring several
+retries to fully converge. **Fix**: set `initialNumToRender={PAGE_SIZE}`
+so the whole page renders immediately at mount — chat bubbles are cheap
+enough (mostly text) that this isn't a real performance cost — which
+fixes the root cause directly rather than papering over its symptom with
+more retries.
+
+**Bug 4 — `onStartReached` fires on the very first mount, before any
+real scroll has happened, because scroll position 0 trivially satisfies
+"near the start."** A direct consequence of fixing bug 3: once the whole
+page renders immediately, the list is — for one instant — genuinely
+sitting at scrollTop 0 (the top) before the initial positioning
+(scroll-to-bottom, or later, scroll-to-first-unread) has run at all. That
+trivially satisfies `onStartReachedThreshold`, so `onStartReached` fires
+immediately, and if the initial page happened to come back full
+(`hasMoreOlder` true), `handleLoadEarlier` genuinely executes — fetching and
+merging in a whole *extra*, unwanted older page right as the real
+positioning is still settling. This only reproduces once the initial
+fetch returns a full page (so smaller test datasets never triggered it,
+which is exactly how it slipped through bug 3's own verification pass
+before being caught here). **Fix**: a short grace-period ref
+(`readyForLoadEarlierRef`, false until ~600ms after the initial load
+resolves — longer than the scroll-settle retries) that `handleLoadEarlier`
+checks first, so this specific spurious first fire is ignored while a
+real scroll-up later still works normally.
+
+**Takeaway (bugs 3-4)**: fixing a virtualization symptom (bug 3's
+retries) can be worse than fixing its cause (`initialNumToRender`) — and
+fixing the cause can itself surface a *new*, previously-impossible-to-hit
+bug (bug 4) at the boundary where "content exists" and "real user
+scrolling" are no longer the same signal FlatList assumes they are. Any
+`onStartReached`/`onEndReached` handler should be treated as suspect
+during the first render after a (re)mount, not just assumed to only ever
+fire from genuine scroll input.
 
 ### Minor gotchas encountered along the way
 

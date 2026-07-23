@@ -167,6 +167,23 @@ export async function markChannelRead(channelId: string, _userId: string): Promi
   if (error) throw error;
 }
 
+// Read-only lookup of the caller's own read cursor for a channel, used by
+// ChatScreen to land on the first unread message on entry — must be
+// called *before* markChannelRead advances it, or the cutoff is already
+// gone. `null` means no row yet (never opened this channel before —
+// there's no earlier position to land on, so the caller falls back to
+// the bottom).
+export async function fetchChannelLastReadAt(channelId: string, userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("channel_reads")
+    .select("last_read_at")
+    .eq("channel_id", channelId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.last_read_at ?? null;
+}
+
 // `tag` keeps the realtime channel topic unique per independent
 // subscriber (NotificationsProvider's badge count vs. the Notifications
 // screen's full feed both subscribe for the same userId at once) —
