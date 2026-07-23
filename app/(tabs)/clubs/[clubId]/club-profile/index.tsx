@@ -123,7 +123,13 @@ export default function ClubProfileScreen() {
     setDeletingClub(true);
     try {
       await deleteClub(club.clubId);
-      router.replace("/clubs");
+      // `dismissTo`, not `replace`: this screen sits several levels deep
+      // (index -> hub -> club-profile), and `replace` only swaps the
+      // current top-of-stack entry in place — leaving the hub (for a
+      // club that no longer exists/no longer has this member) still
+      // sitting underneath, reachable via back. `dismissTo` actually
+      // pops all the way back down to the existing root entry instead.
+      router.dismissTo("/clubs");
     } catch (err) {
       reportError(err);
       setDeletingClub(false);
@@ -147,7 +153,13 @@ export default function ClubProfileScreen() {
     setLeavingClub(true);
     try {
       await removeMember(club.clubId, session.user.id);
-      router.replace("/clubs");
+      // `dismissTo`, not `replace`: this screen sits several levels deep
+      // (index -> hub -> club-profile), and `replace` only swaps the
+      // current top-of-stack entry in place — leaving the hub (for a
+      // club that no longer exists/no longer has this member) still
+      // sitting underneath, reachable via back. `dismissTo` actually
+      // pops all the way back down to the existing root entry instead.
+      router.dismissTo("/clubs");
     } catch (err) {
       reportError(err);
       setLeavingClub(false);

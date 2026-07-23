@@ -2259,6 +2259,44 @@ fire from genuine scroll input.
   future screen that does a cross-tab `router.replace()` from deeper
   than one level into a tab's Stack needs this same "reset the origin
   Stack first" step, not just the destination-side `?from=` pattern.
+- **`router.replace()` back to a Stack's root leaves a spurious back
+  button, because `replace` only swaps the current top-of-stack entry
+  in place rather than truly popping back to the existing root —
+  `router.dismissTo()` fixes that, but only within the same Stack; it
+  silently no-ops across sibling tabs.** Founder-reported: click into a
+  club (stack becomes `[index, hub]`), tap the Clubs tab again — the
+  resulting "My Clubs" list showed an unwanted back button, even though
+  it's visually the tab's root screen. Root cause: `router.replace("/clubs")`
+  doesn't pop the stack back down to the existing `index` entry, it
+  replaces the *top* entry (`hub`) with a brand-new `index` entry,
+  so the stack becomes `[index, index]` — still depth 2, so
+  `canGoBack()` is still `true`. **First fix**: switch every "return to
+  the Clubs root" call site to `router.dismissTo("/clubs")`, which
+  actually dispatches a `POP_TO` action that pops back down to an
+  *existing* matching route instead of adding a new one. This is
+  correct wherever the call happens from a screen already nested inside
+  the Clubs tab's own Stack (the hub's back button, the tabPress
+  listener's "already on the hub" branch, and post-delete/leave-club
+  navigation from `club-profile/index.tsx`, which sits several levels
+  deep inside that same Stack). **Regression this introduced**: the
+  tabPress listener has a second branch, for when there's no active
+  club at all (`!currentClub`) — this one fires from *any* tab
+  (Notifications/Calendar/Profile), not just from inside the Clubs
+  Stack. `dismissTo`'s `POP_TO` action only bubbles up through nested
+  Stacks that are ancestors of the *current* screen; a sibling tab's
+  Stack isn't reachable that way, so tapping Clubs from Notifications
+  with no active club silently did nothing at all — confirmed by
+  reading `StackRouter`'s `POP_TO` handler (`expo-router/build/
+  react-navigation/routers/StackRouter.js`): it returns `null` when
+  `state.routeNames` (the *current* stack's own routes) doesn't include
+  the target, with no cross-tab fallback. **Final fix**: keep
+  `dismissTo` only for the within-Clubs-Stack cases above; the
+  `!currentClub` branch stays a plain `router.replace("/clubs")`, since
+  that one genuinely needs to jump across tabs, not pop within one.
+  **Takeaway**: `dismissTo` is for "pop back to a route I'm already
+  nested under," not a general-purpose "navigate here from anywhere" —
+  reach for `replace`/`navigate` instead whenever the call site can fire
+  from a sibling tab or anywhere outside the target's own Stack.
 
 ## 7. Local development setup (current state)
 

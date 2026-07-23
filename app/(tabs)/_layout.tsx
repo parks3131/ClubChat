@@ -46,6 +46,22 @@ export default function TabsLayout() {
         // `?from=clubsTab` override index.tsx applies to its own back
         // button for this exact entry path. No active club falls back to
         // the original blanket reset from SPEC.md section 6.
+        // The "from the hub, back to the Main list" branch uses
+        // `dismissTo`, not `replace` — `replace` only swaps the current
+        // top-of-stack entry in place, so from a stack like [index, hub]
+        // it produces [index, index] (still depth 2), leaving a spurious
+        // back button on what looks like the plain root list. `dismissTo`
+        // actually pops back down to the existing index entry instead of
+        // adding a new one. Caught live: click a club, then tap the Clubs
+        // tab — the resulting "My Clubs" list showed an unwanted back
+        // button. The `!currentClub` branch below deliberately stays
+        // `replace`, not `dismissTo` — this tabPress can fire from a
+        // completely different tab (Notifications/Calendar/Profile) that
+        // isn't nested inside the Clubs tab's own Stack at all, and
+        // `dismissTo`'s POP_TO action only bubbles through nested Stacks
+        // under the same tab; it silently no-ops across sibling tabs
+        // (confirmed live: tapping Clubs from Notifications with no
+        // active club did nothing at all).
         listeners={{
           tabPress: (e) => {
             e.preventDefault();
@@ -54,7 +70,11 @@ export default function TabsLayout() {
               return;
             }
             const clubHubPath = `/clubs/${currentClub.clubId}`;
-            router.replace(pathname === clubHubPath ? "/clubs" : `${clubHubPath}?from=clubsTab`);
+            if (pathname === clubHubPath) {
+              router.dismissTo("/clubs");
+              return;
+            }
+            router.replace(`${clubHubPath}?from=clubsTab`);
           },
         }}
       />

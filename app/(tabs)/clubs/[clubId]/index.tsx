@@ -94,7 +94,12 @@ export default function ClubHubScreen() {
             // stack to its root first — before switching tabs — means
             // the Clubs tab is back to its own Main list underneath, so
             // there's nothing stale left for the tab bar to return to.
-            router.replace("/clubs");
+            // `dismissTo`, not `replace`: replace only swaps the current
+            // top-of-stack entry in place, so a stack like [index, hub]
+            // becomes [index, index] (still depth 2) instead of truly
+            // resetting to depth 1 — leaving a spurious back button on
+            // the Main list itself.
+            router.dismissTo("/clubs");
             router.replace("/profile");
           }}
           style={{ marginLeft: 12, padding: 4 }}
@@ -118,7 +123,7 @@ export default function ClubHubScreen() {
     if (from !== "clubsTab") return;
     navigation.setOptions({
       headerLeft: () => (
-        <TouchableOpacity onPress={() => router.replace("/clubs")} style={{ marginLeft: 12, padding: 4 }}>
+        <TouchableOpacity onPress={() => router.dismissTo("/clubs")} style={{ marginLeft: 12, padding: 4 }}>
           <MaterialIcons name="arrow-back" size={22} color={colors.primary} />
         </TouchableOpacity>
       ),
