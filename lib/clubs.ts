@@ -1,3 +1,4 @@
+import * as Linking from "expo-linking";
 import { supabase } from "./supabase";
 import type { ClubJoinPolicy, ClubRole, JoinRequestStatus } from "../types/database";
 
@@ -80,9 +81,17 @@ export async function createClub(params: {
 }
 
 export async function joinClubByCode(code: string) {
-  const { data, error } = await supabase.rpc("join_club_by_code", { code });
+  const { data, error } = await supabase.rpc("join_club_by_code", { code: code.trim().toLowerCase() });
   if (error) throw error;
   return data;
+}
+
+// Wraps the club's existing invite_code (see 0006_join_requests.sql's
+// comment: this was always meant to be "the intended base for a future
+// shareable join-link") in a tappable deep link — /clubs/join reads the
+// `code` param and auto-joins, same RPC as pasting the code by hand.
+export function buildClubJoinLink(inviteCode: string): string {
+  return Linking.createURL("/clubs/join", { queryParams: { code: inviteCode } });
 }
 
 export async function searchClubs(query: string): Promise<SearchedClub[]> {

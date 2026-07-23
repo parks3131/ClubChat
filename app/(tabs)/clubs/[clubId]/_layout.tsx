@@ -150,12 +150,6 @@ export default function ClubLayout() {
         <Text style={{ ...typography.headlineLgMobile, fontSize: 17, color: colors.primary }}>{club.name}</Text>
       </TouchableOpacity>
     ),
-    headerRight: () =>
-      club.isAdmin ? (
-        <Text style={{ ...typography.labelSm, marginRight: 16, color: colors.primary, textTransform: "uppercase" as const }}>
-          Invite: {club.inviteCode}
-        </Text>
-      ) : null,
   };
 
   return (

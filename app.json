@@ -2,6 +2,7 @@
   "expo": {
     "name": "Club_Chat",
     "slug": "Club_Chat",
+    "scheme": "clubchat",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

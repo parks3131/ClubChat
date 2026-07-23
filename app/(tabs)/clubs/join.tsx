@@ -1,5 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +17,7 @@ import { joinClubByCode, joinOrRequestClub, searchClubs, type SearchedClub } fro
 
 export default function JoinClubScreen() {
   const router = useRouter();
+  const { code: linkCode } = useLocalSearchParams<{ code?: string }>();
 
   // Invite code state
   const [code, setCode] = useState("");
@@ -46,11 +47,11 @@ export default function JoinClubScreen() {
     return () => clearTimeout(timeout);
   }, [query]);
 
-  const handleJoinByCode = async () => {
+  const attemptJoinByCode = async (rawCode: string) => {
     setCodeError(null);
     setCodeLoading(true);
     try {
-      const club = await joinClubByCode(code.trim());
+      const club = await joinClubByCode(rawCode);
       router.replace(`/clubs/${club.id}/chat`);
     } catch (err) {
       setCodeError(err instanceof Error ? err.message : "Invalid invite code");
@@ -58,6 +59,20 @@ export default function JoinClubScreen() {
       setCodeLoading(false);
     }
   };
+
+  const handleJoinByCode = () => attemptJoinByCode(code.trim());
+
+  // Set inside this effect (not a useState initializer) so a shared link
+  // tapped again with a different `code` while this screen instance is
+  // reused still picks it up — a useRef/useState seeded once at mount
+  // would go stale (see SPEC.md section 6's scrollToIndex writeup for the
+  // same "route param captured at declaration time" gotcha).
+  useEffect(() => {
+    if (!linkCode) return;
+    setCode(linkCode);
+    attemptJoinByCode(linkCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkCode]);
 
   const handleJoinFromSearch = async (club: SearchedClub) => {
     setSearchError(null);

@@ -1,12 +1,13 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
 import { useAuth } from "../../../../../contexts/AuthProvider";
-import { deleteClub, fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
+import { buildClubJoinLink, deleteClub, fetchClubProfile, uploadClubAvatar, type ClubProfile } from "../../../../../lib/clubs";
 import { fetchClubMembers, removeMember, type ClubMemberRow } from "../../../../../lib/members";
 import { pickImageOnWeb } from "../../../../../lib/pickImageOnWeb";
 import { reportError } from "../../../../../lib/reportError";
@@ -106,12 +107,33 @@ export default function ClubProfileScreen() {
     }
   };
 
-  const handleCopyCode = () => {
-    if (Platform.OS === "web" && navigator.clipboard) {
-      navigator.clipboard.writeText(club.inviteCode).catch(() => {});
+  const joinLink = buildClubJoinLink(club.inviteCode);
+
+  const handleCopyLink = async () => {
+    if (Platform.OS === "web") {
+      if (navigator.clipboard) await navigator.clipboard.writeText(joinLink).catch(() => {});
+    } else {
+      await Clipboard.setStringAsync(joinLink);
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShareLink = async () => {
+    try {
+      // `url` is iOS-only in RN's Share API — Android silently drops it, so
+      // the link has to be embedded in `message` there instead, which would
+      // duplicate it on iOS if `url` were also set. Branch to avoid that.
+      await Share.share(
+        Platform.OS === "ios"
+          ? { title: `Join ${club.name}`, message: `Join ${club.name} on ClubChat!`, url: joinLink }
+          : { title: `Join ${club.name}`, message: `Join ${club.name} on ClubChat: ${joinLink}` }
+      );
+    } catch {
+      // No native/web share sheet available (e.g. desktop Chrome lacks
+      // navigator.share) — fall back to copying the link instead.
+      await handleCopyLink();
+    }
   };
 
   const handleDeleteClub = async () => {
@@ -212,10 +234,12 @@ export default function ClubProfileScreen() {
         <Text style={styles.description}>{profile.description || "No description yet."}</Text>
 
         {isAdmin && (
-          <View style={styles.inviteRow}>
-            <Text style={styles.inviteLabel}>INVITE CODE:</Text>
-            <Text style={styles.inviteCode}>{club.inviteCode}</Text>
-            <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode}>
+          <View style={styles.shareRow}>
+            <TouchableOpacity style={styles.shareButton} onPress={handleShareLink}>
+              <MaterialIcons name="ios-share" size={16} color={colors.onPrimary} />
+              <Text style={styles.shareButtonText}>Share join link</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.copyButton} onPress={handleCopyLink}>
               <MaterialIcons name={copied ? "check" : "content-copy"} size={16} color={colors.primary} />
             </TouchableOpacity>
           </View>
@@ -314,23 +338,27 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.stackSm },
   name: { ...typography.headlineLgMobile, fontSize: 22, color: colors.onSurface },
   description: { ...typography.bodyMd, color: colors.onSurfaceVariant, textAlign: "center", paddingHorizontal: spacing.gutter },
-  inviteRow: {
+  shareRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.stackSm,
-    backgroundColor: colors.surfaceContainer,
+  },
+  shareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.unit + 2,
+    backgroundColor: colors.primary,
     borderRadius: radii.full,
     paddingHorizontal: spacing.gutter,
     paddingVertical: spacing.stackSm,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
   },
-  inviteLabel: { ...typography.labelSm, color: colors.onSurfaceVariant },
-  inviteCode: { ...typography.statValue, color: colors.primary, letterSpacing: 1 },
+  shareButtonText: { ...typography.labelSm, color: colors.onPrimary, textTransform: "uppercase" },
   copyButton: {
     backgroundColor: colors.surfaceContainerLowest,
     borderRadius: radii.full,
     padding: spacing.unit + 2,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
   },
   grid: { gap: spacing.stackSm },
   row: {
