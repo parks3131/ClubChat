@@ -50,6 +50,7 @@ export default function RaceChatScreen() {
         createPollPath: `/clubs/${race.clubId}/race/${race.raceId}/polls/create`,
       }}
       headerMenu={[
+        { label: "Members", path: `/clubs/${race.clubId}/race/${race.raceId}/roster`, icon: "group" },
         { label: "Meet Information", path: `/clubs/${race.clubId}/race/${race.raceId}/location`, icon: "info" },
         { label: "Polls", path: `/clubs/${race.clubId}/race/${race.raceId}/polls`, icon: "how-to-vote" },
         { label: "Car Assignments & Groups", path: `/clubs/${race.clubId}/race/${race.raceId}/carpool`, icon: "directions-car" },

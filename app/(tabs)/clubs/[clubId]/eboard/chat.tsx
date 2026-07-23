@@ -59,6 +59,7 @@ export default function EboardChatScreen() {
         createMeetingPath: `/clubs/${eboard.clubId}/eboard/meeting/create`,
       }}
       headerMenu={[
+        { label: "Members", path: `/clubs/${eboard.clubId}/eboard/roster`, icon: "group" },
         { label: "Meetings", path: `/clubs/${eboard.clubId}/eboard/meetings`, icon: "groups" },
         { label: "Polls", path: `/clubs/${eboard.clubId}/eboard/polls`, icon: "how-to-vote" },
       ]}

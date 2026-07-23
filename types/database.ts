@@ -293,6 +293,19 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["race_join_requests"]["Row"]>;
         Relationships: [];
       };
+      race_pins: {
+        Row: {
+          race_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["race_pins"]["Row"]> & {
+          race_id: string;
+          user_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["race_pins"]["Row"]>;
+        Relationships: [];
+      };
       eboard_channels: {
         Row: {
           id: string;

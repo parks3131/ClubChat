@@ -7,6 +7,7 @@ export interface RaceListItem {
   name: string;
   eventDate: string;
   avatarUrl: string | null;
+  pinned: boolean;
   access: "admin" | "member" | "none";
   requestStatus: JoinRequestStatus | null;
 }
@@ -14,10 +15,12 @@ export interface RaceListItem {
 // Races themselves are readable by every club member (RLS: is_club_member),
 // but whether the *current* user can enter one (chat/roster/etc.) depends
 // on race_members/race_join_requests, which is_club_admin/isAdmin already
-// covers for admins. Fetched as three separate queries rather than a join
-// since race_members/race_join_requests only ever return the caller's own
-// rows for a non-admin (RLS), which is exactly the shape needed here.
-export async function fetchRaces(clubId: string, isClubAdmin: boolean): Promise<RaceListItem[]> {
+// covers for admins. Fetched as separate queries rather than a join since
+// race_members/race_join_requests only ever return the caller's own rows
+// for a non-admin (RLS), which is exactly the shape needed here. `pinned`
+// is likewise per-caller — race_pins is a personal, not shared, marker
+// (see 0079_race_pins_per_user.sql).
+export async function fetchRaces(clubId: string, userId: string, isClubAdmin: boolean): Promise<RaceListItem[]> {
   const { data: races, error } = await supabase
     .from("races")
     .select("id, club_id, name, event_date, avatar_url")
@@ -29,13 +32,15 @@ export async function fetchRaces(clubId: string, isClubAdmin: boolean): Promise<
 
   const raceIds = races.map((r) => r.id);
 
-  const [{ data: memberships }, { data: requests }] = await Promise.all([
+  const [{ data: memberships }, { data: requests }, { data: pins }] = await Promise.all([
     supabase.from("race_members").select("race_id").in("race_id", raceIds),
     supabase.from("race_join_requests").select("race_id, status").in("race_id", raceIds),
+    supabase.from("race_pins").select("race_id").eq("user_id", userId).in("race_id", raceIds),
   ]);
 
   const memberRaceIds = new Set((memberships ?? []).map((m) => m.race_id));
   const statusByRaceId = new Map((requests ?? []).map((r) => [r.race_id, r.status]));
+  const pinnedRaceIds = new Set((pins ?? []).map((p) => p.race_id));
 
   return races.map((r) => ({
     id: r.id,
@@ -43,9 +48,27 @@ export async function fetchRaces(clubId: string, isClubAdmin: boolean): Promise<
     name: r.name,
     eventDate: r.event_date,
     avatarUrl: r.avatar_url,
+    pinned: pinnedRaceIds.has(r.id),
     access: isClubAdmin ? "admin" : memberRaceIds.has(r.id) ? "member" : "none",
     requestStatus: statusByRaceId.get(r.id) ?? null,
   }));
+}
+
+// Every club member can pin/unpin any race they can see — this is purely
+// personal curation of their own hub preview, not a club-wide setting, so
+// no admin check (RLS scopes race_pins entirely to the caller's own rows
+// regardless). Presence of the row is the pin; unpinning deletes it
+// rather than flipping a boolean.
+export async function setRacePinned(raceId: string, userId: string, pinned: boolean) {
+  if (pinned) {
+    const { error } = await supabase
+      .from("race_pins")
+      .upsert({ race_id: raceId, user_id: userId }, { onConflict: "race_id,user_id", ignoreDuplicates: true });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("race_pins").delete().eq("race_id", raceId).eq("user_id", userId);
+    if (error) throw error;
+  }
 }
 
 export async function createRace(params: { clubId: string; name: string; eventDate: string; createdBy: string }) {

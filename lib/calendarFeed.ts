@@ -105,7 +105,7 @@ export async function fetchCalendarFeed(
   // calendar visibility, only what happens if they tap through without
   // access (redirected to the Races & Meets list, per race/[raceId]/
   // _layout.tsx's existing guard).
-  const races = await fetchRaces(clubId, isClubAdmin);
+  const races = await fetchRaces(clubId, userId, isClubAdmin);
   for (const r of races) {
     items.push({
       id: `race:${r.id}`,

@@ -27,6 +27,7 @@ export default function ClubChatScreen() {
         createEventPath: `/clubs/${club.clubId}/event/create`,
       }}
       headerMenu={[
+        { label: "Members", path: `/clubs/${club.clubId}/club-profile/members`, icon: "group" },
         { label: "Poll", path: `/clubs/${club.clubId}/polls`, icon: "how-to-vote" },
         { label: "Routines", path: `/clubs/${club.clubId}/routines`, icon: "fitness-center" },
         { label: "Events", path: `/clubs/${club.clubId}/events`, icon: "event" },

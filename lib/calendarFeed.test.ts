@@ -55,8 +55,8 @@ describe("fetchCalendarFeed", () => {
   it("includes every race regardless of access (only tapping through is access-gated)", async () => {
     mockFetchEvents.mockResolvedValue([]);
     mockFetchRaces.mockResolvedValue([
-      { id: "r1", clubId: "club-1", name: "Visible Race", eventDate: "2026-05-01", avatarUrl: null, access: "member", requestStatus: null },
-      { id: "r2", clubId: "club-1", name: "Hidden Race", eventDate: "2026-05-02", avatarUrl: null, access: "none", requestStatus: "pending" },
+      { id: "r1", clubId: "club-1", name: "Visible Race", eventDate: "2026-05-01", avatarUrl: null, pinned: false, access: "member", requestStatus: null },
+      { id: "r2", clubId: "club-1", name: "Hidden Race", eventDate: "2026-05-02", avatarUrl: null, pinned: false, access: "none", requestStatus: "pending" },
     ]);
     mockFetchEboardChannel.mockResolvedValue(null);
 
@@ -101,7 +101,7 @@ describe("fetchCalendarFeed", () => {
       { ...baseEvent, id: "e1", eventType: "practice", title: "Practice", startAt: "2026-05-10T18:00:00.000Z" },
     ]);
     mockFetchRaces.mockResolvedValue([
-      { id: "r1", clubId: "club-1", name: "Spring Race", eventDate: "2026-05-05", avatarUrl: null, access: "admin", requestStatus: null },
+      { id: "r1", clubId: "club-1", name: "Spring Race", eventDate: "2026-05-05", avatarUrl: null, pinned: false, access: "admin", requestStatus: null },
     ]);
     mockFetchEboardChannel.mockResolvedValue({
       id: "eboard-1",
@@ -126,8 +126,8 @@ describe("fetchCalendarFeed", () => {
   it("merges polls from every scope the caller can access, dated by closesAt (falling back to createdAt), with isOpen reflecting is_closed/closes_at", async () => {
     mockFetchEvents.mockResolvedValue([]);
     mockFetchRaces.mockResolvedValue([
-      { id: "r1", clubId: "club-1", name: "Visible Race", eventDate: "2026-05-05", avatarUrl: null, access: "member", requestStatus: null },
-      { id: "r2", clubId: "club-1", name: "Hidden Race", eventDate: "2026-05-06", avatarUrl: null, access: "none", requestStatus: "pending" },
+      { id: "r1", clubId: "club-1", name: "Visible Race", eventDate: "2026-05-05", avatarUrl: null, pinned: false, access: "member", requestStatus: null },
+      { id: "r2", clubId: "club-1", name: "Hidden Race", eventDate: "2026-05-06", avatarUrl: null, pinned: false, access: "none", requestStatus: "pending" },
     ]);
     mockFetchEboardChannel.mockResolvedValue({
       id: "eboard-1",

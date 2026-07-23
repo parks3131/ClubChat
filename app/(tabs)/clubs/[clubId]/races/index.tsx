@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { LoadError } from "../../../../../components/LoadError";
 import { colors, radii, spacing, typography } from "../../../../../constants/theme";
+import { useAuth } from "../../../../../contexts/AuthProvider";
 import { toDateKey } from "../../../../../lib/dates";
 import { fetchRaces, requestJoinRace, type RaceListItem } from "../../../../../lib/races";
 import { useClub } from "../_layout";
@@ -30,21 +31,23 @@ function bibDay(dateKey: string) {
 export default function RacesListScreen() {
   const club = useClub();
   const router = useRouter();
+  const { session } = useAuth();
   const [races, setRaces] = useState<RaceListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [requesting, setRequesting] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    if (!session) return;
     setLoading(true);
-    fetchRaces(club.clubId, club.isAdmin)
+    fetchRaces(club.clubId, session.user.id, club.isAdmin)
       .then((data) => {
         setRaces(data);
         setLoadError(false);
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [club.clubId, club.role]);
+  }, [club.clubId, club.role, session]);
 
   useFocusEffect(load);
 

@@ -3,8 +3,9 @@ import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "
 import { useCallback, useLayoutEffect, useState } from "react";
 import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, typography } from "../../../../constants/theme";
+import { useAuth } from "../../../../contexts/AuthProvider";
 import { toDateKey } from "../../../../lib/dates";
-import { fetchRaces, type RaceListItem } from "../../../../lib/races";
+import { fetchRaces, setRacePinned, type RaceListItem } from "../../../../lib/races";
 import { useClub } from "./_layout";
 
 const RACES_PREVIEW_LIMIT = 5;
@@ -13,8 +14,13 @@ const RACES_PREVIEW_LIMIT = 5;
 // — same avatar-or-initial treatment the race/Eboard/club headers already
 // use elsewhere in the app (round photo if set, a round letter fallback
 // otherwise), replacing the old generic flag-icon badge every race row used
-// to share regardless of whether the race had its own photo.
-function RaceRow({ race, onPress }: { race: RaceListItem; onPress: () => void }) {
+// to share regardless of whether the race had its own photo. The trailing
+// chevron was replaced with a ⋮ menu — every member gets one (pinning is
+// personal curation of your own preview, not an admin setting, so there's
+// no permission to gate on); the row itself still navigates on press, the
+// ⋮ stops that and opens the Pin/Unpin popup instead. A pin icon sits
+// right before the ⋮ once pinned.
+function RaceRow({ race, onPress, onOpenMenu }: { race: RaceListItem; onPress: () => void; onOpenMenu: () => void }) {
   return (
     <TouchableOpacity style={styles.raceRow} onPress={onPress}>
       {race.avatarUrl ? (
@@ -27,19 +33,18 @@ function RaceRow({ race, onPress }: { race: RaceListItem; onPress: () => void })
       <Text style={styles.raceName} numberOfLines={1}>
         {race.name}
       </Text>
-      <Text style={styles.raceDate}>{formatEventDate(race.eventDate)}</Text>
-      <MaterialIcons name="chevron-right" size={20} color={colors.onSurfaceVariant} />
+      {race.pinned && <MaterialIcons name="push-pin" size={16} color={colors.primary} />}
+      <TouchableOpacity
+        hitSlop={8}
+        onPress={(e) => {
+          e.stopPropagation?.();
+          onOpenMenu();
+        }}
+      >
+        <MaterialIcons name="more-vert" size={20} color={colors.onSurfaceVariant} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
-}
-
-// event_date is a plain "YYYY-MM-DD" string — format from its own y/m/d
-// components rather than `new Date(iso)`, which parses as UTC midnight and
-// can display a day early in timezones behind UTC (see races/index.tsx and
-// SPEC.md section 6's formatDateOfBirth note for the same bug elsewhere).
-function formatEventDate(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 // Restructured club home (founder wireframe, task after #47): Chat and
@@ -56,6 +61,7 @@ export default function ClubHubScreen() {
   const club = useClub();
   const router = useRouter();
   const navigation = useNavigation();
+  const { session } = useAuth();
   // Reached from Profile's "Your clubs" list, a different top-level tab —
   // that cross-tab push doesn't leave real back-history to /profile (see
   // SPEC.md section 6), so the origin is passed explicitly and this screen
@@ -68,6 +74,8 @@ export default function ClubHubScreen() {
   const [races, setRaces] = useState<RaceListItem[]>([]);
   const [seeAllOpen, setSeeAllOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [pinMenuRace, setPinMenuRace] = useState<RaceListItem | null>(null);
+  const [togglingPin, setTogglingPin] = useState(false);
 
   useLayoutEffect(() => {
     if (from !== "profile") return;
@@ -121,8 +129,9 @@ export default function ClubHubScreen() {
   // a race updates this preview, mirroring races/index.tsx's own useFocusEffect.
   useFocusEffect(
     useCallback(() => {
+      if (!session) return;
       let cancelled = false;
-      fetchRaces(club.clubId, club.isAdmin)
+      fetchRaces(club.clubId, session.user.id, club.isAdmin)
         .then((fetched) => {
           if (!cancelled) setRaces(fetched);
         })
@@ -132,7 +141,7 @@ export default function ClubHubScreen() {
       return () => {
         cancelled = true;
       };
-    }, [club.clubId, club.isAdmin])
+    }, [club.clubId, club.isAdmin, session])
   );
 
   const todayKey = toDateKey(new Date());
@@ -148,6 +157,19 @@ export default function ClubHubScreen() {
   const goToRace = (race: RaceListItem) => {
     closeSeeAll();
     router.push(race.access !== "none" ? `/clubs/${club.clubId}/race/${race.id}` : `/clubs/${club.clubId}/races/${race.id}`);
+  };
+
+  const handleTogglePin = async () => {
+    if (!pinMenuRace || !session) return;
+    setTogglingPin(true);
+    try {
+      const nextPinned = !pinMenuRace.pinned;
+      await setRacePinned(pinMenuRace.id, session.user.id, nextPinned);
+      setRaces((prev) => prev.map((r) => (r.id === pinMenuRace.id ? { ...r, pinned: nextPinned } : r)));
+      setPinMenuRace(null);
+    } finally {
+      setTogglingPin(false);
+    }
   };
 
   return (
@@ -217,7 +239,7 @@ export default function ClubHubScreen() {
           upcomingRaces.map((race, i) => (
             <View key={race.id}>
               {i > 0 && <View style={styles.divider} />}
-              <RaceRow race={race} onPress={() => goToRace(race)} />
+              <RaceRow race={race} onPress={() => goToRace(race)} onOpenMenu={() => setPinMenuRace(race)} />
             </View>
           ))
         )}
@@ -261,11 +283,24 @@ export default function ClubHubScreen() {
                 filteredRaces.map((race, i) => (
                   <View key={race.id}>
                     {i > 0 && <View style={styles.divider} />}
-                    <RaceRow race={race} onPress={() => goToRace(race)} />
+                    <RaceRow race={race} onPress={() => goToRace(race)} onOpenMenu={() => setPinMenuRace(race)} />
                   </View>
                 ))
               )}
             </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* The ⋮ popup — currently just Pin/Unpin, mirroring ChatScreen's
+          own small centered "actions" card. */}
+      <Modal visible={pinMenuRace !== null} transparent animationType="fade" onRequestClose={() => setPinMenuRace(null)}>
+        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setPinMenuRace(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.pinMenuCard} onPress={(e) => e.stopPropagation?.()}>
+            <TouchableOpacity style={styles.pinMenuItem} onPress={handleTogglePin} disabled={togglingPin}>
+              <MaterialIcons name="push-pin" size={18} color={colors.onSurface} />
+              <Text style={styles.pinMenuItemText}>{pinMenuRace?.pinned ? "Unpin race" : "Pin race"}</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -323,7 +358,6 @@ const styles = StyleSheet.create({
   },
   raceAvatarInitial: { ...typography.labelSm, fontSize: 17, color: colors.primary },
   raceName: { ...typography.bodyMd, fontSize: 16, color: colors.onSurface, flex: 1 },
-  raceDate: { ...typography.labelSm, fontSize: 13, color: colors.secondary },
   addGroupButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -369,4 +403,19 @@ const styles = StyleSheet.create({
   },
   searchInput: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface, flex: 1, padding: 0 },
   modalList: { flexGrow: 0 },
+  pinMenuCard: {
+    width: "100%",
+    maxWidth: 280,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: spacing.stackSm,
+  },
+  pinMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    paddingVertical: spacing.gutter,
+    paddingHorizontal: spacing.stackSm,
+  },
+  pinMenuItemText: { ...typography.bodyMd, fontSize: 15, color: colors.onSurface, fontWeight: "600" },
 });
