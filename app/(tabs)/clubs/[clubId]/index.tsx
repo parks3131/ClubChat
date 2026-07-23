@@ -1,11 +1,37 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useCallback, useLayoutEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { colors, radii, spacing, typography } from "../../../../constants/theme";
 import { toDateKey } from "../../../../lib/dates";
 import { fetchRaces, type RaceListItem } from "../../../../lib/races";
 import { useClub } from "./_layout";
+
+const RACES_PREVIEW_LIMIT = 5;
+
+// Shared by the hub's own preview rows and the "See all" search popup below
+// — same avatar-or-initial treatment the race/Eboard/club headers already
+// use elsewhere in the app (round photo if set, a round letter fallback
+// otherwise), replacing the old generic flag-icon badge every race row used
+// to share regardless of whether the race had its own photo.
+function RaceRow({ race, onPress }: { race: RaceListItem; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={styles.raceRow} onPress={onPress}>
+      {race.avatarUrl ? (
+        <Image source={{ uri: race.avatarUrl }} style={styles.raceAvatarImage} />
+      ) : (
+        <View style={styles.raceAvatarFallback}>
+          <Text style={styles.raceAvatarInitial}>{race.name.charAt(0).toUpperCase() || "?"}</Text>
+        </View>
+      )}
+      <Text style={styles.raceName} numberOfLines={1}>
+        {race.name}
+      </Text>
+      <Text style={styles.raceDate}>{formatEventDate(race.eventDate)}</Text>
+      <MaterialIcons name="chevron-right" size={20} color={colors.onSurfaceVariant} />
+    </TouchableOpacity>
+  );
+}
 
 // event_date is a plain "YYYY-MM-DD" string — format from its own y/m/d
 // components rather than `new Date(iso)`, which parses as UTC midnight and
@@ -35,7 +61,13 @@ export default function ClubHubScreen() {
   // SPEC.md section 6), so the origin is passed explicitly and this screen
   // overrides its own back button rather than relying on canGoBack().
   const { from } = useLocalSearchParams<{ from?: string }>();
-  const [upcomingRaces, setUpcomingRaces] = useState<RaceListItem[]>([]);
+  // Every race the club has, not just upcoming — the hub's own preview
+  // still filters/slices this down to the next few, but the "See all"
+  // search popup below searches across all of them (matching races/
+  // index.tsx's own Upcoming/Finished scope).
+  const [races, setRaces] = useState<RaceListItem[]>([]);
+  const [seeAllOpen, setSeeAllOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   useLayoutEffect(() => {
     if (from !== "profile") return;
@@ -91,13 +123,11 @@ export default function ClubHubScreen() {
     useCallback(() => {
       let cancelled = false;
       fetchRaces(club.clubId, club.isAdmin)
-        .then((races) => {
-          if (cancelled) return;
-          const todayKey = toDateKey(new Date());
-          setUpcomingRaces(races.filter((r) => r.eventDate >= todayKey).slice(0, 2));
+        .then((fetched) => {
+          if (!cancelled) setRaces(fetched);
         })
         .catch(() => {
-          if (!cancelled) setUpcomingRaces([]);
+          if (!cancelled) setRaces([]);
         });
       return () => {
         cancelled = true;
@@ -105,144 +135,238 @@ export default function ClubHubScreen() {
     }, [club.clubId, club.isAdmin])
   );
 
+  const todayKey = toDateKey(new Date());
+  const upcomingRaces = races.filter((r) => r.eventDate >= todayKey).slice(0, RACES_PREVIEW_LIMIT);
+  const searchQuery = search.trim().toLowerCase();
+  const filteredRaces = searchQuery ? races.filter((r) => r.name.toLowerCase().includes(searchQuery)) : races;
+
+  const closeSeeAll = () => {
+    setSeeAllOpen(false);
+    setSearch("");
+  };
+
+  const goToRace = (race: RaceListItem) => {
+    closeSeeAll();
+    router.push(race.access !== "none" ? `/clubs/${club.clubId}/race/${race.id}` : `/clubs/${club.clubId}/races/${race.id}`);
+  };
+
   return (
     <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.identity}>
         <Text style={styles.clubName}>{club.name.toUpperCase()}</Text>
       </View>
 
-      <View style={styles.grid}>
-        <TouchableOpacity style={styles.card} onPress={() => router.push(`/clubs/${club.clubId}/news`)}>
-          <View style={[styles.iconBadge, { backgroundColor: colors.secondary }]}>
-            <MaterialIcons name="auto-awesome" size={22} color={colors.onPrimary} />
+      {/* One continuous panel — every row is flat (a divider, not its own
+          bordered box) and every icon is a circular avatar, matching a
+          chat app's own group-list feel (founder reference) rather than
+          this app's usual stack of separately-bordered cards. */}
+      <View style={styles.panel}>
+        <TouchableOpacity style={styles.row} onPress={() => router.push(`/clubs/${club.clubId}/news`)}>
+          <View style={[styles.avatar, { backgroundColor: colors.secondary }]}>
+            <MaterialIcons name="auto-awesome" size={20} color={colors.onPrimary} />
           </View>
-          <View style={styles.cardTextWrap}>
-            <Text style={styles.cardLabel}>NEWS & HIGHLIGHTS</Text>
-            <Text style={styles.cardSubtitle}>Club updates & photos</Text>
+          <View style={styles.rowTextWrap}>
+            <Text style={styles.rowLabel}>NEWS & HIGHLIGHTS</Text>
+            <Text style={styles.rowSubtitle}>Club updates & photos</Text>
           </View>
           <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.card} onPress={() => router.push(`/clubs/${club.clubId}/chat`)}>
-          <View style={[styles.iconBadge, { backgroundColor: colors.primary }]}>
-            <MaterialIcons name="forum" size={22} color={colors.onPrimary} />
+        <View style={styles.divider} />
+
+        <TouchableOpacity style={styles.row} onPress={() => router.push(`/clubs/${club.clubId}/chat`)}>
+          <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+            <MaterialIcons name="forum" size={20} color={colors.onPrimary} />
           </View>
-          <View style={styles.cardTextWrap}>
-            <Text style={styles.cardLabel}>CLUB MAIN CHAT</Text>
-            <Text style={styles.cardSubtitle}>Jump into the conversation</Text>
+          <View style={styles.rowTextWrap}>
+            <Text style={styles.rowLabel}>CLUB MAIN CHAT</Text>
+            <Text style={styles.rowSubtitle}>Jump into the conversation</Text>
           </View>
           <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
         </TouchableOpacity>
 
         {club.isAdmin && (
-          <TouchableOpacity style={styles.card} onPress={() => router.push(`/clubs/${club.clubId}/eboard`)}>
-            <View style={[styles.iconBadge, { backgroundColor: colors.tertiary }]}>
-              <MaterialIcons name="shield" size={22} color={colors.onPrimary} />
-            </View>
-            <View style={styles.cardTextWrap}>
-              <Text style={styles.cardLabel}>EBOARD & COUNCIL</Text>
-              <Text style={styles.cardSubtitle}>Private space for admins</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
-          </TouchableOpacity>
+          <>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.row} onPress={() => router.push(`/clubs/${club.clubId}/eboard`)}>
+              <View style={[styles.avatar, { backgroundColor: colors.tertiary }]}>
+                <MaterialIcons name="shield" size={20} color={colors.onPrimary} />
+              </View>
+              <View style={styles.rowTextWrap}>
+                <Text style={styles.rowLabel}>EBOARD & COUNCIL</Text>
+                <Text style={styles.rowSubtitle}>Private space for admins</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={22} color={colors.onSurfaceVariant} />
+            </TouchableOpacity>
+          </>
         )}
 
-        <View style={styles.racesSection}>
-          <View style={styles.racesSectionHeaderRow}>
-            <Text style={styles.sectionHeader}>RACES AND MEETS</Text>
-            <TouchableOpacity onPress={() => router.push(`/clubs/${club.clubId}/races`)}>
-              <Text style={styles.seeAll}>See all</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.divider} />
 
-          {upcomingRaces.length === 0 ? (
-            <Text style={styles.emptyRaces}>No upcoming races yet.</Text>
-          ) : (
-            upcomingRaces.map((race) => (
-              <TouchableOpacity
-                key={race.id}
-                style={styles.raceRow}
-                onPress={() =>
-                  router.push(
-                    race.access !== "none"
-                      ? `/clubs/${club.clubId}/race/${race.id}`
-                      : `/clubs/${club.clubId}/races/${race.id}`
-                  )
-                }
-              >
-                <Text style={styles.raceName} numberOfLines={1}>
-                  {race.name}
-                </Text>
-                <Text style={styles.raceDate}>{formatEventDate(race.eventDate)}</Text>
-                <MaterialIcons name="chevron-right" size={20} color={colors.onSurfaceVariant} />
-              </TouchableOpacity>
-            ))
-          )}
+        <View style={styles.racesSectionHeaderRow}>
+          <Text style={styles.sectionHeader}>RACES AND MEETS</Text>
+          <TouchableOpacity onPress={() => setSeeAllOpen(true)}>
+            <Text style={styles.seeAll}>See all</Text>
+          </TouchableOpacity>
         </View>
 
-        {club.isAdmin && (
-          <TouchableOpacity style={styles.addGroupCard} onPress={() => router.push(`/clubs/${club.clubId}/races/create`)}>
-            <MaterialIcons name="add-circle-outline" size={20} color={colors.primary} />
-            <Text style={styles.addGroupLabel}>ADD GROUP</Text>
-          </TouchableOpacity>
+        {upcomingRaces.length === 0 ? (
+          <Text style={styles.emptyRaces}>No upcoming races yet.</Text>
+        ) : (
+          upcomingRaces.map((race, i) => (
+            <View key={race.id}>
+              {i > 0 && <View style={styles.divider} />}
+              <RaceRow race={race} onPress={() => goToRace(race)} />
+            </View>
+          ))
         )}
       </View>
+
+      {club.isAdmin && (
+        <TouchableOpacity style={styles.addGroupButton} onPress={() => router.push(`/clubs/${club.clubId}/races/create`)}>
+          <MaterialIcons name="add" size={20} color={colors.onPrimary} />
+          <Text style={styles.addGroupButtonLabel}>Add Group</Text>
+        </TouchableOpacity>
+      )}
+      </ScrollView>
+
+      {/* "See all" popup — a search box over every race the club has,
+          rather than navigating to a whole new screen for what's usually
+          just "find the one race I'm looking for." */}
+      <Modal visible={seeAllOpen} transparent animationType="fade" onRequestClose={closeSeeAll}>
+        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={closeSeeAll}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard} onPress={(e) => e.stopPropagation?.()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Races & Meets</Text>
+              <TouchableOpacity onPress={closeSeeAll} hitSlop={8}>
+                <MaterialIcons name="close" size={20} color={colors.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.searchBar}>
+              <MaterialIcons name="search" size={18} color={colors.onSurfaceVariant} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search races"
+                placeholderTextColor={colors.onSurfaceVariant}
+                value={search}
+                onChangeText={setSearch}
+                autoFocus
+              />
+            </View>
+            <ScrollView style={styles.modalList}>
+              {filteredRaces.length === 0 ? (
+                <Text style={styles.emptyRaces}>No races found.</Text>
+              ) : (
+                filteredRaces.map((race, i) => (
+                  <View key={race.id}>
+                    {i > 0 && <View style={styles.divider} />}
+                    <RaceRow race={race} onPress={() => goToRace(race)} />
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, padding: spacing.marginMobile },
+  container: { flex: 1, backgroundColor: colors.surface },
+  scrollContent: { padding: spacing.marginMobile },
   identity: { alignItems: "center", marginBottom: spacing.gutter },
   clubName: { ...typography.headlineLg, fontSize: 24, color: colors.onSurface, letterSpacing: 0.5 },
-  grid: { gap: spacing.stackSm },
-  racesSection: {
+  panel: {
     backgroundColor: colors.surfaceContainerLowest,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
+    paddingHorizontal: spacing.gutter,
+    paddingBottom: spacing.stackSm,
   },
-  racesSectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionHeader: { ...typography.headlineLgMobile, fontSize: 15, color: colors.onSurface },
-  seeAll: { ...typography.labelSm, fontSize: 12, color: colors.primary, textTransform: "uppercase" },
-  emptyRaces: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: spacing.stackSm },
-  raceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.stackSm,
-    marginTop: spacing.stackSm,
-    paddingTop: spacing.stackSm,
-    borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
-  },
-  raceName: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface, flex: 1 },
-  raceDate: { ...typography.labelSm, fontSize: 12, color: colors.secondary },
-  card: {
+  divider: { height: 1, backgroundColor: colors.outlineVariant },
+  row: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.gutter,
-    backgroundColor: colors.surfaceContainerLowest,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    padding: spacing.gutter,
+    paddingVertical: spacing.gutter,
   },
-  iconBadge: { width: 44, height: 44, borderRadius: radii.md, alignItems: "center", justifyContent: "center" },
-  cardTextWrap: { flex: 1 },
-  cardLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
-  cardSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
-  addGroupCard: {
+  avatar: { width: 44, height: 44, borderRadius: radii.full, alignItems: "center", justifyContent: "center" },
+  rowTextWrap: { flex: 1 },
+  rowLabel: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
+  rowSubtitle: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, marginTop: 2 },
+  racesSectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.gutter,
+  },
+  sectionHeader: { ...typography.headlineLgMobile, fontSize: 15, color: colors.onSurface },
+  seeAll: { ...typography.labelSm, fontSize: 12, color: colors.primary, textTransform: "uppercase" },
+  emptyRaces: { ...typography.bodyMd, fontSize: 13, color: colors.onSurfaceVariant, paddingBottom: spacing.gutter },
+  raceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.gutter,
+    paddingVertical: spacing.gutter,
+  },
+  raceAvatarImage: { width: 44, height: 44, borderRadius: radii.full },
+  raceAvatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.full,
+    backgroundColor: colors.surfaceContainerHigh,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  raceAvatarInitial: { ...typography.labelSm, fontSize: 17, color: colors.primary },
+  raceName: { ...typography.bodyMd, fontSize: 16, color: colors.onSurface, flex: 1 },
+  raceDate: { ...typography.labelSm, fontSize: 13, color: colors.secondary },
+  addGroupButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.stackSm,
-    backgroundColor: colors.surfaceContainerLowest,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingVertical: spacing.stackSm + 6,
+    marginTop: spacing.gutter,
+  },
+  addGroupButtonLabel: { ...typography.headlineLgMobile, fontSize: 15, color: colors.onPrimary },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.marginMobile,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    maxHeight: "70%",
+    backgroundColor: colors.surface,
     borderRadius: radii.lg,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.primary,
     padding: spacing.gutter,
   },
-  addGroupLabel: { ...typography.labelSm, fontSize: 13, color: colors.primary, letterSpacing: 0.5 },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.stackSm,
+  },
+  modalTitle: { ...typography.headlineLgMobile, fontSize: 17, color: colors.onSurface },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.stackSm,
+    backgroundColor: colors.surfaceContainerLow,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.stackSm + 4,
+    paddingVertical: spacing.stackSm,
+    marginBottom: spacing.stackSm,
+  },
+  searchInput: { ...typography.bodyMd, fontSize: 14, color: colors.onSurface, flex: 1, padding: 0 },
+  modalList: { flexGrow: 0 },
 });

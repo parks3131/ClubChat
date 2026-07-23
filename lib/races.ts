@@ -6,6 +6,7 @@ export interface RaceListItem {
   clubId: string;
   name: string;
   eventDate: string;
+  avatarUrl: string | null;
   access: "admin" | "member" | "none";
   requestStatus: JoinRequestStatus | null;
 }
@@ -19,7 +20,7 @@ export interface RaceListItem {
 export async function fetchRaces(clubId: string, isClubAdmin: boolean): Promise<RaceListItem[]> {
   const { data: races, error } = await supabase
     .from("races")
-    .select("id, club_id, name, event_date")
+    .select("id, club_id, name, event_date, avatar_url")
     .eq("club_id", clubId)
     .order("event_date", { ascending: true });
 
@@ -41,6 +42,7 @@ export async function fetchRaces(clubId: string, isClubAdmin: boolean): Promise<
     clubId: r.club_id,
     name: r.name,
     eventDate: r.event_date,
+    avatarUrl: r.avatar_url,
     access: isClubAdmin ? "admin" : memberRaceIds.has(r.id) ? "member" : "none",
     requestStatus: statusByRaceId.get(r.id) ?? null,
   }));
