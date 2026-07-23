@@ -4,6 +4,20 @@ import { colors, typography } from "../../constants/theme";
 import { useCurrentClub } from "../../contexts/CurrentClubProvider";
 import { useNotifications } from "../../contexts/NotificationsProvider";
 
+// Same branded look as the Clubs tab's own "ClubChat" header (see
+// clubs/_layout.tsx) — Calendar and Notifications have no nested Stack of
+// their own to host it, so it's applied directly at this Tabs level
+// instead. Clubs/Profile deliberately don't use this here: each has its
+// own nested Stack that already shows it on just its root screen, and
+// showing it here too would duplicate it on every subpage.
+const brandedHeaderOptions = {
+  headerShown: true,
+  headerStyle: { backgroundColor: colors.surfaceContainerLow },
+  headerTitleStyle: { ...typography.headlineLgMobile, fontSize: 20, color: colors.primary },
+  headerTitleAlign: "left" as const,
+  headerShadowVisible: false,
+};
+
 export default function TabsLayout() {
   const { unreadCount } = useNotifications();
   const { currentClub } = useCurrentClub();
@@ -13,9 +27,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: true,
-        headerStyle: { backgroundColor: colors.surfaceContainerLow },
-        headerTitleStyle: { ...typography.headlineLgMobile, fontSize: 20, color: colors.primary },
+        headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.onSecondaryContainer,
         tabBarStyle: { backgroundColor: colors.surfaceContainerLow },
@@ -49,6 +61,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
+          ...brandedHeaderOptions,
           title: "Calendar",
           tabBarIcon: ({ color, size }) => <MaterialIcons name="calendar-month" size={size} color={color} />,
         }}
@@ -56,6 +69,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
+          ...brandedHeaderOptions,
           title: "Notifications",
           tabBarIcon: ({ color, size }) => <MaterialIcons name="notifications" size={size} color={color} />,
           tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
