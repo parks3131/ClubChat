@@ -150,14 +150,18 @@ for JS/UI changes, just reload in Expo Go.
 
 ## Phase 3 — Track B: a real installable build via EAS
 
-**Android status**: ✅ done, on the real device, working — but it took
-two build cycles to get there. The first installed APK crashed-then-
-partially-worked: photo/file upload threw a native error, then a second
-bug surfaced right after that one was fixed. Both were genuine app bugs,
-not build/tooling issues, and both are now fixed and pushed — see "Bugs
-hit going from local dev to a real device" below for the full story.
-A second build (`eas build --profile preview --platform android`,
-same flow as below) is what actually carries those fixes onto the phone.
+**Android status**: ✅ confirmed working, on the real device, including
+photo upload — but it took three build cycles to get there. The first
+installed APK crashed-then-partially-worked: photo/file upload threw a
+native error, then a second bug (`crypto.randomUUID()` missing on
+Hermes) surfaced right after that one was fixed, then a *third* build
+was needed because the first upload fix — which worked fine on the iOS
+Simulator — turned out not to actually work on Android at all,
+reproducing the identical crash for a different underlying reason. All
+genuine app bugs, not build/tooling issues, and all now fixed and
+pushed — see "Bugs hit going from local dev to a real device" below for
+the full story on each. Every rebuild used the same command
+(`eas build --profile preview --platform android`, same flow as below).
 
 **iOS status**: 🟡 blocked on Apple Developer Program enrollment (an
 Apple ID verification error), so `eas build --platform ios` hasn't been
@@ -263,14 +267,33 @@ Supabase Storage's `.upload()`. That's the standard, correct way to do
 it in a browser (where `pickImageOnWeb`'s `blob:` URLs come from) — but
 on native, React Native's `Blob` polyfill can't perform that specific
 conversion, and it throws `Creating blobs from 'ArrayBuffer' and
-ArrayBufferView are not supported` deep inside the upload call. **Fix**:
-new `lib/uploadBody.ts` branches by platform — web keeps the working
-`fetch().blob()` path, native reads the file's raw bytes via
-`expo-file-system`'s new SDK-57 `File` class (`new File(uri).arrayBuffer()`)
-instead, sidestepping `Blob` entirely. Required adding `expo-file-system`
-as a real dependency (SPEC.md was already listing `expo-file-system` as
-the underlying transitive package `expo` bundles, but at a nested,
-non-resolvable path — a top-level `expo install` was still needed).
+ArrayBufferView are not supported` deep inside the upload call.
+
+**First fix attempt (worked on iOS, not Android)**: `lib/uploadBody.ts`
+branched by platform — web kept the working `fetch().blob()` path,
+native read the file's raw bytes via `expo-file-system`'s brand-new
+SDK-57 `File` class (`new File(uri).arrayBuffer()`) instead, sidestepping
+`Blob` entirely. Confirmed working in the iOS Simulator — but installing
+the resulting APK on a real Android phone reproduced the *identical*
+crash. Traced through both `@supabase/storage-js` (passes an ArrayBuffer
+through untouched, no `Blob` involved) and React Native's own
+`convertRequestBody` (also converts ArrayBuffer bodies via base64, no
+`Blob` either) — neither explains a platform difference, which points at
+`File.arrayBuffer()` itself: genuinely new code (shipped in this exact
+SDK version), and its Android implementation apparently doesn't produce
+a real `ArrayBuffer` the same way iOS's does.
+
+**Actual fix**: switched to Supabase's own officially-documented React
+Native upload pattern instead of that untested-on-Android new API — read
+the file as base64 via `expo-file-system/legacy`'s `readAsStringAsync`
+(the older, battle-tested API, not the one that just shipped), decode to
+a real `ArrayBuffer` via the `base64-arraybuffer` package's `decode()`.
+Confirmed working on both the iOS Simulator and a real Android device.
+Same `lib/uploadBody.ts` call sites, no changes needed anywhere else.
+**Lesson**: a platform's brand-new API working on one OS is not evidence
+it works on the other — cross-platform frameworks can and do ship
+uneven per-platform implementations of the exact same method in the same
+release.
 
 **2. `crypto.randomUUID()` doesn't exist in Hermes on native** — used to
 generate a unique storage filename (`lib/messages.ts` ×2,
@@ -313,6 +336,21 @@ Xcode-specific — Android's Gradle build doesn't use this same
 prebuilt-xcframework mechanism, so the Android APK was never at risk of
 this particular bug, only bugs #1/#2 above (which are pure JS, so they
 affected both platforms identically).
+
+**4. `expo-doctor` flagged 11 packages drifted behind SDK 57's expected
+versions** (non-fatal, but worth knowing about) — `expo` itself was
+`57.0.1` when `~57.0.8` was expected, plus similar patch-level lag
+across `expo-blur`, `expo-constants`, `expo-font`, `expo-image-picker`,
+`expo-linear-gradient`, `expo-linking`, `expo-router`, `expo-status-bar`,
+`react-native-screens`, and `jest-expo`. Shows up as a `⚠` warning step
+in EAS build logs ("Run expo doctor") — looks alarming but doesn't
+actually fail the build; both Android APKs before this fix installed and
+ran fine despite it. Happened naturally: several `npm install`/
+`npx expo install <package>` commands ran at different points during
+this session, each picking up whatever was newest-compatible *at that
+moment*, and SDK 57 had several patch releases in between. **Fix**:
+`npx expo install --fix` bumped everything to the versions SDK 57.0.8
+actually expects; `npx expo-doctor` now reports 20/20 checks passing.
 
 ---
 
