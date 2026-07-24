@@ -1,6 +1,6 @@
 # Notifications
 
-**Status:** Shipped (in-app only — no push notifications)
+**Status:** Shipped (in-app only - no push notifications)
 
 One cross-club inbox that tells a member what happened while they were away, and what is waiting on them.
 
@@ -32,13 +32,13 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 
 | Not in scope | Why |
 |---|---|
-| **Push notifications** (device notifications when the app is closed) | Not built — see [Roadmap](13-roadmap-and-open-questions.md) |
+| **Push notifications** (device notifications when the app is closed) | Not built - see [Roadmap](13-roadmap-and-open-questions.md) |
 | Email or SMS notifications | Not built |
 | Per-type or per-club notification preferences | Not built; everything fans out |
 | Muting a chat, a club, or a race | Not built |
 | Grouping/collapsing similar notifications | Not built |
-| A notification when a routine workout is posted | Deliberate — routines are reference material |
-| A notification when a message is pinned | Deliberate — pins do not interrupt |
+| A notification when a routine workout is posted | Deliberate - routines are reference material |
+| A notification when a message is pinned | Deliberate - pins do not interrupt |
 
 ## Two kinds of row
 
@@ -46,7 +46,7 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 |---|---|---|
 | What it is | A recorded event ("X created a poll") | A live count of unread messages in one chat |
 | Where it comes from | Written when the event happens | Computed on read, never stored as rows |
-| Can it be wrong? | No — it is a record | No — it is derived from the messages themselves |
+| Can it be wrong? | No - it is a record | No - it is derived from the messages themselves |
 | How it clears | Opening the Notifications tab (most types) | **Only by opening that chat** |
 | After clearing | Stays in the feed as history | Replaced by a "caught up on N messages" history row |
 
@@ -77,27 +77,27 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 ## Behaviour rules
 
 1. **The feed merges discrete notifications and live chat-unread rows into one reverse-chronological list**, paginated as the user scrolls.
-2. **Opening the Notifications tab marks the visible discrete notifications read and clears the badge** — with two exceptions below.
+2. **Opening the Notifications tab marks the visible discrete notifications read and clears the badge** - with two exceptions below.
 3. **Chat-unread rows are never cleared by opening the Notifications tab.** They clear only by opening that chat.
 4. **The three pending join-request types are never cleared by opening the Notifications tab either.** They clear only when the relevant roster screen is opened. This is the "only clears once you actually look" rule: a row that represents work waiting on you must not be dismissed by a glance.
-5. **A decided join request stays in the feed, tagged "Approved" or "Denied", instead of disappearing** — the admin keeps a record of what they decided.
+5. **A decided join request stays in the feed, tagged "Approved" or "Denied", instead of disappearing** - the admin keeps a record of what they decided.
 6. **Every row deep-links to its target.** Tapping is always safe: a row pointing at something the user has since lost access to fails gracefully rather than crashing.
 7. **Opening a chat with unread messages records a "caught up on N messages" row**, so the history of having caught up survives even though the live count is gone.
 8. **The badge reflects unread discrete notifications** and updates in realtime, without a refresh, from anywhere in the app.
 9. **Notification audience always respects access.** A race poll notifies only race roster members; an Eboard meeting notifies only Eboard members; an announcement in a race chat notifies only that race's roster; a mention notifies only if the mentioned person can open that chat.
-10. **Creation notifications exclude the actor.** You are never notified about something you just did — except the poll closing-soon reminder, which deliberately includes the creator.
+10. **Creation notifications exclude the actor.** You are never notified about something you just did - except the poll closing-soon reminder, which deliberately includes the creator.
 11. **Pinning a message never notifies anyone**; posting an announcement always does.
 
 ## Permissions
 
 | Action | Owner | Admin | Member | Non-member |
 |---|---|---|---|---|
-| See their own notifications | ✅ | ✅ | ✅ | — |
+| See their own notifications | ✅ | ✅ | ✅ | - |
 | See another user's notifications | ❌ | ❌ | ❌ | ❌ |
 | Receive join-request notifications | ✅ | ✅ | ❌ | ❌ |
 | Receive Eboard join-request notifications | Eboard members only | Eboard members only | ❌ | ❌ |
 | Receive car-group Incharge-left notifications | ✅ | ✅ | ❌ | ❌ |
-| Mark notifications read | own only | own only | own only | — |
+| Mark notifications read | own only | own only | own only | - |
 
 ## States & edge cases
 
@@ -109,7 +109,7 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 | The actor's account is deleted | The notification survives with the actor unattributed |
 | The user loses access to the target | Tapping fails gracefully and does not crash |
 | Notification arrives while the tab is open | It appears in realtime |
-| Same chat has unread messages and a mention | Both appear — one live unread row, one discrete mention row |
+| Same chat has unread messages and a mention | Both appear - one live unread row, one discrete mention row |
 | Loading / load failure | Spinner, then a standard inline load-error with retry |
 | Offline | The feed shows the last loaded state; new notifications arrive on reconnect |
 
@@ -126,7 +126,7 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 - [ ] A race poll or race announcement notifies only race roster members, not club admins without roster access.
 - [ ] An Eboard meeting or Eboard poll notifies only Eboard members.
 - [ ] A mention notifies only someone who can access that chat.
-- [ ] The creator is not notified about their own poll, event, race, meeting, or post — but is reminded when their poll is closing.
+- [ ] The creator is not notified about their own poll, event, race, meeting, or post - but is reminded when their poll is closing.
 - [ ] Pinning a message notifies nobody; announcing notifies everyone in that chat.
 - [ ] The badge updates in realtime while the user is on another tab.
 - [ ] The feed pages further back as the user scrolls.
@@ -143,11 +143,11 @@ Give a member who belongs to several clubs, races, and an Eboard space one place
 | Announcements notify, pins do not | Notify on both | The distinction between "reference" and "interruption" is the reason announcements exist |
 | Creation notifications exclude the actor; closing-soon includes them | Uniform rule either way | The creator is exactly who needs the deadline reminder |
 | No per-type preferences or muting | Build a preferences screen | Volume has not warranted it yet; would need to ship before wider release |
-| No push notifications yet | Ship push with the inbox | Deliberately deferred — the inbox already computes everything a push payload would need |
+| No push notifications yet | Ship push with the inbox | Deliberately deferred - the inbox already computes everything a push payload would need |
 
 ## Open questions
 
-- **Push notifications** are the single biggest gap — without them, a member must open the app to learn anything. When does this become blocking for real use?
+- **Push notifications** are the single biggest gap - without them, a member must open the app to learn anything. When does this become blocking for real use?
 - Should members be able to mute a specific chat, race, or club?
 - Should high-volume types (announcements, mentions) be separable from low-volume ones (join requests)?
 - Should the badge count chat unreads as well as discrete notifications?

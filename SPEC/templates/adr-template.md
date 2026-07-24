@@ -11,6 +11,11 @@ Template for a lightweight Architecture Decision Record; copy to `SPEC/decisions
 | Deciders | `<who>` |
 | Supersedes | `<ADR-NNNN, or none>` |
 
+> **Decision principle.** Do not weight development cost heavily. Rank options by
+> quality, simplicity, robustness, scalability and long-term maintainability. "Faster
+> to build" is not a sufficient reason to choose an option and should not appear alone
+> in the Alternatives table; "simpler to reason about in two years" is decisive.
+
 ## Context
 
 <!-- The forces at play: the constraint, the problem, what was already true. Written so someone with no memory of the conversation understands why a decision was even needed. No solution here. -->
@@ -35,4 +40,4 @@ We will `<decision>`.
 
 | Alternative | Why not |
 |---|---|
-| `<option>` | `<reason rejected — the real reason, not a strawman>` |
+| `<option>` | `<reason rejected - the real reason, not a strawman>` |

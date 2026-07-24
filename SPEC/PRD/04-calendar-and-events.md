@@ -6,7 +6,7 @@ Two views over one merged feed: a month grid for "what is happening when", and a
 
 ## Purpose
 
-Turn dates that currently live in chat messages into a real calendar, and merge everything a club schedules — events, races, Eboard meetings, poll deadlines — into one place instead of four.
+Turn dates that currently live in chat messages into a real calendar, and merge everything a club schedules - events, races, Eboard meetings, poll deadlines - into one place instead of four.
 
 ## User stories
 
@@ -39,22 +39,22 @@ Turn dates that currently live in chat messages into a real calendar, and merge 
 | External calendar sync (iCal, Google) | Not requested |
 | Reminders ahead of an event | Only poll deadlines have a timed reminder today |
 | Creating an event from the global calendar | An event is inherently club-scoped; there is no club to attach it to |
-| Linking a calendar event to a [Race](06-races.md) | Races are standalone by design — the "race" event type is only a label |
+| Linking a calendar event to a [Race](06-races.md) | Races are standalone by design - the "race" event type is only a label |
 
 ## Behaviour rules
 
 1. **The month grid shows a marker on any day carrying a calendar event, a race, or an Eboard meeting.** Tapping a marked day opens a popup listing that day's items; tapping an item opens it.
-2. **Polls are excluded from the month grid** but included in the Upcoming/Past list — a poll has a closing deadline, not a day it happens on.
+2. **Polls are excluded from the month grid** but included in the Upcoming/Past list - a poll has a closing deadline, not a day it happens on.
 3. **Days shown from adjacent months as grid filler are never marked or tappable**, so a marker always belongs to the month on screen.
 4. **The Upcoming/Past list is one merged, sorted feed** across events, races, meetings, and polls; past items are shown faded, most-recent-first.
-5. **A poll is "upcoming" while it is still open**, not by comparing its date — an open-ended poll must never fall into Past.
+5. **A poll is "upcoming" while it is still open**, not by comparing its date - an open-ended poll must never fall into Past.
 6. **The Calendar tab shows the active club's feed if the user is inside a club, and a merged cross-club feed otherwise.** In merged mode every row is tagged with the club it belongs to and no create action is offered.
 7. **Every read respects the viewer's own access.** An Eboard meeting only appears for Eboard members; a race poll only for race members.
-8. **Every race is visible on the calendar to every club member**, whether or not they have race access — tapping through without access leads to the race preview, not the race itself.
+8. **Every race is visible on the calendar to every club member**, whether or not they have race access - tapping through without access leads to the race preview, not the race itself.
 9. **Only an admin can create, edit, or delete a calendar event.** Creating one notifies every other club member.
 10. **A created event posts a card into club chat** with its title, date, and location, and a link to the full event.
 11. **An event carries a type, a title, a date and time, an optional location, and an optional description.**
-12. **Creating an event from chat's "+" returns to chat afterwards**, not to the new event's detail screen — the chat card already confirms it.
+12. **Creating an event from chat's "+" returns to chat afterwards**, not to the new event's detail screen - the chat card already confirms it.
 
 ## Permissions
 
@@ -65,7 +65,7 @@ Turn dates that currently live in chat messages into a real calendar, and merge 
 | Create an event | ✅ | ✅ | ❌ | ❌ |
 | Edit an event (any event, not only their own) | ✅ | ✅ | ❌ | ❌ |
 | Delete an event | ✅ | ✅ | ❌ | ❌ |
-| View the merged cross-club calendar | ✅ | ✅ | ✅ | — |
+| View the merged cross-club calendar | ✅ | ✅ | ✅ | - |
 
 ## States & edge cases
 
@@ -101,7 +101,7 @@ Turn dates that currently live in chat messages into a real calendar, and merge 
 
 | Decision | Rejected alternative | Why |
 |---|---|---|
-| Month grid and events list are separate screens | One screen with the grid above the list | Explicit founder request — the calendar should be just the grid |
+| Month grid and events list are separate screens | One screen with the grid above the list | Explicit founder request - the calendar should be just the grid |
 | Polls appear in the list but not the grid | Put polls on their closing date in the grid | A poll's deadline is not "a day something happens"; it cluttered the grid |
 | Poll upcoming/past is decided by open/closed | Compare its date like everything else | An open-ended poll would flip to Past the instant it was created |
 | One merged feed built from each feature's own data | A separate calendar table everything writes into | A second copy would drift; the merged read cannot go stale |

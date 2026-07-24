@@ -2,7 +2,7 @@
 
 **Status:** Shipped
 
-Structured voting, scoped to a club, a race, or the Eboard — replacing "react with 👍 if you're coming".
+Structured voting, scoped to a club, a race, or the Eboard - replacing "react with 👍 if you're coming".
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Let a club settle a question with a real count instead of a thread of replies, w
 - Always-visible per-option vote counts
 - A voter list per option, gated by the poll's privacy setting
 - Voting, re-voting, and un-voting
-- Close, reopen, delete — creator-only
+- Close, reopen, delete - creator-only
 - Three scopes: club, race, Eboard
 - A votable poll card auto-posted into the corresponding chat
 - A "closing soon" reminder
@@ -54,16 +54,16 @@ Let a club settle a question with a real count instead of a thread of replies, w
 3. **Voter identity is gated by the poll's privacy setting**: on a public poll everyone can see who voted for what; on a private poll only the creator can. **A voter always sees their own vote either way.**
 4. **Tapping an option votes for it.** Tapping it again withdraws the vote. On a single-choice poll, tapping a different option moves the vote rather than adding a second.
 5. **A per-option control reveals that option's voters**, shown once the option has at least one vote and the viewer is allowed to see voters.
-6. **A poll closes when its creator closes it, or when its deadline passes** — whichever comes first. A closed poll cannot be voted in.
+6. **A poll closes when its creator closes it, or when its deadline passes** - whichever comes first. A closed poll cannot be voted in.
 7. **Only the creator can close, reopen, or delete a poll**, in every scope, including club polls created by another admin.
 8. **A deadline is optional.** It is chosen from preset durations or a custom amount in minutes, hours, or days, and is computed from the moment of creation.
-9. **Ten minutes before a poll's deadline, everyone who can access it is reminded — including the creator.** This fires once per poll.
+9. **Ten minutes before a poll's deadline, everyone who can access it is reminded - including the creator.** This fires once per poll.
 10. **Creating a poll notifies everyone who can access it except the creator**, and posts a votable card into the corresponding chat.
 11. **A poll card in chat is fully votable inline**, behaving identically to the full poll screen for multi-select, privacy, deadlines, and closed state. Actions the card cannot hold (the voter list, and the creator's close/reopen/delete) are reached through a "View Poll" link.
 12. **Scope determines both audience and creation rights**:
-    - **Club poll** — any club member can vote; any club admin can create.
-    - **Race poll** — only race roster members can see or vote; creating requires being both a club admin and on the roster.
-    - **Eboard poll** — only Eboard members can see or vote; any Eboard member can create.
+    - **Club poll** - any club member can vote; any club admin can create.
+    - **Race poll** - only race roster members can see or vote; creating requires being both a club admin and on the roster.
+    - **Eboard poll** - only Eboard members can see or vote; any Eboard member can create.
 13. **The list has an ALL POLLS tab and a MY VOTES tab**, the latter filtered to polls the viewer has voted in.
 14. **An open poll is presented as a live card with a countdown when it has a deadline**; a closed poll is visually muted and labelled CLOSED.
 15. **Polls appear in the events list of the calendar**, bucketed by open/closed rather than by date.
@@ -89,7 +89,7 @@ Let a club settle a question with a real count instead of a thread of replies, w
 | No polls yet | Empty state plus, for those who can create, a prompt and a create action |
 | Poll with no votes | Counts show zero; no voter-list control is offered |
 | Private poll, viewer is not the creator | Counts shown; voter list unavailable; their own selection still highlighted |
-| Deadline passed but not manually closed | Treated as closed everywhere — voting disabled, shown as CLOSED |
+| Deadline passed but not manually closed | Treated as closed everywhere - voting disabled, shown as CLOSED |
 | Creator reopens a closed poll | Voting resumes; existing votes are preserved |
 | Poll deleted | It disappears from the list, the calendar, and its chat card |
 | Fewer than 2 options entered | Creation is blocked |
@@ -109,7 +109,7 @@ Let a club settle a question with a real count instead of a thread of replies, w
 - [ ] A poll with a passed deadline cannot be voted in and is shown as CLOSED, without anyone having closed it.
 - [ ] Close, reopen, and delete are offered only to the creator, including to a club admin who did not create it.
 - [ ] Creating a poll notifies everyone who can access it except the creator.
-- [ ] Ten minutes before the deadline, everyone who can access the poll — including the creator — is reminded exactly once.
+- [ ] Ten minutes before the deadline, everyone who can access the poll - including the creator - is reminded exactly once.
 - [ ] Creating a poll posts a votable card into the matching chat, and voting on the card matches the full screen.
 - [ ] A race poll is invisible to a club admin who is not on that race's roster, including by direct URL.
 - [ ] An Eboard poll is invisible to a club admin who is not an Eboard member.
@@ -123,7 +123,7 @@ Let a club settle a question with a real count instead of a thread of replies, w
 |---|---|---|
 | Counts always public, voter identity gated | Hide counts on private polls too | The club wants to know the result; anonymity is about who, not how many |
 | The creator can always see voters, even on a private poll | Fully anonymous polls | Someone has to be accountable for interpreting a sensitive vote |
-| Close/reopen/delete are creator-only | Any club admin, like calendar and routines | Deliberately mirrors Eboard meetings — whoever asked the question owns it |
+| Close/reopen/delete are creator-only | Any club admin, like calendar and routines | Deliberately mirrors Eboard meetings - whoever asked the question owns it |
 | Race polls require a roster row even for admins | Let any club admin create and see race polls | Brought race polls in line with race chat, which has required a roster row since the race-access rework |
 | Any Eboard member can create | Restrict to some Eboard sub-role | Every Eboard member is already a club admin |
 | Deadline is optional | Always require one | Plenty of polls are open-ended |

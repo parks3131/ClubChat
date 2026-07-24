@@ -6,7 +6,7 @@ A club is the persistent, top-level space a team lives in; everything else in Cl
 
 ## Purpose
 
-Give a team one durable home with a known roster, a known set of admins, and a controlled way in — replacing an unmanaged group chat that anyone can add anyone to.
+Give a team one durable home with a known roster, a known set of admins, and a controlled way in - replacing an unmanaged group chat that anyone can add anyone to.
 
 ## User stories
 
@@ -46,7 +46,7 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 ## Behaviour rules
 
 1. **A club is created with a name, a sport, an optional description, and a join policy.** The creator becomes its Owner.
-2. **A new club is provisioned with its main chat and its Eboard & Council space automatically** — no separate setup step, and the Owner is a member of both immediately.
+2. **A new club is provisioned with its main chat and its Eboard & Council space automatically** - no separate setup step, and the Owner is a member of both immediately.
 3. **`open` policy:** finding the club by name and tapping Join adds the user immediately, no approval.
 4. **`request` policy:** finding the club by name files a pending request; an admin must approve or deny it.
 5. **The join link and manual invite code always join instantly**, regardless of join policy. It is a private side channel deliberately independent of the public search path.
@@ -54,11 +54,11 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 7. **Join policy is editable after creation**, not fixed at creation time.
 8. **Approving a request, adding a member directly, removing a member, and changing a role each post a system message into club chat** and notify the people affected.
 9. **A member can leave any club they are not the Owner of.** Leaving removes them from every race roster, car group, and the Eboard space for that club in the same action.
-10. **Deleting a club is permanent and Owner-only** — chat history, members, races, Eboard space, polls, and posts all go with it. The confirmation names the club and states this explicitly.
+10. **Deleting a club is permanent and Owner-only** - chat history, members, races, Eboard space, polls, and posts all go with it. The confirmation names the club and states this explicitly.
 11. **The roster shows every member with their role badge**; tapping a member opens their read-only profile card.
 12. **Adding a member directly is a search over users**, not an invitation the recipient must accept.
-13. **The club name is tappable from any club screen's header**, leading to the club profile — the club's identity (avatar, name, description), its join-link actions, and links onward to Members and Gallery.
-14. **Identity and the member roster are separate screens.** The club profile carries identity and settings; Members is its own screen holding the roster, pending requests, and the add-member search. [Races](06-races.md) and the [Eboard space](07-eboard.md) follow the same split — a profile screen plus a separate roster screen.
+13. **The club name is tappable from any club screen's header**, leading to the club profile - the club's identity (avatar, name, description), its join-link actions, and links onward to Members and Gallery.
+14. **Identity and the member roster are separate screens.** The club profile carries identity and settings; Members is its own screen holding the roster, pending requests, and the add-member search. [Races](06-races.md) and the [Eboard space](07-eboard.md) follow the same split - a profile screen plus a separate roster screen.
 
 ## Permissions
 
@@ -66,7 +66,7 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 |---|---|---|---|---|
 | Create a club | ✅ (anyone signed in) | ✅ | ✅ | ✅ |
 | Search clubs by name | ✅ | ✅ | ✅ | ✅ |
-| Join an open club / request to join | — | — | — | ✅ |
+| Join an open club / request to join | - | - | - | ✅ |
 | Join via link or code | ✅ | ✅ | ✅ | ✅ |
 | View roster and member profiles | ✅ | ✅ | ✅ | ❌ |
 | View club gallery | ✅ | ✅ | ✅ | ❌ |
@@ -78,7 +78,7 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 | Remove a Member | ✅ | ✅ | ❌ | ❌ |
 | Remove an Admin | ✅ | ❌ | ❌ | ❌ |
 | Transfer ownership | ✅ | ❌ | ❌ | ❌ |
-| Leave the club | ❌ | ✅ | ✅ | — |
+| Leave the club | ❌ | ✅ | ✅ | - |
 | Delete the club | ✅ | ❌ | ❌ | ❌ |
 
 ## States & edge cases
@@ -86,15 +86,15 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 | State | Behaviour |
 |---|---|
 | No clubs yet | The clubs list shows an empty state with Create and Join actions |
-| Search returns nothing | "No clubs found" — no suggestion to create one with that name |
+| Search returns nothing | "No clubs found" - no suggestion to create one with that name |
 | Already a member of a searched club | The result shows membership rather than a Join button |
 | Request already pending | The result shows "Requested" and the action is disabled |
-| Invite code typed with the wrong case | Accepted — codes are matched case-insensitively even though the UI styles them uppercase |
+| Invite code typed with the wrong case | Accepted - codes are matched case-insensitively even though the UI styles them uppercase |
 | Invalid or expired code | Inline "Invalid invite code" error, form stays filled |
 | Join link opened while signed out | The user is routed to sign-in first, then the join completes |
 | Join link opened twice | The second attempt is a no-op, not an error |
 | Load failure (roster, profile, list) | A standard inline load-error state with a retry, never a blank screen |
-| Owner tries to leave | The Leave action is not shown at all — transfer is the only path |
+| Owner tries to leave | The Leave action is not shown at all - transfer is the only path |
 | Last admin removed | Not possible: the Owner is always admin-tier and cannot be removed |
 | Deleted club still open on another device | Reads fail and the user is returned to the clubs list |
 
@@ -119,7 +119,7 @@ Give a team one durable home with a known roster, a known set of admins, and a c
 
 | Decision | Rejected alternative | Why |
 |---|---|---|
-| Two join policies: open and request | A third "invite-only" tier | The invite link already provides private, instant joining regardless of policy — a third tier would only duplicate it |
+| Two join policies: open and request | A third "invite-only" tier | The invite link already provides private, instant joining regardless of policy - a third tier would only duplicate it |
 | The invite code became a shareable deep link | A new, separate link mechanism | The code already existed, was already access-safe, and was always intended to grow into this |
 | Switching to open auto-approves pending requests | Leave them pending, or deny them | An open club has no approval step going forward, so a pending request would never be decidable |
 | Eboard space auto-created with the club | An admin taps "+ Create" the first time | The manual step was pure friction; every club wants one and the space is private regardless |

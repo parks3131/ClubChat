@@ -2,7 +2,7 @@
 
 Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) for a single new feature; copy it, fill it in, then fold the finished halves into `SPEC/PRD/` and `SPEC/TECH/`.
 
-<!-- Delete every instruction comment before committing. Keep the filled file short — tables over prose. -->
+<!-- Delete every instruction comment before committing. Keep the filled file short - tables over prose. -->
 
 | | |
 |---|---|
@@ -13,7 +13,7 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 
 ## Summary
 
-<!-- 2-3 sentences. What the user gets, and why now. If this came from a founder wireframe or a live founder request, say so and link/describe it — that provenance has mattered repeatedly. -->
+<!-- 2-3 sentences. What the user gets, and why now. If this came from a founder wireframe or a live founder request, say so and link/describe it - that provenance has mattered repeatedly. -->
 
 `<summary>`
 
@@ -33,9 +33,9 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 
 **Out of scope**
 
-<!-- Be explicit. "Deliberately not X" is worth writing down — several past features were mis-scoped by assuming an adjacent feature's rules applied. -->
+<!-- Be explicit. "Deliberately not X" is worth writing down - several past features were mis-scoped by assuming an adjacent feature's rules applied. -->
 
-- `<item — and why it's deliberately excluded>`
+- `<item - and why it's deliberately excluded>`
 
 ## Permissions matrix
 
@@ -60,7 +60,7 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 |---|---|---|---|
 | `<table>` | `<new / altered>` | `<col type constraints>` | `<cascade behavior, uniqueness, defaults>` |
 
-- Enum values added: `<enum: value(s), or none>` <!-- Each `alter type … add value` goes in its OWN migration file — see migration-checklist.md. -->
+- Enum values added: `<enum: value(s), or none>` <!-- Each `alter type … add value` goes in its OWN migration file - see migration-checklist.md. -->
 - Foreign keys and their `on delete` behavior: `<…>`
 - Indexes needed: `<any FK column this feature filters directly with .eq(), or none>`
 - Storage bucket needed: `<name, public/private, path shape, or none>`
@@ -77,7 +77,7 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 **Does any client code do `.insert().select()` (i.e. `INSERT … RETURNING`) on a table in this feature?** `<yes / no>`
 
 <!-- If yes, both of these must hold, or the insert fails with "new row violates row-level security policy":
-     1. The SELECT policy must also cover "I am the one who just created this row" — not only "I am now a member/participant of it",
+     1. The SELECT policy must also cover "I am the one who just created this row" - not only "I am now a member/participant of it",
         because a trigger that grants membership runs AFTER the RETURNING check.
      2. The SELECT policy must be written inline against the row's OWN columns, NOT routed through a security-definer
         function that re-queries the same table by id. Both variants have burned this repo; see the TECH RLS notes. -->
@@ -94,7 +94,7 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 | New `notification_type` enum value? | `<value, in its own migration / none>` |
 | Notification trigger or RPC? | `<trigger on <table> / RPC / none>` |
 | Audience (exactly who receives it) | `<…>` |
-| Creator excluded from their own notification? | `<yes / no — creation notifications exclude, closing-soon does not>` |
+| Creator excluded from their own notification? | `<yes / no - creation notifications exclude, closing-soon does not>` |
 | `target_path` the row will carry | `<literal route string>` |
 | Admin-role filter used | Must be `role in ('admin','owner')`, never `role = 'admin'` |
 | Auto-posts a chat card? | `<yes → which channel, which message_type / no>` |
@@ -126,12 +126,12 @@ Fill-in template pairing one PRD entry (what and why) with one TECH entry (how) 
 | Type (`npx tsc --noEmit`) | Clean, strict mode |
 | RLS | `<direct psql check impersonating each role: set local role authenticated + set_config('request.jwt.claims', …)>` |
 | Live smoke | `<the exact click-through path, per role>` |
-| Direct-URL | `<hit each new route by URL/refresh — catches missing back buttons and missing guards>` |
+| Direct-URL | `<hit each new route by URL/refresh - catches missing back buttons and missing guards>` |
 | Native | `<anything touching files, uploads, or crypto must be exercised on a real device, not just web>` |
 
 ## Rollout and verification
 
-1. Write and apply the migration(s) — see `SPEC/templates/migration-checklist.md`.
+1. Write and apply the migration(s) - see `SPEC/templates/migration-checklist.md`.
 2. Confirm `supabase db reset` replays cleanly from scratch.
 3. `npx tsc --noEmit`
 4. `npm test`

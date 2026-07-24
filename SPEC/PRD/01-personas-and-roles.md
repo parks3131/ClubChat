@@ -2,7 +2,7 @@
 
 **Status:** Shipped
 
-Who uses ClubChat, what authority each role carries, and — critically — where authority stops propagating.
+Who uses ClubChat, what authority each role carries, and - critically - where authority stops propagating.
 
 ## Personas
 
@@ -11,13 +11,13 @@ Who uses ClubChat, what authority each role carries, and — critically — wher
 | **Club Owner / founder** | The person who created the club, or whoever ownership was handed to | Full control: club identity, join policy, who is an admin, and the ability to delete the club or hand it over |
 | **Captain / Admin** | Team captains, board members, coaches | Author the week's workouts, run the calendar, create races, approve joiners, post announcements and news |
 | **Ordinary member** | A runner/swimmer/climber in the club | Read everything the club shares, chat, react, vote, join races they are running, see who is driving |
-| **Prospective member** | Someone who has the link or found the club by name | Get in — instantly if the club is open, by request otherwise |
+| **Prospective member** | Someone who has the link or found the club by name | Get in - instantly if the club is open, by request otherwise |
 
 ## Role hierarchy
 
 **Owner > Admin > Member.** Owner is a strict superset of Admin: every admin-gated capability in the product is automatically available to the Owner.
 
-1. **Every club has exactly one Owner at all times** — enforced at the data layer, not just in the UI.
+1. **Every club has exactly one Owner at all times** - enforced at the data layer, not just in the UI.
 2. **Ownership is transferable.** The Owner hands it to any other current member; the outgoing Owner becomes an Admin.
 3. **The Owner cannot leave their own club** and cannot be removed. Transfer first.
 4. **Roles are per club.** A user is an Owner of one club and a plain Member of another with no interaction between the two.
@@ -28,10 +28,10 @@ This is the most-misunderstood part of the model, and it is deliberate.
 
 | Boundary | Rule |
 |---|---|
-| **Club admin → race chat** | Being a club admin grants **management authority** over every race in the club (approve/add/remove members, edit meet information, manage car groups, delete the race) but **not** access to the race's chat, polls, or car-group membership. Those require a real roster row — the admin must request to join or be added like anyone else. |
+| **Club admin → race chat** | Being a club admin grants **management authority** over every race in the club (approve/add/remove members, edit meet information, manage car groups, delete the race) but **not** access to the race's chat, polls, or car-group membership. Those require a real roster row - the admin must request to join or be added like anyone else. |
 | **Club admin → race car group** | An admin who is not on the race roster cannot be assigned to a car group, even though they can manage the groups. |
 | **Club admin → race polls** | Creating or even seeing a race poll requires being on the race roster *and* being an admin. |
-| **Club admin → Eboard membership** | Admin-tier membership does grant Eboard membership — automatically, and it is revoked automatically on demotion. But an admin who chooses to leave the Eboard space must request or be re-added; admin status alone does not re-admit them. |
+| **Club admin → Eboard membership** | Admin-tier membership does grant Eboard membership - automatically, and it is revoked automatically on demotion. But an admin who chooses to leave the Eboard space must request or be re-added; admin status alone does not re-admit them. |
 | **Race roster → parent club** | Race membership is always a subset of club membership. Leaving the club removes every race and Eboard row for that club. |
 
 > Implementation: see [TECH/02-security-rls.md](../TECH/02-security-rls.md).
@@ -55,7 +55,7 @@ This is the most-misunderstood part of the model, and it is deliberate.
 | Remove a Member | ✅ | ✅ | ❌ | ❌ |
 | **Remove an Admin** | ✅ | ❌ | ❌ | ❌ |
 | **Transfer ownership** | ✅ | ❌ | ❌ | ❌ |
-| Leave the club | ❌ | ✅ | ✅ | — |
+| Leave the club | ❌ | ✅ | ✅ | - |
 | **Delete the club** | ✅ | ❌ | ❌ | ❌ |
 
 ### Club content
@@ -76,7 +76,7 @@ This is the most-misunderstood part of the model, and it is deliberate.
 |---|---|---|---|
 | Create a race | ✅ | ❌ | ❌ |
 | See the race in lists / preview name, date, meet info | ✅ | ✅ | ✅ |
-| Request to join | ✅ | — | ✅ |
+| Request to join | ✅ | - | ✅ |
 | Approve/deny requests, add or remove roster members | ✅ | ❌ | ❌ |
 | Read/post in race chat | only if also on the roster | ✅ | ❌ |
 | Edit Meet Information | ✅ | ❌ | ❌ |
@@ -84,7 +84,7 @@ This is the most-misunderstood part of the model, and it is deliberate.
 | Be assigned to a car group | only if also on the roster | ✅ | ❌ |
 | Create a race poll | only if also on the roster | ❌ | ❌ |
 | See/vote in a race poll | only if also on the roster | ✅ | ❌ |
-| Leave the race | ✅ (own row) | ✅ | — |
+| Leave the race | ✅ (own row) | ✅ | - |
 | Edit race identity / delete the race | ✅ | ❌ | ❌ |
 
 ### Eboard & Council (see [Eboard](07-eboard.md))
@@ -93,17 +93,17 @@ This is the most-misunderstood part of the model, and it is deliberate.
 |---|---|---|---|
 | See that the space exists | ✅ | ✅ | ❌ |
 | Read/post in Eboard chat | ✅ | ❌ | ❌ |
-| Request to join / be added | — | ✅ | ❌ |
+| Request to join / be added | - | ✅ | ❌ |
 | Approve requests, add members | ✅ | ❌ | ❌ |
 | Create a meeting or a poll | ✅ | ❌ | ❌ |
 | Edit/delete a meeting | creator only | ❌ | ❌ |
 | Remove another Eboard member | Club Owner only | ❌ | ❌ |
-| Leave the Eboard space | ✅ | — | — |
+| Leave the Eboard space | ✅ | - | - |
 
 ## Behaviour rules
 
 1. **Promotion to admin-tier auto-joins the Eboard space; demotion auto-removes.** An ownership transfer is a no-op for Eboard membership, since both sides stay admin-tier.
-2. **Removing someone from a club cascades** — their race rosters, car-group assignments, and Eboard membership for that club are cleaned up in the same action.
+2. **Removing someone from a club cascades** - their race rosters, car-group assignments, and Eboard membership for that club are cleaned up in the same action.
 3. **A role change is announced in club chat** as a system message and as a notification to the affected member.
 4. **Role badges are visible** on the club list and the member roster, so authority is never guessed.
 
@@ -112,7 +112,7 @@ This is the most-misunderstood part of the model, and it is deliberate.
 | Decision | Rejected alternative | Why |
 |---|---|---|
 | Three tiers (Owner/Admin/Member) | Two tiers with an implicit, non-transferable "creator" | The creator concept could not be handed over; a founder leaving the club left it undeletable and its Eboard unmanageable |
-| Owner cannot self-remove | Allow it and pick a successor automatically | Safety default inferred from "exactly one Owner at all times" — an ownerless club has no recovery path |
+| Owner cannot self-remove | Allow it and pick a successor automatically | Safety default inferred from "exactly one Owner at all times" - an ownerless club has no recovery path |
 | Remove-an-Admin is Owner-only, but demote-an-Admin is any-admin | Symmetric permissions | Admins policing each other's role is normal; admins ejecting each other outright is not |
 | No separate "race admin" role | A per-race admin role | Club admins already have full management authority over every race; a second role would need its own assignment UI for no new capability |
 | No separate "Eboard admin" role | Mirror the club's own role tiers inside Eboard | Every Eboard member is guaranteed to already be a club admin, so the role would be constant |

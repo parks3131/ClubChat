@@ -22,7 +22,7 @@ Deep links use the `clubchat://` scheme (`app.json`), consumed by `/clubs/join?c
 | `app/(tabs)/clubs/[clubId]/_layout.tsx` | `useClub()` context + `clubScreenOptions` (tappable club-name title) |
 | `app/(tabs)/clubs/[clubId]/race/[raceId]/_layout.tsx` | `useRace()` context, `isManager`/`isMember` split, deny-redirect |
 | `app/(tabs)/clubs/[clubId]/eboard/_layout.tsx` | `useEboard()` context, club-admin gate |
-| `components/BackHeaderButton.tsx` | `makeBackHeaderLeft(router, fallback)` — the universal `‹` |
+| `components/BackHeaderButton.tsx` | `makeBackHeaderLeft(router, fallback)` - the universal `‹` |
 
 ## Route tree
 
@@ -32,29 +32,29 @@ Guard column: what the screen (or its layout) enforces. Back-fallback: the route
 
 | Route | File | Guard | Back-fallback |
 | --- | --- | --- | --- |
-| `/` | `app/index.tsx` | — (spinner; guard redirects) | — |
-| `/(auth)/sign-in` | `app/(auth)/sign-in.tsx` | no session | — |
-| `/(auth)/sign-up` | `app/(auth)/sign-up.tsx` | no session | — |
+| `/` | `app/index.tsx` | - (spinner; guard redirects) | - |
+| `/(auth)/sign-in` | `app/(auth)/sign-in.tsx` | no session | - |
+| `/(auth)/sign-up` | `app/(auth)/sign-up.tsx` | no session | - |
 | `/(auth)/privacy-policy` | `app/(auth)/privacy-policy.tsx` | no session | `/(auth)/sign-up` |
 | `/(auth)/terms` | `app/(auth)/terms.tsx` | no session | `/(auth)/sign-up` |
 
-`(auth)/privacy-policy` and `(auth)/terms` duplicate `(tabs)/profile/`'s versions because the auth guard redirects by **top-level route group** — one route cannot serve both a signed-out and a signed-in visitor. Both pairs render the same `components/LegalDocument.tsx` over the same `lib/legalContent.ts` data.
+`(auth)/privacy-policy` and `(auth)/terms` duplicate `(tabs)/profile/`'s versions because the auth guard redirects by **top-level route group** - one route cannot serve both a signed-out and a signed-in visitor. Both pairs render the same `components/LegalDocument.tsx` over the same `lib/legalContent.ts` data.
 
 ### Tabs
 
 | Route | File | Guard | Back-fallback |
 | --- | --- | --- | --- |
-| `/calendar` | `app/(tabs)/calendar.tsx` | session | — (tab root) |
-| `/notifications` | `app/(tabs)/notifications.tsx` | session | — (tab root) |
-| `/profile` | `app/(tabs)/profile/index.tsx` | session | — (tab root) |
+| `/calendar` | `app/(tabs)/calendar.tsx` | session | - (tab root) |
+| `/notifications` | `app/(tabs)/notifications.tsx` | session | - (tab root) |
+| `/profile` | `app/(tabs)/profile/index.tsx` | session | - (tab root) |
 | `/profile/edit` | `app/(tabs)/profile/edit.tsx` | self-only | modal |
 | `/profile/privacy-policy` | `app/(tabs)/profile/privacy-policy.tsx` | session | `/profile` |
 | `/profile/terms` | `app/(tabs)/profile/terms.tsx` | session | `/profile` |
-| `/clubs` | `app/(tabs)/clubs/index.tsx` | session | — (tab root) |
+| `/clubs` | `app/(tabs)/clubs/index.tsx` | session | - (tab root) |
 | `/clubs/create` | `app/(tabs)/clubs/create.tsx` | session | modal |
 | `/clubs/join` | `app/(tabs)/clubs/join.tsx` | session; consumes `?code=` | modal |
 
-### Club scope — `useClub()`
+### Club scope - `useClub()`
 
 Everything below is gated by `clubs/[clubId]/_layout.tsx`: it requires a `club_members` row for the caller (a missing row surfaces `LoadError`, not a redirect) and publishes `{clubId, channelId, name, avatarUrl, inviteCode, role, isCreator, isAdmin, isOwner}`.
 
@@ -83,13 +83,13 @@ Everything below is gated by `clubs/[clubId]/_layout.tsx`: it requires a `club_m
 | `/clubs/:clubId/polls/:pollId` | `polls/[pollId].tsx` | member | `/clubs/:clubId/polls` |
 | `/clubs/:clubId/races` | `races/index.tsx` | member | `/clubs/:clubId` |
 | `/clubs/:clubId/races/create` | `races/create.tsx` | `isAdmin` (redirects) | `/clubs/:clubId/races` |
-| `/clubs/:clubId/races/:raceId` | `races/[raceId].tsx` | member **without** race access — an admin or real member is redirected to the real hub | `/clubs/:clubId/races` |
+| `/clubs/:clubId/races/:raceId` | `races/[raceId].tsx` | member **without** race access - an admin or real member is redirected to the real hub | `/clubs/:clubId/races` |
 
 `races/[raceId].tsx` is a deliberate second route for the same id as `race/[raceId]/`: a read-only preview (name, date, Meet Information, "Request to join") for a club member who is not yet on the roster, rather than widening `race/[raceId]/_layout.tsx`'s gate.
 
-### Race scope — `useRace()`
+### Race scope - `useRace()`
 
-`race/[raceId]/_layout.tsx` fetches the race plus the caller's real `race_members` row and publishes `{raceId, clubId, name, eventDate, channelId, isManager, isMember, avatarUrl}`. **`isManager` (club Admin/Owner) grants management authority only — not chat access.** Anyone who is neither manager nor member is redirected to `/clubs/:clubId/races`.
+`race/[raceId]/_layout.tsx` fetches the race plus the caller's real `race_members` row and publishes `{raceId, clubId, name, eventDate, channelId, isManager, isMember, avatarUrl}`. **`isManager` (club Admin/Owner) grants management authority only - not chat access.** Anyone who is neither manager nor member is redirected to `/clubs/:clubId/races`.
 
 | Route | File | Guard | Back-fallback |
 | --- | --- | --- | --- |
@@ -106,9 +106,9 @@ Everything below is gated by `clubs/[clubId]/_layout.tsx`: it requires a `club_m
 | `…/race/:raceId/polls/create` | `polls/create.tsx` | `canCreate` | `…/race/:raceId/polls` |
 | `…/race/:raceId/polls/:pollId` | `polls/[pollId].tsx` | member | `…/race/:raceId/polls` |
 
-### Eboard scope — `useEboard()`
+### Eboard scope - `useEboard()`
 
-`eboard/_layout.tsx` gates on `club.isAdmin` (a non-admin hitting the URL is redirected to the club hub) and publishes `{clubId, userId, channel, reload}`. **Being a club admin grants visibility, not membership** — `channel.isMember` is a separate `eboard_channel_members` row.
+`eboard/_layout.tsx` gates on `club.isAdmin` (a non-admin hitting the URL is redirected to the club hub) and publishes `{clubId, userId, channel, reload}`. **Being a club admin grants visibility, not membership** - `channel.isMember` is a separate `eboard_channel_members` row.
 
 | Route | File | Guard | Back-fallback |
 | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ export function useClub() {
 
 All three follow the same shape: fetch-once in a `useEffect`, `LoadError` + retry token on failure, `ActivityIndicator` while loading, provider wrapping the `Stack`. Consequences worth knowing:
 
-- **The scope object is fetched once per layout mount**, not per screen. A screen that mutates the club/race/eboard identity (e.g. `club-profile/edit`) does not automatically refresh the context — `useEboard()` exposes an explicit `reload()` for this; club and race do not.
+- **The scope object is fetched once per layout mount**, not per screen. A screen that mutates the club/race/eboard identity (e.g. `club-profile/edit`) does not automatically refresh the context - `useEboard()` exposes an explicit `reload()` for this; club and race do not.
 - **Screens below are data-free wrappers.** `clubs/[clubId]/chat.tsx` is 37 lines and contains zero queries.
 - **A guard that redirects must also render a placeholder**, because the redirect happens in an effect (one frame later). Every guarded screen returns an `ActivityIndicator` in the denied branch.
 
@@ -169,19 +169,19 @@ All three follow the same shape: fetch-once in a `useEffect`, `LoadError` + retr
 | Convention | Implementation |
 | --- | --- |
 | Back button | `headerLeft: makeBackHeaderLeft(router, fallback)` on **every** club-scoped `Stack.Screen` |
-| Tappable title | `headerTitle: () => <TouchableOpacity onPress={…}>` — avatar + name, jumps to that scope's profile screen |
+| Tappable title | `headerTitle: () => <TouchableOpacity onPress={…}>` - avatar + name, jumps to that scope's profile screen |
 | Header background | `headerStyle: { backgroundColor: colors.surfaceContainerLow }` |
 | Title type | `{...typography.headlineLgMobile, fontSize: 17, color: colors.primary}` |
 | Modals | `presentation: "modal"` on every create/edit form |
 | Masthead | Only `clubs/index` (and the `brandedHeaderOptions` applied to Calendar/Notifications/Profile roots) shows the "ClubChat" wordmark |
 
-`makeBackHeaderLeft` exists because **a native `headerLeft` only renders when `canGoBack()` is true** — direct URL navigation or a web page refresh leaves no history on *any* screen, not just a stack root. Every nested Stack re-declares `clubScreenOptions` locally rather than inheriting, because each is registered `headerShown: false` in its parent.
+`makeBackHeaderLeft` exists because **a native `headerLeft` only renders when `canGoBack()` is true** - direct URL navigation or a web page refresh leaves no history on *any* screen, not just a stack root. Every nested Stack re-declares `clubScreenOptions` locally rather than inheriting, because each is registered `headerShown: false` in its parent.
 
-`components/ChatScreen.tsx` and `components/HighlightsScreen.tsx` opt out of the native header entirely (`navigation.setOptions({ headerShown: false })`) and render their own `expo-blur` glass header — hence their `backFallback` prop, which reimplements `makeBackHeaderLeft`'s logic inline. See [Design system](08-design-system.md).
+`components/ChatScreen.tsx` and `components/HighlightsScreen.tsx` opt out of the native header entirely (`navigation.setOptions({ headerShown: false })`) and render their own `expo-blur` glass header - hence their `backFallback` prop, which reimplements `makeBackHeaderLeft`'s logic inline. See [Design system](08-design-system.md).
 
 ## Chat-first redirect
 
-Chat is the landing surface for a scope — see [Chat](../PRD/03-chat.md). Race and Eboard hubs no longer show a feature grid. `race/[raceId]/index.tsx` and `eboard/index.tsx` each redirect a real member straight to `/chat` on mount; the hub only renders for the not-yet-a-member states (request-to-join, "Manage roster", "create the channel"). The features that used to be grid rows are now reached from chat's own header dropdown (`headerMenu` prop):
+Chat is the landing surface for a scope - see [Chat](../PRD/03-chat.md). Race and Eboard hubs no longer show a feature grid. `race/[raceId]/index.tsx` and `eboard/index.tsx` each redirect a real member straight to `/chat` on mount; the hub only renders for the not-yet-a-member states (request-to-join, "Manage roster", "create the channel"). The features that used to be grid rows are now reached from chat's own header dropdown (`headerMenu` prop):
 
 | Scope | `headerMenu` rows |
 | --- | --- |
@@ -209,9 +209,9 @@ Other params in use: `?messageId=` (Highlights row → jump to that message in c
 
 | Call | Use when | Why not the others |
 | --- | --- | --- |
-| `router.push` | Normal forward navigation | — |
-| `router.replace(path)` | Redirecting a guard, or jumping **across tabs** | `dismissTo`'s `POP_TO` action only bubbles through Stacks that are ancestors of the *current* screen — across sibling tabs it silently no-ops |
-| `router.dismissTo(path)` | Popping back to a route you are already nested under (hub → Clubs list) | `replace` swaps only the top-of-stack entry, so `[index, hub]` becomes `[index, index]` — still depth 2, leaving a spurious back button on what looks like the root |
+| `router.push` | Normal forward navigation | - |
+| `router.replace(path)` | Redirecting a guard, or jumping **across tabs** | `dismissTo`'s `POP_TO` action only bubbles through Stacks that are ancestors of the *current* screen - across sibling tabs it silently no-ops |
+| `router.dismissTo(path)` | Popping back to a route you are already nested under (hub → Clubs list) | `replace` swaps only the top-of-stack entry, so `[index, hub]` becomes `[index, index]` - still depth 2, leaving a spurious back button on what looks like the root |
 | `router.back()` | Only behind a `canGoBack()` check | Throws `GO_BACK was not handled` when the screen was reached by direct URL |
 
 ## Invariants
@@ -219,7 +219,7 @@ Other params in use: `?messageId=` (Highlights row → jump to that message in c
 1. **Every club-scoped `Stack.Screen` declares `headerLeft: makeBackHeaderLeft(router, fallback)`.** Never rely on the native back button.
 2. **Never call `router.back()` unguarded.** Always `canGoBack() ? back() : replace(fallback)`.
 3. **`dismissTo` only within the current Stack's ancestry**; `replace` for anything cross-tab.
-4. **A guarded screen renders a placeholder in its denied branch** — the redirect is one frame late.
+4. **A guarded screen renders a placeholder in its denied branch** - the redirect is one frame late.
 5. **Chat `backFallback` never points at that scope's own hub** when the hub redirects members into chat.
 6. **A new nested Stack must be registered `headerShown: false` in its parent** and re-declare its own header options.
 7. **Cross-tab entry passes `?from=<origin>`**; the destination overrides its back button rather than trusting `canGoBack()`.
@@ -228,7 +228,7 @@ Other params in use: `?messageId=` (Highlights row → jump to that message in c
 ## Extension points
 
 - **New screen inside an existing scope**: add the file, register a `Stack.Screen` in that scope's `_layout.tsx` with a title and `makeBackHeaderLeft` fallback, read `useClub()`/`useRace()`/`useEboard()` for data.
-- **New scope-level feature reachable from chat**: add a row to that chat wrapper's `headerMenu` array (`{label, path, icon}`) — no `ChatScreen` change needed.
+- **New scope-level feature reachable from chat**: add a row to that chat wrapper's `headerMenu` array (`{label, path, icon}`) - no `ChatScreen` change needed.
 - **New create-from-chat action**: add a `create*Path` to the wrapper's `attachMenu` and handle `?from=chat` in the create screen's post-save navigation.
 - **New tab**: add to `app/(tabs)/_layout.tsx`; if it needs more than one screen, give it a nested Stack like `profile/` and `clubs/`.
 
@@ -236,6 +236,6 @@ Other params in use: `?messageId=` (Highlights row → jump to that message in c
 
 - **No route-level typed params.** Every screen re-declares its own `useLocalSearchParams<{…}>()` shape by hand.
 - **No 404/unmatched-route screen** beyond Expo Router's default.
-- **`clubs/[clubId]/routines` and `/polls` are not linked from the club hub** — the routes and RLS are intact, but they are reachable only via chat's header menu (Routines, Poll) after a deliberate decision not to add a stopgap "More" menu.
+- **`clubs/[clubId]/routines` and `/polls` are not linked from the club hub** - the routes and RLS are intact, but they are reachable only via chat's header menu (Routines, Poll) after a deliberate decision not to add a stopgap "More" menu.
 - **`useClub()`/`useRace()` have no `reload()`**, unlike `useEboard()`, so an in-place identity edit needs a remount to be reflected in the header.
 - Full write-ups of the navigation bugs summarized above (the Profile↔hub loop, the spurious back button, `GO_BACK not handled`, the `/` spinner) live in [Engineering pitfalls](12-engineering-pitfalls.md).

@@ -2,11 +2,11 @@
 
 **Status:** Shipped
 
-A race is a mini-club nested inside a club — its own roster, its own chat, its own logistics — replacing the throwaway GroupMe group spun up per race.
+A race is a mini-club nested inside a club - its own roster, its own chat, its own logistics - replacing the throwaway GroupMe group spun up per race.
 
 ## Purpose
 
-Make a race's coordination durable and structured: who is going, where everyone is meeting, who is driving whom, where the results ended up — all in one space that survives the race instead of dying with a group chat.
+Make a race's coordination durable and structured: who is going, where everyone is meeting, who is driving whom, where the results ended up - all in one space that survives the race instead of dying with a group chat.
 
 ## User stories
 
@@ -46,7 +46,7 @@ Make a race's coordination durable and structured: who is going, where everyone 
 | A separate "race admin" role | Club admins already have full management authority |
 | An "open" join policy for races | Races are always request-based |
 | Linking a race to a calendar event | Races are standalone; the calendar merges them in as a read |
-| A race-specific workout plan | In the original vision, never built — see [Routines](05-routines.md) open questions |
+| A race-specific workout plan | In the original vision, never built - see [Routines](05-routines.md) open questions |
 | Structured results (times, placings) | Only a link to wherever results actually live |
 | Structured start/end times, or a travel itinerary | Covered by the free-text Meet Information description |
 | Car capacity limits or seat counts | Groups are open-ended lists |
@@ -56,36 +56,36 @@ Make a race's coordination durable and structured: who is going, where everyone 
 ### Creation and access
 
 1. **A race is created with a name and a date only**, by a club admin, from the club's own Races & Meets list.
-2. **Every club member can see every race exists** — in the races list, on the calendar, and in the club hub preview.
+2. **Every club member can see every race exists** - in the races list, on the calendar, and in the club hub preview.
 3. **Access is always by request.** A club member requests; any club admin approves, denies, or adds them directly.
-4. **A club admin is a "manager" of every race in their club** — full management authority — but **management authority is not access**. Chat, polls, and car-group assignment all require a real roster row, for admins too.
+4. **A club admin is a "manager" of every race in their club** - full management authority - but **management authority is not access**. Chat, polls, and car-group assignment all require a real roster row, for admins too.
 5. **A manager who is not on the roster** sees a request-to-join screen plus a way into the roster to manage others, not the race itself.
 6. **A club member with no access who taps a race** gets a preview: name, date, Meet Information, and the request action. Nothing member-only is exposed.
-7. **A race member is redirected straight into race chat** on entering the race — chat is the race's home screen, and everything else is reached from its header menu.
+7. **A race member is redirected straight into race chat** on entering the race - chat is the race's home screen, and everything else is reached from its header menu.
 8. **Any race member can leave the race**, which also removes them from their car group.
 9. **Leaving the parent club removes the user from every race in it.**
 
 ### Meet Information
 
 10. **Five fields, edited together as one form**: description, race/event location link, hotel link, photos link, results link.
-11. **Any manager can edit all five** — this is not restricted to whoever created the race.
+11. **Any manager can edit all five** - this is not restricted to whoever created the race.
 12. **Empty-state behaviour differs per field, deliberately**: description, location, and hotel are hidden entirely when empty; photos and results always show a "stay tuned" placeholder.
-13. **Meet Information is readable by any club member**, including those without race access — it is the information they need to decide whether to go.
+13. **Meet Information is readable by any club member**, including those without race access - it is the information they need to decide whether to go.
 
 ### Car Assignments & Groups
 
-14. **Groups are auto-numbered on creation** — "Group 1", "Group 2" — with no naming prompt.
+14. **Groups are auto-numbered on creation** - "Group 1", "Group 2" - with no naming prompt.
 15. **A person can be in at most one car group per race.**
-16. **Only people with real race access can be added to a group** — the add-member search excludes anyone already in any group for that race.
+16. **Only people with real race access can be added to a group** - the add-member search excludes anyone already in any group for that race.
 17. **Each group can have one designated Incharge**, who must be a current member of that group.
 18. **If the Incharge leaves or is removed, the group's Incharge is cleared automatically** and every club admin is notified that the group needs a new one. The rest of the group is untouched.
-19. **A plain member leaving a group is a non-event** — no notification. Any member can leave their own car group without leaving the race.
+19. **A plain member leaving a group is a non-event** - no notification. Any member can leave their own car group without leaving the race.
 20. **Every race member can view the groups, including the Incharge tag**, read-only. Only managers can create, delete, assign, or remove.
 
 ### Pins
 
 21. **Pinning a race is personal.** Each member pins for themselves; it affects only their own club-hub preview, never anyone else's.
-22. **Any member can pin any race they can see** — pinning is not admin-gated.
+22. **Any member can pin any race they can see** - pinning is not admin-gated.
 
 ## Permissions
 
@@ -93,7 +93,7 @@ Make a race's coordination durable and structured: who is going, where everyone 
 |---|---|---|---|---|
 | Create a race | ✅ | ❌ | ❌ | ❌ |
 | See the race exists; see name, date, Meet Information | ✅ | ✅ | ✅ | ❌ |
-| Request to join | ✅ | — | ✅ | ❌ |
+| Request to join | ✅ | - | ✅ | ❌ |
 | Approve / deny requests; add or remove roster members | ✅ | ❌ | ❌ | ❌ |
 | Read / post in race chat | roster row required | ✅ | ❌ | ❌ |
 | Pin / announce in race chat | roster row required | ❌ | ❌ | ❌ |
@@ -105,8 +105,8 @@ Make a race's coordination durable and structured: who is going, where everyone 
 | See / vote in race polls | roster row required | ✅ | ❌ | ❌ |
 | Create a race poll | roster row required | ❌ | ❌ | ❌ |
 | Pin the race to their own hub | ✅ | ✅ | ✅ | ❌ |
-| Leave their own car group | ✅ | ✅ | — | — |
-| Leave the race | ✅ (own row) | ✅ | — | — |
+| Leave their own car group | ✅ | ✅ | - | - |
+| Leave the race | ✅ (own row) | ✅ | - | - |
 | Delete the race | ✅ | ❌ | ❌ | ❌ |
 
 ## States & edge cases
@@ -115,7 +115,7 @@ Make a race's coordination durable and structured: who is going, where everyone 
 |---|---|
 | Club with no races | The hub shows "No upcoming races yet"; the races list is empty |
 | Race with an empty roster | The roster screen shows the empty state and the add-member action |
-| Pending request | The row and the preview both show "Requested — waiting on an admin to approve" |
+| Pending request | The row and the preview both show "Requested - waiting on an admin to approve" |
 | Request denied | The user can request again |
 | Manager, not on the roster, opens the race | Request-to-join screen plus a "Manage roster" entry point |
 | Non-member opens a race chat/polls/carpool URL directly | Redirected out |
@@ -155,9 +155,9 @@ Make a race's coordination durable and structured: who is going, where everyone 
 | A race is the same shape as a club, one level down | A bespoke "event with attendees" screen | Reusing membership + chat gave race chat full feature parity for free |
 | Always request-based | Offer an open policy like clubs have | Race rosters are travel logistics; an instant-join race is not a real use case |
 | No race admin role | Add one | Club admins already have full authority over every race |
-| Club admins get authority but not access | Auto-join every admin to every race (built, then reversed) | Explicit founder reversal — an admin auto-added to every race drowns in chat for races they are not running |
+| Club admins get authority but not access | Auto-join every admin to every race (built, then reversed) | Explicit founder reversal - an admin auto-added to every race drowns in chat for races they are not running |
 | Meet Information is one merged form | Two separate sections (Photos/Results, and Location/Accommodation), as originally shipped | Founder follow-up immediately after both shipped separately |
-| Per-field empty-state behaviour differs | Uniform placeholders everywhere | Explicit founder choice — photos and results are expected later, a missing hotel link usually means there is no hotel |
+| Per-field empty-state behaviour differs | Uniform placeholders everywhere | Explicit founder choice - photos and results are expected later, a missing hotel link usually means there is no hotel |
 | Any manager edits Meet Information | Creator-only, like Eboard meetings | Matches the club's calendar/routines model; the race creator is often not the person with the hotel booking |
 | Car groups are auto-numbered | Prompt for a name | From a founder wireframe; naming eight cars is friction with no payoff |
 | One group per person per race | Allow multiple | A person can only be in one car |

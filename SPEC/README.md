@@ -1,8 +1,8 @@
-# ClubChat — Spec Index
+# ClubChat - Spec Index
 
 A purpose-built replacement for the GroupMe + Excel-screenshot workflow running clubs
 use today: structured club chat, calendar, weekly routines, races-as-mini-clubs,
-polls, and a private board channel — as a template any club can adopt.
+polls, and a private board channel - as a template any club can adopt.
 
 **Stack:** React Native + Expo Router (TypeScript) · Supabase (Postgres + Auth +
 Realtime + Storage) · 79 SQL migrations · RLS-enforced authorization.
@@ -25,7 +25,7 @@ Realtime + Storage) · 79 SQL migrations · RLS-enforced authorization.
 
 ---
 
-## PRD — product requirements
+## PRD - product requirements
 
 | # | Document | Covers |
 |---|---|---|
@@ -44,7 +44,7 @@ Realtime + Storage) · 79 SQL migrations · RLS-enforced authorization.
 | 12 | [Non-functional requirements](PRD/12-nonfunctional-requirements.md) | Privacy, accessibility, performance, platform support |
 | 13 | [Roadmap & open questions](PRD/13-roadmap-and-open-questions.md) | Not-yet-built, blocked, and undecided |
 
-## TECH — technical spec
+## TECH - technical spec
 
 | # | Document | Covers |
 |---|---|---|
@@ -61,6 +61,10 @@ Realtime + Storage) · 79 SQL migrations · RLS-enforced authorization.
 | 10 | [Environments & release](TECH/10-environments-and-release.md) | Local Supabase, config, native builds, EAS, release checklist |
 | 11 | [Migrations](TECH/11-migrations.md) | Full 0001–0079 changelog and the migration workflow |
 | 12 | [Engineering pitfalls](TECH/12-engineering-pitfalls.md) | The war stories. Read before touching RLS, FlatList, or navigation. |
+| 13 | [Backend design and plan](TECH/13-backend-design.md) | Target backend shape, the phased plan to get there, and what is deliberately not built |
+| 14 | [Remediation plan](TECH/14-remediation-plan.md) | Every known defect and gap, with the fix, verification, and acceptance criteria |
+
+Learning the concepts behind all of this: [docs/LEARNING-PATH.md](../docs/LEARNING-PATH.md).
 
 ## Templates & decisions
 
@@ -76,8 +80,8 @@ Realtime + Storage) · 79 SQL migrations · RLS-enforced authorization.
 ## Conventions
 
 - **PRD says what, TECH says how.** No file paths or SQL in `PRD/`; no product
-  justification in `TECH/` — link across instead.
+  justification in `TECH/` - link across instead.
 - **Keep it compact.** `CLAUDE.md` pulls this tree into every session's context.
   Long narratives go to [`../docs/HISTORY.md`](../docs/HISTORY.md).
 - **The code and the migrations win.** Where a doc disagrees with the repo, the repo
-  is right and the doc is a bug — fix it in the same change.
+  is right and the doc is a bug - fix it in the same change.

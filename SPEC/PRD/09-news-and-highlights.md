@@ -6,7 +6,7 @@ An admin-authored feed of club updates and photos, deliberately separate from ch
 
 ## Purpose
 
-Give a club a durable, scrollable record of its own news — results, recaps, photo drops, announcements worth keeping — that is not competing with the chat's message flow and does not get scrolled past.
+Give a club a durable, scrollable record of its own news - results, recaps, photo drops, announcements worth keeping - that is not competing with the chat's message flow and does not get scrolled past.
 
 ## User stories
 
@@ -21,10 +21,10 @@ Give a club a durable, scrollable record of its own news — results, recaps, ph
 **In scope**
 
 - A reverse-chronological feed of club posts
-- A post carries body text and/or a photo — at least one is required
+- A post carries body text and/or a photo - at least one is required
 - Creator's name, avatar, and timestamp on every post
 - Emoji reactions, using the same set chat uses
-- Admin create, edit, delete — any admin, any post
+- Admin create, edit, delete - any admin, any post
 - Notification to every other club member on a new post
 
 **Out of scope**
@@ -55,16 +55,16 @@ They coexist deliberately: a pinned chat message is a reference, a news post is 
 
 ## Behaviour rules
 
-1. **A post must have body text, a photo, or both** — an entirely empty post cannot be created.
+1. **A post must have body text, a photo, or both** - an entirely empty post cannot be created.
 2. **The feed is reverse-chronological**, newest first, with no pinning or ordering controls.
 3. **Any club admin can create, edit, or delete any post**, not only the one who wrote it.
 4. **Every club member can read the feed and react to posts.** Reactions use the same emoji set as chat.
 5. **A member can add and remove their own reaction**, one of each emoji per post.
 6. **Creating a post notifies every other club member.** Editing or deleting does not notify.
 7. **Editing a post reuses the create form**, pre-filled; leaving the photo untouched keeps it, choosing a new one replaces it, and clearing it removes it.
-8. **Deleting a post is permanent** — there is no tombstone, unlike a deleted chat message, because there is no surrounding conversation to keep readable.
+8. **Deleting a post is permanent** - there is no tombstone, unlike a deleted chat message, because there is no surrounding conversation to keep readable.
 9. **Every post shows its creator's name and avatar and its post time.**
-10. **News & Highlights is the first row on the club hub** — the club's front page.
+10. **News & Highlights is the first row on the club hub** - the club's front page.
 
 ## Permissions
 
@@ -110,7 +110,7 @@ They coexist deliberately: a pinned chat message is a reference, a news post is 
 | Decision | Rejected alternative | Why |
 |---|---|---|
 | A standalone feed | Reuse chat's pinned messages and announcements as "news" | The club was already faking a news feed with pins; a real feed is the point of the product |
-| Any admin can edit and delete any post | Creator-only, like Eboard meetings | Explicitly confirmed with the founder rather than inferred — matches the Race Meet Info / Routines / Events model |
+| Any admin can edit and delete any post | Creator-only, like Eboard meetings | Explicitly confirmed with the founder rather than inferred - matches the Race Meet Info / Routines / Events model |
 | Admin-authored only | Let members post | It is the club's voice, not a social feed |
 | Hard delete, no tombstone | Soft-delete like chat messages | A post has no surrounding conversation that a gap would make unreadable |
 | Reactions but no comments | Add comments | Discussion belongs in chat; a second comment surface would split it |

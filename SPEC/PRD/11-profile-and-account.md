@@ -41,14 +41,14 @@ Give every member a lightweight identity that makes them recognisable across a c
 | Two-factor authentication | Not built |
 | Username / handle separate from full name | Not needed; clubs are small and use real names |
 | Password change or reset flow inside the app | Handled by the auth provider's own flow |
-| Blocking or muting another member | Not built — see [Chat](03-chat.md) moderation |
+| Blocking or muting another member | Not built - see [Chat](03-chat.md) moderation |
 | Cross-club activity history on a profile | Not requested |
-| Public profiles outside a shared club | Deliberate — profiles are only visible to people you share a club with |
+| Public profiles outside a shared club | Deliberate - profiles are only visible to people you share a club with |
 
 ## Behaviour rules
 
 1. **Sign-up takes an email and a password.** The consent line below the password field links to the Privacy Policy and the Terms.
-2. **Sign-up handles the email-confirmation-required case explicitly** — the user is told to confirm rather than left on a silent failure.
+2. **Sign-up handles the email-confirmation-required case explicitly** - the user is told to confirm rather than left on a silent failure.
 3. **The session persists across app restarts.** A returning user lands in the app, not on sign-in.
 4. **An unauthenticated user is always routed to sign-in**; an authenticated one is always routed into the app, including from the bare entry point.
 5. **A profile is self-editable only.** No one can edit another member's profile, including an Owner.
@@ -58,17 +58,17 @@ Give every member a lightweight identity that makes them recognisable across a c
 9. **Privacy Policy and Terms are readable both signed out and signed in.**
 10. **Signing out returns the user to sign-in** and clears the session.
 11. **Account deletion is permanent and self-service.** It anonymises the user's profile and permanently blocks future sign-in for that account. It is not reversible and does not require an admin.
-12. **Deleting an account does not delete the content they posted** — their messages remain in the conversations they belong to, unattributed, so history stays readable.
+12. **Deleting an account does not delete the content they posted** - their messages remain in the conversations they belong to, unattributed, so history stays readable.
 13. **Deletion is confirmation-gated** on every platform, including web.
 
 ## Permissions
 
 | Action | Self | Club Owner/Admin | Fellow club member | Anyone else |
 |---|---|---|---|---|
-| Sign up / sign in | ✅ | — | — | ✅ |
-| View own profile | ✅ | — | — | ❌ |
+| Sign up / sign in | ✅ | - | - | ✅ |
+| View own profile | ✅ | - | - | ❌ |
 | Edit own profile and avatar | ✅ | ❌ | ❌ | ❌ |
-| View another member's profile card | — | ✅ | ✅ | ❌ |
+| View another member's profile card | - | ✅ | ✅ | ❌ |
 | See a member's clubs list | ✅ (own) | ❌ | ❌ | ❌ |
 | Read Privacy Policy / Terms | ✅ | ✅ | ✅ | ✅ |
 | Sign out | ✅ | ❌ | ❌ | ❌ |

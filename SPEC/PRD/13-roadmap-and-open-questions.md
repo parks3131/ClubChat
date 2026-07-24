@@ -13,7 +13,7 @@ What is not built, what is blocking a real release, and the founder decisions st
 | Local development environment | Deliberately remains the default for day-to-day development |
 | Build tooling and project registration | **Done** |
 | **Android** | **Confirmed working on a real device** from an internal preview build |
-| **iOS** | **Blocked on Apple Developer Program enrolment** — a paid-account matter, not a tooling or code one |
+| **iOS** | **Blocked on Apple Developer Program enrolment** - a paid-account matter, not a tooling or code one |
 | Google Play distribution | Blocked on Play Console registration |
 | App Store privacy label / Play Data Safety form | Filled out at submission time; not a build task |
 
@@ -23,7 +23,7 @@ What is not built, what is blocking a real release, and the founder decisions st
 
 | Gap | Impact | Notes |
 |---|---|---|
-| **Push notifications** | A member learns nothing until they open the app. The in-app inbox already computes every message and destination a push would carry — only delivery is missing. | The single biggest functional gap |
+| **Push notifications** | A member learns nothing until they open the app. The in-app inbox already computes every message and destination a push would carry - only delivery is missing. | The single biggest functional gap |
 | **Legal review of the Privacy Policy and Terms** | The shipped documents are an in-house first draft, explicitly not legal advice | Must happen before any public release |
 | **Apple Developer Program enrolment** | No iOS distribution of any kind | Paid enrolment |
 | **Error monitoring** | A crash or failed load in real use is invisible to the team | See [Non-functional requirements](12-nonfunctional-requirements.md) |
@@ -33,7 +33,7 @@ What is not built, what is blocking a real release, and the founder decisions st
 | Gap | Impact |
 |---|---|
 | **Accessibility pass** | Zero accessibility labels exist; icon-only controls are unusable by screen reader |
-| **Offline behaviour** | The app is online-only — no cache, no queued sends. A club at a race venue with poor signal is exactly the failure case |
+| **Offline behaviour** | The app is online-only - no cache, no queued sends. A club at a race venue with poor signal is exactly the failure case |
 | **Over-the-air updates** | Every fix requires a full store release |
 | **Test coverage of screens and permissions** | Tests cover formatting and feed logic only; the permission matrix is verified by hand |
 | **Muting / notification preferences** | Everything fans out to everyone eligible, with no member control |
@@ -43,7 +43,7 @@ What is not built, what is blocking a real release, and the founder decisions st
 
 | Not built | Why |
 |---|---|
-| Race-specific workout plans | In the original vision; never built. May have been absorbed by Meet Information — needs a founder call |
+| Race-specific workout plans | In the original vision; never built. May have been absorbed by Meet Information - needs a founder call |
 | Bidirectional chat paging ("load newer") | Chat only pages upward from the live tail; only matters after a jump into deep history |
 | Message search | Not requested |
 | Comments on News posts | Discussion belongs in chat |
@@ -105,7 +105,7 @@ The visual redesign was rolled out app-wide, but **Highlights, Races, and Eboard
 - Should club search be scoped (by sport, by city) once there are many clubs?
 - Should the join link be revocable or rotatable if it leaks?
 - Does the News feed need pagination, or is a club's volume low enough that it never will?
-- The cross-club merged calendar reads once per club the user belongs to — at what club count does that need rethinking?
+- The cross-club merged calendar reads once per club the user belongs to - at what club count does that need rethinking?
 
 ### Compliance
 
@@ -115,11 +115,11 @@ The visual redesign was rolled out app-wide, but **Highlights, Races, and Eboard
 
 ## Suggested sequencing
 
-1. **Push notifications** — the largest functional gap, and everything it needs already exists.
-2. **Apple Developer Program enrolment** — unblocks iOS entirely; nothing else is in the way.
+1. **Push notifications** - the largest functional gap, and everything it needs already exists.
+2. **Apple Developer Program enrolment** - unblocks iOS entirely; nothing else is in the way.
 3. **Legal review** of the Privacy Policy and Terms.
 4. **Error monitoring**, before any wider tester group.
 5. **Settle whether Routines, Polls, and Events belong on the club hub** as well as in chat's quick-nav menu.
-6. **Accessibility pass** — start with labels on every icon-only control.
+6. **Accessibility pass** - start with labels on every icon-only control.
 7. **Design review** of Highlights, Races, and Eboard against an intended mockup.
 8. **Offline story**, scoped to at least read-only cached chat.

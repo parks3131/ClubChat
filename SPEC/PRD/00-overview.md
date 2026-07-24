@@ -1,4 +1,4 @@
-# ClubChat — Product Overview
+# ClubChat - Product Overview
 
 **Status:** Shipped (MVP feature-complete; not yet publicly released)
 
@@ -20,34 +20,34 @@ None of this is structured. It works only because members manually replicate str
 
 ## The product bet
 
-**Give clubs the structure they are already faking by hand.** Every artifact they improvise — the pinned workout screenshot, the per-race GroupMe, the admin side-group, the "who's driving" message thread — becomes a first-class object with its own membership, permissions, and history.
+**Give clubs the structure they are already faking by hand.** Every artifact they improvise - the pinned workout screenshot, the per-race GroupMe, the admin side-group, the "who's driving" message thread - becomes a first-class object with its own membership, permissions, and history.
 
 ## Product principles
 
-1. **A Race is a Club nested one level down.** Same shape — membership, roster, chat, its own sub-features. Not a special-purpose "event" screen. Same for the admin-only Eboard & Council space.
+1. **A Race is a Club nested one level down.** Same shape - membership, roster, chat, its own sub-features. Not a special-purpose "event" screen. Same for the admin-only Eboard & Council space.
 2. **Structure, not features.** Every addition must replace something members currently do by hand, not add a new thing to maintain.
 3. **Deliberately simple where the founder said simple.** Routines carry a title and a description, not a structured exercise builder. Races carry a name and a date, not a full event schema.
 4. **Chat is the centre of gravity.** Chat is where a club actually lives; every other feature is reachable from chat, and things created elsewhere post themselves back into chat.
-5. **Access is earned per space, not inherited.** Being a club admin grants authority over a race, but not automatic membership of its chat — see [Personas & roles](01-personas-and-roles.md).
+5. **Access is earned per space, not inherited.** Being a club admin grants authority over a race, but not automatic membership of its chat - see [Personas & roles](01-personas-and-roles.md).
 
 ## Goals
 
 - Replace GroupMe as the club's primary coordination surface.
 - Make a race's logistics survive as durable, revisitable structure instead of a disposable group chat.
 - Make weekly training plans first-class, dated, and per-sport rather than a screenshot.
-- Work as a **template** — a swim club, a running club, and a climbing club should all fit without customisation work.
+- Work as a **template** - a swim club, a running club, and a climbing club should all fit without customisation work.
 
 ## Non-goals
 
 | Not building | Why |
 |---|---|
 | A training-data / activity-tracking platform | Strava exists; ClubChat plans workouts, it does not record them |
-| Workout completion tracking | Explicit founder scoping call — routines are a plan, not a checklist |
+| Workout completion tracking | Explicit founder scoping call - routines are a plan, not a checklist |
 | Structured exercise builders (sets/reps/splits) | Explicit "keep it very simple" scoping call |
 | RSVP on events or meetings | No attendance concept anywhere in the product |
 | Cross-club discovery / social graph | Clubs are found by name or by an invite link, nothing more |
 | Direct messages between members | Every conversation is scoped to a club, race, or Eboard space |
-| An "invite-only" club tier | Covered by `request` join policy plus a private share link — see [Clubs & membership](02-clubs-and-membership.md) |
+| An "invite-only" club tier | Covered by `request` join policy plus a private share link - see [Clubs & membership](02-clubs-and-membership.md) |
 
 ## MVP prioritisation (as agreed with the founder)
 
@@ -76,7 +76,7 @@ All six shipped, in that order.
 | Notifications | Shipped | [10-notifications.md](10-notifications.md) |
 | Profile and account | Shipped | [11-profile-and-account.md](11-profile-and-account.md) |
 | Non-functional requirements | Partial | [12-nonfunctional-requirements.md](12-nonfunctional-requirements.md) |
-| Roadmap and open questions | — | [13-roadmap-and-open-questions.md](13-roadmap-and-open-questions.md) |
+| Roadmap and open questions | - | [13-roadmap-and-open-questions.md](13-roadmap-and-open-questions.md) |
 
 ## Platforms
 

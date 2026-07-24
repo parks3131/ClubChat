@@ -2,7 +2,7 @@
 
 **Status:** Shipped
 
-Admin-authored, dated training plans — the feature that replaces the screenshotted Excel sheet.
+Admin-authored, dated training plans - the feature that replaces the screenshotted Excel sheet.
 
 ## Purpose
 
@@ -33,22 +33,22 @@ Give captains a place to publish the week's workouts that is dated, per-sport, a
 | Not in scope | Why |
 |---|---|
 | A structured exercise builder (sets, reps, distances, splits) | Explicit founder "keep it very simple" scoping call |
-| Completion tracking or check-offs | Deliberately not built — this is a plan, not a log |
+| Completion tracking or check-offs | Deliberately not built - this is a plan, not a log |
 | Recurring / template weeks that auto-populate | Each week is authored for its real dates |
 | Per-member or per-squad personalisation | One plan per club |
 | Attaching a file or image to a workout | Not requested |
-| Race-specific workout plans | Sketched in the original vision, never built — see Open questions |
+| Race-specific workout plans | Sketched in the original vision, never built - see Open questions |
 
 ## Behaviour rules
 
 1. **The routines screen shows one real calendar week, Monday through Sunday.**
-2. **Only today and future days are shown for the current week** — the week is a plan, not a record.
+2. **Only today and future days are shown for the current week** - the week is a plan, not a record.
 3. **A day with no workout renders as "Rest day"**, explicitly, rather than being omitted or left blank.
 4. **Creating a workout starts with picking its activity type**, then the title and description form.
-5. **A workout carries an activity type, a title, and an optional description** — nothing else.
+5. **A workout carries an activity type, a title, and an optional description** - nothing else.
 6. **Any club admin can create, edit, or delete any workout**, not only the one who wrote it.
 7. **Each activity type has its own icon and label**, used consistently in the week view and the detail view.
-8. **Members see the week view and workout detail read-only** — no create, edit, or delete controls anywhere.
+8. **Members see the week view and workout detail read-only** - no create, edit, or delete controls anywhere.
 9. **Creating a workout does not notify anyone and does not post to chat.** It is reference material, not an event.
 
 ## Permissions
@@ -101,6 +101,6 @@ Give captains a place to publish the week's workouts that is dated, per-sport, a
 ## Open questions
 
 - The original vision included a **race-specific workout plan** inside each race; it was never built. Is it still wanted, or has [Meet Information](06-races.md) absorbed the need?
-- Routines are reachable from club chat's quick-nav menu but not from the club hub — should they also appear there?
+- Routines are reachable from club chat's quick-nav menu but not from the club hub - should they also appear there?
 - Should a whole week be copyable to the next week as a starting point?
 - Should members be able to see which workout is "today" from the hub or a notification, rather than opening Routines?

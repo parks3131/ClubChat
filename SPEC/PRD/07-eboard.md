@@ -2,7 +2,7 @@
 
 **Status:** Shipped
 
-One private space per club for its admins — the board/captains' side group, made official.
+One private space per club for its admins - the board/captains' side group, made official.
 
 ## Purpose
 
@@ -50,11 +50,11 @@ Both are mini-clubs nested under a club, but their membership models are opposit
 |---|---|---|
 | Who may be a member | Any club member | Club admins only |
 | How a member gets in | Requests, or is added by any club admin | **Automatically, on becoming admin-tier** |
-| Does admin status grant membership? | **No** — an admin must still join like anyone else | **Yes** — promotion auto-joins, demotion auto-removes |
-| Who approves requests / adds members | Any club admin, from outside | **Existing members only** — not "any club admin" |
+| Does admin status grant membership? | **No** - an admin must still join like anyone else | **Yes** - promotion auto-joins, demotion auto-removes |
+| Who approves requests / adds members | Any club admin, from outside | **Existing members only** - not "any club admin" |
 | Who can remove a member | Any club manager | **The club Owner only** |
 | How many per club | Many | Exactly one |
-| Who can create one | Any club admin | Nobody — it is created with the club |
+| Who can create one | Any club admin | Nobody - it is created with the club |
 | Who can create content inside | Admins only (polls) | **Any member** (meetings and polls both) |
 
 The consequence worth stating plainly: **the request-to-join path exists, but in normal operation nobody uses it.** It only matters for an admin who deliberately left the space and wants back in, or an admin-tier row that predates automatic syncing. An admin who is not a member can see the space exists and can request or be added; they cannot read anything inside it.
@@ -65,24 +65,24 @@ The consequence worth stating plainly: **the request-to-join path exists, but in
 
 1. **Every club has exactly one Eboard & Council space, created automatically at club creation**, with the Owner as its first member.
 2. **Promotion to Admin or Owner auto-joins that person to the Eboard space; demotion to Member auto-removes them.**
-3. **An ownership transfer changes nothing** about Eboard membership — both parties stay admin-tier.
+3. **An ownership transfer changes nothing** about Eboard membership - both parties stay admin-tier.
 4. **Only club admins can see the space exists.** Ordinary members have no visibility of it, its chat, its meetings, or its polls.
 5. **Only current members can read or post in Eboard chat**, approve requests, or add other admins.
-6. **Any Eboard member can create a meeting or a poll** — there is no further role distinction inside.
+6. **Any Eboard member can create a meeting or a poll** - there is no further role distinction inside.
 7. **Only the meeting's creator can edit or delete it.** Everyone else is view-only, and the detail view shows "Added by <name>".
 8. **Creating a meeting notifies the other Eboard members and posts a card into Eboard chat**, with a link to the meeting.
 9. **A meeting carries a title, a description, a date and time, and an optional link** (video call, agenda doc, anything).
 10. **Meetings are listed as Upcoming and Past**, and appear on the calendar of Eboard members only.
 11. **Any member can leave the Eboard space.** Removing someone else is Owner-only.
 12. **Deleting the space is restricted to existing members** and takes its chat history, meetings, and polls with it.
-13. **A member entering the space is taken straight to Eboard chat** — chat is its home screen, with Meetings and Polls reached from the chat header menu.
+13. **A member entering the space is taken straight to Eboard chat** - chat is its home screen, with Meetings and Polls reached from the chat header menu.
 
 ## Permissions
 
 | Action | Eboard member | Club admin, not a member | Club member | Non-member of the club |
 |---|---|---|---|---|
 | Know the space exists | ✅ | ✅ | ❌ | ❌ |
-| Request to join | — | ✅ | ❌ | ❌ |
+| Request to join | - | ✅ | ❌ | ❌ |
 | Read / post in Eboard chat | ✅ | ❌ | ❌ | ❌ |
 | Pin / announce in Eboard chat | ✅ | ❌ | ❌ | ❌ |
 | Approve requests / add another admin | ✅ | ❌ | ❌ | ❌ |
@@ -92,7 +92,7 @@ The consequence worth stating plainly: **the request-to-join path exists, but in
 | View meetings | ✅ | ❌ | ❌ | ❌ |
 | Create / view / vote in an Eboard poll | ✅ | ❌ | ❌ | ❌ |
 | Edit the space's name / description / avatar | ✅ | ❌ | ❌ | ❌ |
-| Leave the space | ✅ | — | — | — |
+| Leave the space | ✅ | - | - | - |
 | Delete the space | ✅ | ❌ | ❌ | ❌ |
 
 ## States & edge cases
