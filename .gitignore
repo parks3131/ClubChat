@@ -51,3 +51,11 @@ yarn-error.*
 # page.screenshot({ path: '...' }) call) — real app assets live under
 # assets/, so this root-only rule (no /**) doesn't touch those.
 /*.png
+
+# Personal learning notes — not part of the app or its docs, just for me.
+/learning.md
+
+# Xcode per-user state for the native Swift app. Regenerated constantly by
+# the IDE and meaningless to anyone else, so it must never be committed.
+xcuserdata/
+*.xcuserstate

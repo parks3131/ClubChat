@@ -3,11 +3,16 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 @AGENTS.md
-@SPEC.md
+@SPEC/README.md
 
-`SPEC.md` (above) is the primary architecture reference — domain model, full repo layout, per-migration
-changelog, current task status, and an RLS lessons-learned section. Read `docs/HISTORY.md` directly
-(not auto-loaded) for the full task-by-task build narrative when a `SPEC.md` summary isn't enough detail.
+`AGENTS.md` is the working agreement — read it first. `SPEC/README.md` (above) is the spec index:
+product requirements in `SPEC/PRD/`, technical spec in `SPEC/TECH/`, decisions in `SPEC/decisions/`,
+reusable forms in `SPEC/templates/`. Only the index auto-loads; Read the individual files on demand.
+
+Highest-value entry points: `SPEC/TECH/12-engineering-pitfalls.md` before touching RLS, `FlatList`
+scrolling, or navigation; `SPEC/TECH/01-data-model.md` and `SPEC/TECH/02-security-rls.md` before any
+schema change. Read `docs/HISTORY.md` directly (not auto-loaded) for the full task-by-task build
+narrative when a spec summary isn't enough detail.
 
 ## Commands
 
@@ -25,7 +30,7 @@ CI (`.github/workflows/ci.yml`) runs `npx tsc --noEmit` and `npm test` on every 
 linter or formatter configured in this repo.
 
 For UI/route changes, smoke-test headlessly with `CI=1 npx expo start --web` + Playwright MCP tools,
-or live in a real browser via the Claude-in-Chrome extension (see `SPEC.md` section 8 for the
+or live in a real browser via the Claude-in-Chrome extension (see `SPEC/TECH/09-testing-and-ci.md` for
 device-pairing steps and the no-known-password test-account workaround). CI mode disables Fast
 Refresh, so **restart the dev server after any route/layout file change** — editing then
 re-navigating without a restart silently serves the old bundle.
