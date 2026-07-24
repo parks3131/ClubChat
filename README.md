@@ -136,7 +136,7 @@ GroupMe-plus-Excel-screenshots status quo, so that's the fastest path to
 something genuinely useful, with the higher-effort features (races,
 carpools, polls) layered on afterward.
 
-A running spec (`SPEC.md`) and a detailed build history (`docs/HISTORY.md`)
+A running spec (`SPEC/`) and a detailed build history (`docs/HISTORY.md`)
 documented every decision, every scope change, and every bug hit along the
 way — including several founder-driven pivots (e.g. races being created
 standalone rather than spawned from calendar events, once an actual
@@ -277,7 +277,8 @@ via a database trigger. Chicken, meet egg.
 The fix: the `clubs` SELECT policy became
 `using (is_club_member(id) or created_by = auth.uid())` — the creator can
 always see their own row immediately, independent of trigger timing. This
-was documented explicitly in `SPEC.md` as a standing rule for any future
+was documented explicitly in `SPEC/TECH/12-engineering-pitfalls.md` as a
+standing rule for any future
 table with the same "creator should see their own new row immediately"
 shape, and it was consciously re-applied when the `races` table was built
 later.
@@ -351,9 +352,10 @@ channel's history grows. This was fixed in two stages:
 
 The full, current file-by-file layout — every route, every `lib/*.ts`
 module, every migration, and what each one is responsible for — is kept up
-to date in [`SPEC.md`](./SPEC.md) (section 4, "Repo layout"), since that
-file is auto-loaded into every AI-assisted development session on this
-project and has to stay accurate. A few of the load-bearing pieces:
+to date in [`SPEC/TECH/`](./SPEC/TECH/), split across the architecture,
+routing, component and data-access documents, since that spec is loaded
+into every AI-assisted development session on this project and has to stay
+accurate. A few of the load-bearing pieces:
 
 - **`app/`** — Expo Router file-based routes. Club-scoped screens all live
   under `app/(tabs)/clubs/[clubId]/`, with race- and Eboard-scoped screens
@@ -376,7 +378,7 @@ project and has to stay accurate. A few of the load-bearing pieces:
   feature shipped) is its own numbered file.
 - **`docs/HISTORY.md`** — the full, task-by-task build narrative: every
   bug hit, its root cause, and its fix, in full detail. Deliberately kept
-  *out* of the auto-loaded context (`SPEC.md` is auto-loaded;
+  *out* of the auto-loaded context (`SPEC/README.md` is auto-loaded;
   `docs/HISTORY.md` is not) so that resuming work in a new session doesn't
   have to pay the token cost of the entire build history up front, while
   still being one file read away when a past task needs to be revisited in
@@ -468,5 +470,5 @@ project.
 
 For the full engineering handoff — domain model detail, per-task build
 history, every RLS/navigation gotcha hit and how it was fixed, and exactly
-what's left to do — see [`SPEC.md`](./SPEC.md) and
+what's left to do - see [`SPEC/README.md`](./SPEC/README.md) and
 [`docs/HISTORY.md`](./docs/HISTORY.md).
