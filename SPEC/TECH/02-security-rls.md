@@ -68,20 +68,20 @@ The `clubs` SELECT policy's `or created_by = auth.uid()` clause is not redundant
 | Table | SELECT | INSERT | UPDATE | DELETE |
 | --- | --- | --- | --- | --- |
 | `channels` | `is_channel_member(id)` | - (trigger only) | - | - |
-| `messages` | `is_channel_member(channel_id)` | `sender_id = auth.uid() and is_channel_member(channel_id) and (message_type <> 'announcement' or is_channel_admin(channel_id))` | `sender_id = auth.uid() or is_channel_admin(channel_id)` | same as UPDATE (**exists but unused** - deletion is a soft UPDATE) |
+| `messages` | `is_channel_member(channel_id)` | `sender_id = auth.uid() and is_channel_member(channel_id) and (message_type <> 'announcement' or is_channel_admin(channel_id))` | `sender_id = auth.uid() or is_channel_admin(channel_id)` — **plus** a `before update` trigger (`enforce_message_admin_fields`, 0081) that rejects any change to `pinned` or `message_type` from a non-`is_channel_admin` caller | same as UPDATE (**exists but unused** - deletion is a soft UPDATE) |
 | `message_reactions` | message is in an accessible channel | `user_id = auth.uid()` + same | `user_id = auth.uid()` |
 | `message_mentions` | message is in an accessible channel | message's `sender_id = auth.uid()` | - | - |
 | `message_reports` | `is_channel_admin(channel_id)` | `reporter_id = auth.uid() and is_channel_member(channel_id)` and the message really belongs to that channel | - | `is_channel_admin(channel_id)` (dismiss) |
 | `channel_reads` | `for all`: `user_id = auth.uid()` (using and with check) | | | |
 
-**Announce rights ride on `is_channel_admin` - but only at INSERT time**, which is why the race branch's 0044 change (`is_race_member AND is_race_admin`) removed announce rights from an unjoined manager without touching a single policy.
+**Announce rights ride on `is_channel_admin`** - at INSERT time via the policy above, and now on UPDATE via the `enforce_message_admin_fields` trigger. The race branch's 0044 change (`is_race_member AND is_race_admin`) removed announce rights from an unjoined manager without touching a single policy, and the same `is_channel_admin` scoping governs the trigger.
 
-> ### ⚠️ Pinning is not enforced at the data layer
+> ### Pinning and announce-flips are enforced by a trigger (fixed in 0081, R3)
 >
-> Pinning is admin-only in the UI, but **nothing in the schema enforces it**. The `messages` INSERT policy special-cases announcements; the UPDATE policy has no column restriction at all:
+> Pinning and announcing are admin-only in the UI. The `messages` INSERT policy special-cases announcements, but the UPDATE policy has no column restriction - it legitimately carries a sender's own body edits and soft-deletes:
 >
 > ```sql
-> -- 0003_rls.sql - the only gate on pin/unpin
+> -- 0003_rls.sql - the pin/unpin + edit + soft-delete gate (no column scope)
 > create policy "sender or admin can edit a message"
 >   on public.messages for update
 >   to authenticated
@@ -89,9 +89,7 @@ The `clubs` SELECT policy's `or created_by = auth.uid()` clause is not redundant
 >   with check (sender_id = auth.uid() or public.is_channel_admin(channel_id));
 > ```
 >
-> A plain member can therefore `update messages set pinned = true where id = <their own message>` and it will appear in the channel's Pinned strip and Highlights tab. The same policy also lets a sender flip their own message's `message_type` to `'announcement'` after the fact - the admin check in the INSERT policy is never re-applied on UPDATE. (The `on_announcement_posted` trigger fires only on INSERT, so a retro-flipped announcement notifies nobody, but it still renders as one.)
->
-> Closing this needs a column-scoped UPDATE policy or a `before update` trigger that rejects `pinned`/`message_type` changes from a non-`is_channel_admin` caller; a plain policy split isn't enough, because the same policy legitimately carries soft-delete and body edits.
+> Until 0081 a plain member could therefore `update messages set pinned = true` on their own message (surfacing it in the Pinned strip and Highlights), or retro-flip `message_type` to `'announcement'` so it rendered as one - the INSERT policy's admin check was never re-applied on UPDATE. A plain policy split can't fix this without losing the sender's legitimate edit/delete rights, so **0081 adds a `before update` trigger `enforce_message_admin_fields`** that raises if `pinned` or `message_type` changes and the caller is not `is_channel_admin(channel_id)`. Body edits and soft-deletes (which touch neither column) pass untouched. Verified in `psql`: member pin and member announce-flip both raise; member soft-delete, member body edit, admin pin, and owner pin all succeed.
 
 ### Notifications
 
@@ -274,7 +272,6 @@ Poll authorship rights by scope:
 
 ## Known gaps
 
-- **Pinning is not enforced in the database** - a member can pin their own message, and can retro-flip it to `message_type = 'announcement'`, through the sender branch of the `messages` UPDATE policy. Full detail and the quoted policy are in the Chat section above. This is the highest-severity known authorization gap in the schema.
 - **The Eboard request/approve flow is largely vestigial** now that admin-tier membership auto-syncs. The policies and the RPCs still exist and still work, but a normal club never exercises them.
 - No rate limiting anywhere: a member can spam messages, reports, reactions, or join requests as fast as the network allows.
 - `message_reports` has no UPDATE policy, so "reviewed but not dismissed" is not representable - a report is either open or deleted.

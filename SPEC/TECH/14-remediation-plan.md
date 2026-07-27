@@ -66,6 +66,8 @@ When push notifications land (R9), the same trigger that dispatches a push can a
 
 **Severity: high. A member-visible authorization defect.**
 
+**Status: Done - migration `0081_enforce_message_admin_fields`.** Six-case `psql` matrix (rolled back) passes: member pin rejected, member announce-flip rejected, member soft-delete allowed, member body-edit allowed, admin pin allowed, owner pin allowed. Exploit reproduced first (member set `pinned=t` and `message_type=announcement` on their own message), then confirmed closed by the trigger.
+
 | | |
 |---|---|
 | Symptom | Any member can `update messages set pinned = true` on their own message and it appears in the channel's Pinned strip and Highlights tab. They can also flip `message_type` to `'announcement'` after the fact and it renders as one |

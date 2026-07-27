@@ -4426,3 +4426,41 @@ checklist (§3).
 Verified: `npx tsc --noEmit` clean (function-body change only), `npm test` 35/35.
 App-side confirmation (an Eboard member adding the Owner through the running UI)
 left for the founder; the DB-level authorization proof is complete.
+
+## R3: member can pin/fake-announce their own message (migration 0081)
+
+Second remediation item. The `messages` UPDATE policy is
+`sender_id = auth.uid() or is_channel_admin(channel_id)` with **no column
+restriction** on either `using` or `with check`, because that one policy also
+carries a sender's legitimate body edits and soft-deletes (deletion here is a
+soft UPDATE of `deleted_at`, not a DELETE). The announce-only-admins rule lived
+solely in the INSERT policy and was never re-applied on UPDATE.
+
+Reproduced the exploit end-to-end first: impersonating a plain member (confirmed
+`is_channel_admin` false) in a rolled-back transaction, `update messages set
+pinned = true` and `update messages set message_type = 'announcement'` on their
+own message both succeeded - the row came back `pinned=t, message_type=announcement`.
+A member could surface their own message in the channel's Pinned strip and
+Highlights, and make it render as an announcement. (The `on_announcement_posted`
+trigger is AFTER INSERT only, so a retro-flip notifies nobody, but it still
+renders as one.)
+
+A policy split can't fix this without also stripping the sender's edit/delete
+rights, so `0081_enforce_message_admin_fields.sql` adds a `before update` trigger
+that raises `Only a channel admin can pin or announce` whenever `pinned` or
+`message_type` is `distinct from` its old value and the caller is not
+`is_channel_admin(new.channel_id)`. `is_channel_admin` resolves the right
+authority per scope (race -> race admin, Eboard -> eboard member, else club
+admin), matching the INSERT announce policy; `auth.uid()` inside the definer
+function still reflects the real caller. Checked the blast radius before writing:
+the only UPDATE writer of `pinned` in the codebase is `togglePinned`
+(lib/messages.ts, the admin pin button), and `message_type` is never updated
+client-side (set only at INSERT) - so the trigger blocks the exploit and nothing
+legitimate.
+
+Six-case acceptance matrix in `psql` (all rolled back, no data mutated), against
+a real channel with a plain member, an admin, and the owner: member pin -> raised;
+member announce-flip -> raised; member soft-delete -> allowed; member body edit ->
+allowed; admin pin -> allowed; owner pin -> allowed. Verified `npx tsc --noEmit`
+clean (trigger only, no `types/database.ts` change) and `npm test` 35/35. App-side
+confirmation left for the founder; the DB-level proof is complete.

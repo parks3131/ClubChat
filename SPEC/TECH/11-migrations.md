@@ -1,6 +1,6 @@
 # Migrations
 
-The complete `0001`–`0080` changelog, plus the rules for adding the next file.
+The complete `0001`–`0081` changelog, plus the rules for adding the next file.
 
 ## Overview
 
@@ -141,6 +141,7 @@ Related: [Data model](01-data-model.md) · [Security & RLS](02-security-rls.md) 
 | # | File | What | Why |
 | --- | --- | --- | --- |
 | 0080 | `fix_is_user_club_admin_owner` | Recreates `is_user_club_admin(p_club_id, p_user_id)` with `role in ('admin','owner')` | **R4.** The two-arg helper was left on `role = 'admin'` when 0043 widened its one-arg sibling - fifth instance of the same omission. An Eboard member could not add the club Owner through the client (the `eboard_channel_members` INSERT WITH CHECK failed); masked until now by the definer sync triggers |
+| 0081 | `enforce_message_admin_fields` | `before update` trigger on `messages` rejecting any change to `pinned` or `message_type` from a non-`is_channel_admin` caller | **R3.** The UPDATE policy had no column scope (it also carries the sender's body edits and soft-deletes), so a member could pin their own message or retro-flip it to an announcement. A trigger gates the two privileged columns without touching the sender's legitimate edit/delete rights |
 
 ## Workflow
 
