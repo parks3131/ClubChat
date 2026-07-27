@@ -25,7 +25,7 @@ All are `security definer`, `set search_path = public`, `stable`, `language sql`
 | `is_club_member(p_club_id)` | Caller has any `club_members` row for the club | 0003 |
 | `is_club_admin(p_club_id)` | Caller's role is `admin` **or `owner`** | 0003; widened in 0043 |
 | `is_club_owner(p_club_id)` | Caller's role is exactly `owner` | 0043 |
-| `is_user_club_admin(p_club_id, p_user_id)` | **Arbitrary** user's role is `'admin'` - see the gap note below | 0017 |
+| `is_user_club_admin(p_club_id, p_user_id)` | **Arbitrary** user's role is `admin` **or `owner`** | 0017; widened in 0080 |
 | `is_channel_member(p_channel_id)` | 3-way branch on the channel's scope: race → `is_race_member`; Eboard → `is_eboard_member`; else `is_club_member` | 0003; generalized 0016, 0017; race branch narrowed 0044 |
 | `is_channel_admin(p_channel_id)` | race → `is_race_member AND is_race_admin`; Eboard → `is_eboard_member`; else `is_club_admin` | 0003; 0016, 0017; 0044 |
 | `is_race_member(p_race_id)` | Caller has a real `race_members` row | 0016 |
@@ -42,7 +42,7 @@ All are `security definer`, `set search_path = public`, `stable`, `language sql`
 
 **Dropped:** `is_club_creator`, `is_eboard_club_creator` (0043), `is_race_club_creator` (0044) - all superseded by the owner-role helpers.
 
-> **Known gap.** `is_user_club_admin` still filters `role = 'admin'` and was never widened by 0043. Its only remaining caller is `eboard_channel_members`' INSERT policy, so an existing Eboard member cannot directly add the club's **Owner** through the client - the WITH CHECK fails. In practice the Owner always gets in through `handle_new_eboard_channel` / `handle_admin_role_membership_sync`, which are security definer and bypass the policy, so this has never surfaced. Same class of bug as the `role = 'admin'` audience filters fixed in 0046 and 0048.
+> **Fixed in 0080 (R4).** `is_user_club_admin` filtered `role = 'admin'` and was never widened by 0043 - the fifth instance of that omission. Its only caller is `eboard_channel_members`' INSERT policy, so an existing Eboard member could not directly add the club's **Owner** through the client (the WITH CHECK failed). It was masked in practice because the Owner always got in through `handle_new_eboard_channel` / `handle_admin_role_membership_sync`, which are security definer and bypass the policy. 0080 recreates the helper with `role in ('admin','owner')`. Same class of bug as the `role = 'admin'` audience filters fixed in 0046 and 0048.
 
 **`can_access_poll` is deliberately NOT used in `polls`' own SELECT policy** - that policy is written as an inline `CASE` on the row's own columns. See [Engineering pitfalls](12-engineering-pitfalls.md) for why this distinction is load-bearing.
 
@@ -275,7 +275,6 @@ Poll authorship rights by scope:
 ## Known gaps
 
 - **Pinning is not enforced in the database** - a member can pin their own message, and can retro-flip it to `message_type = 'announcement'`, through the sender branch of the `messages` UPDATE policy. Full detail and the quoted policy are in the Chat section above. This is the highest-severity known authorization gap in the schema.
-- `is_user_club_admin` was never widened to include `owner` (see the note above) - a latent inconsistency, currently masked by definer triggers.
 - **The Eboard request/approve flow is largely vestigial** now that admin-tier membership auto-syncs. The policies and the RPCs still exist and still work, but a normal club never exercises them.
 - No rate limiting anywhere: a member can spam messages, reports, reactions, or join requests as fast as the network allows.
 - `message_reports` has no UPDATE policy, so "reviewed but not dismissed" is not representable - a report is either open or deleted.

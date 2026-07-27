@@ -1,6 +1,6 @@
 # Migrations
 
-The complete `0001`–`0079` changelog, plus the rules for adding the 80th.
+The complete `0001`–`0080` changelog, plus the rules for adding the next file.
 
 ## Overview
 
@@ -135,6 +135,12 @@ Related: [Data model](01-data-model.md) · [Security & RLS](02-security-rls.md) 
 | 0077 | `race_eboard_poll_meeting_chat_messages` | `messages.meeting_id`; `post_meeting_chat_message` + trigger; `post_poll_chat_message` generalized to route into the race's/Eboard's own channel | Closes 0071's club-only carve-out now that race/Eboard chat have their own "+" poll shortcut |
 | 0078 | `race_pinned` | `races.pinned boolean` | **Wrong model** - treated pinning as a shared admin-set flag |
 | 0079 | `race_pins_per_user` | Drops `races.pinned`; creates `race_pins` (`race_id`, `user_id`, `created_at`) with a single `for all ... user_id = auth.uid()` policy | Pinning is personal curation. **The canonical never-edit-in-place example**: 0078 was superseded by a new migration one number later, not amended |
+
+### Era 9 - Remediation (0080–) *- executing [the remediation plan](14-remediation-plan.md)*
+
+| # | File | What | Why |
+| --- | --- | --- | --- |
+| 0080 | `fix_is_user_club_admin_owner` | Recreates `is_user_club_admin(p_club_id, p_user_id)` with `role in ('admin','owner')` | **R4.** The two-arg helper was left on `role = 'admin'` when 0043 widened its one-arg sibling - fifth instance of the same omission. An Eboard member could not add the club Owner through the client (the `eboard_channel_members` INSERT WITH CHECK failed); masked until now by the definer sync triggers |
 
 ## Workflow
 

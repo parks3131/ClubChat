@@ -95,6 +95,8 @@ end $$;
 
 ### R4. `is_user_club_admin` excludes the Owner
 
+**Status: Done - migration `0080_fix_is_user_club_admin_owner`.** Verified in `psql` via rolled-back RLS impersonation: with the old definition the Eboard member's add of the Owner raised `new row violates row-level security policy`; with `0080` the same insert succeeds. Live-catalog sweep confirms no remaining function uses `role = 'admin'` as an authz/audience filter (only `transfer_ownership`'s legitimate demote-write remains).
+
 | | |
 |---|---|
 | Symptom | An existing Eboard member cannot add the club Owner through the client. Masked in practice because definer triggers insert the row anyway |

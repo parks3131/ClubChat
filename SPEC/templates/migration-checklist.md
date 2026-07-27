@@ -27,6 +27,14 @@ Postgres cannot use a newly added enum value later in the *same* transaction whe
 - [ ] Every operation the app performs has a matching policy - check `select` / `insert` / `update` / `delete` individually. Missing DELETE policies were a real recurring gap (`race_members` had none from `0016` until `0037`; `eboard_channel_members` none from `0017` until `0039`).
 - [ ] Policies are scoped `to authenticated` (or deliberately otherwise).
 - [ ] New helper functions (`is_*`) are `security definer` and owned appropriately.
+- [ ] Any admin-tier check - in a **helper function**, policy, or audience query - uses `role in ('admin','owner')`, **never `role = 'admin'`**. This omission has now shipped five times since the Owner tier landed in 0043 (`0046`, `0048`, then `is_user_club_admin` in `0080`). Authoritative sweep against the live DB, not just the files (superseded definitions still appear in old migrations):
+
+```sql
+select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prokind = 'f'
+  and pg_get_functiondef(p.oid) ~ 'role = ''admin'''
+  and pg_get_functiondef(p.oid) !~ 'new\.role|old\.role';  -- expect zero rows (a `set role='admin'` write, e.g. transfer_ownership, is legitimate)
+```
 
 ## 4. Grants
 

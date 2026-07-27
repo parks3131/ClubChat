@@ -4383,3 +4383,46 @@ deep-link auto-join round trip) was **not** done by Claude in this
 session — no Simulator UI automation tool was available — and was left
 for the founder to confirm; founder confirmed working live shortly
 after.
+
+## R4: is_user_club_admin excludes the Owner (migration 0080)
+
+First item executed off the [remediation plan](../SPEC/TECH/14-remediation-plan.md),
+worked in parallel with a concurrent learning-path session in the same working
+tree. (Coordination note: the two sessions collided on this file once — the
+learning session reverted `docs/HISTORY.md` to undo an experiment and wiped this
+entry, which had to be re-added. Migration numbering held.)
+
+The two-argument helper `is_user_club_admin(p_club_id, p_user_id)` validates the
+*target* of a direct-add to an Eboard channel: "is the person I'm adding actually
+a club admin?", since Eboard membership must always be a subset of club admins.
+It was written in 0017 with `role = 'admin'` and never widened when the Owner tier
+landed in 0043 - even though 0043 recreated its one-argument sibling
+`is_club_admin(p_club_id)` with `role in ('admin','owner')`. Classic missed call
+site, and the **fifth** instance of the exact `role = 'admin'` omission since the
+Owner tier (prior four: `notify_club_join_request` / `notify_race_join_request` in
+0046, `notify_announcement` / `notify_poll_created` in 0048).
+
+Reproduced end-to-end against the local DB before fixing. At the function level,
+`is_user_club_admin(<club>, <owner_uid>)` returned `f` for a real club Owner. Then
+the user-facing failure, in a rolled-back transaction impersonating an existing
+Eboard member via `request.jwt.claims`: inserting the club Owner into
+`eboard_channel_members` raised `new row violates row-level security policy` - the
+INSERT policy's `WITH CHECK` calls the buggy helper on the target.
+
+Fixed in `0080_fix_is_user_club_admin_owner.sql`: `create or replace` with
+`role in ('admin','owner')`. Re-ran the same rolled-back RLS reproduction: the
+insert now succeeds. A control run that restored the old body inside the same
+transaction still raised, confirming the one line closed the gap. Both tests
+rolled back; no real data mutated.
+
+Authoritative bug-class sweep against the **live catalog** (not the migration
+files, whose superseded definitions would be false positives): queried `pg_proc`
+for any `prokind = 'f'` function whose body matches `role = 'admin'` but not a
+`new.role`/`old.role` transition check. After 0080 the only hit is
+`transfer_ownership`, whose `set role = 'admin'` is a legitimate write demoting
+the outgoing owner, not an authz filter. Added that exact sweep to the migration
+checklist (§3).
+
+Verified: `npx tsc --noEmit` clean (function-body change only), `npm test` 35/35.
+App-side confirmation (an Eboard member adding the Owner through the running UI)
+left for the founder; the DB-level authorization proof is complete.
