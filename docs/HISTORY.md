@@ -4464,3 +4464,47 @@ member announce-flip -> raised; member soft-delete -> allowed; member body edit 
 allowed; admin pin -> allowed; owner pin -> allowed. Verified `npx tsc --noEmit`
 clean (trigger only, no `types/database.ts` change) and `npm test` 35/35. App-side
 confirmation left for the founder; the DB-level proof is complete.
+
+## decide_*_join_request idempotency guard (migration 0082)
+
+Not a remediation-plan item. The concurrent learning-path session found this while
+studying transactions/ACID, implemented a fix there, then fully reverted it at the
+founder's request so there'd be no duplication, and handed it off. Reproduced and
+re-implemented fresh here as the single source of truth. (Its hand-off message was
+written from a stale snapshot - it thought `0081` was still free - so the actual
+tree state was re-verified from git and the live catalog before starting; `0081`
+was already taken by R3, so this took `0082`.)
+
+`decide_join_request` had no idempotency guard: deciding an already-decided request
+re-ran every side effect. The membership insert was already safe
+(`on conflict (club_id, user_id) do nothing`), but the notification insert and the
+`decided_by` write were not. Reproduced end-to-end in a rolled-back transaction:
+two different admins each approving one pending request produced **two**
+`request_approved` notifications to the requester, and `decided_by` was left at the
+**last** approver.
+
+The obvious fix is an early `if req.status is distinct from 'pending' then return`.
+That closes the common serialized case (two admins click approve; the DB serializes
+them; the second sees it already decided), but **not** a true simultaneous race:
+under READ COMMITTED both transactions read `status = 'pending'` into their local
+`req` before either commits, so an early check on the local variable passes in both.
+The chosen fix instead puts the predicate in the UPDATE itself -
+`update ... where id = request_id and status = 'pending'` followed by
+`if not found then return` - so the second transaction blocks on the row lock,
+re-evaluates `status = 'pending'` against the first's committed row once released,
+matches zero rows, and returns. Correct for both cases; `decided_by` keeps the first
+decider.
+
+Scope note: `decide_race_join_request` and `decide_eboard_join_request` are the same
+RPC one level down (a race/Eboard join request is a club join request nested), and
+inspection of the live catalog showed **both carried the identical unguarded UPDATE**.
+Fixing only the club one would have knowingly left two identical holes in race and
+Eboard join-request approval, so 0082 recreates all three with the same guard.
+
+Verified each with the double-approve reproduction (rolled back): club, race, and
+Eboard all now yield exactly **one** `request_approved` notification with `decided_by`
+= the first decider and the member added once. Also checked deny-then-approve (stays
+denied, second call a no-op), single approve (unchanged), and not-found (still raises).
+`npx tsc --noEmit` clean (RPC signatures unchanged, no `types/database.ts` edit),
+`npm test` 35/35. Live DB, no reset (shared with the founder's data and the learning
+session). App-side confirmation left for the founder.
