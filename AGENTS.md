@@ -59,7 +59,10 @@ These apply to every task in this repo, always, without being restated.
    The local DB accumulates real usage data between sessions. It is not fixtures.
 4. **Read [`SPEC/TECH/12-engineering-pitfalls.md`](SPEC/TECH/12-engineering-pitfalls.md)
    before touching RLS, `FlatList` scrolling, or navigation.** Every entry in it cost
-   a long debugging session at least once.
+   a long debugging session at least once. For **any RLS policy** specifically, also
+   work through [`SPEC/templates/rls-security-checklist.md`](SPEC/templates/rls-security-checklist.md) -
+   the red-flag catalogue, attacker scenarios, and the psql proof step - and prove the
+   forbidden case is actually blocked before calling it done.
 5. **`npx tsc --noEmit` and `npm test` must pass before any change is "done."**
 6. **No secrets in the repo.** Only the `sb_publishable_…` key is client-safe. The
    `sb_secret_…` key bypasses RLS and must never appear in code, docs, or logs.

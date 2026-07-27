@@ -72,6 +72,7 @@ Learning the concepts behind all of this: [docs/LEARNING-PATH.md](../docs/LEARNI
 |---|---|
 | [Feature spec template](templates/feature-spec-template.md) | Starting any new feature |
 | [Migration checklist](templates/migration-checklist.md) | Writing a new `supabase/migrations/*.sql` |
+| [RLS security guide](templates/rls-security-checklist.md) | Writing or reviewing any RLS policy - red flags, attacker scenarios, psql proof |
 | [ADR template](templates/adr-template.md) | Recording an architectural decision |
 | [decisions/](decisions/) | Accepted architecture decision records |
 
