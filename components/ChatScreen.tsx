@@ -3,7 +3,7 @@ import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -209,23 +209,27 @@ export default function ChatScreen({
   // body text itself — see lib/mentions.ts's module comment for why.
   const [pendingMentions, setPendingMentions] = useState<MentionCandidate[]>([]);
   const flatListRef = useRef<FlatList<DisplayMessage>>(null);
-  // Set right before an older page is prepended, so onContentSizeChange
-  // can jump back to the message the user was reading instead of
-  // scrolling to the bottom (its default behavior on every other change).
-  const olderPagePrependedCountRef = useRef<number | null>(null);
+  // The FlatList is `inverted`: it renders newest-first data with a flip
+  // transform, so offset 0 IS the newest message at the visual bottom.
+  // Opening a chat therefore starts on the latest message by construction
+  // (no scroll-to-bottom pass at all), and loading older history appends
+  // to the end of this array, which never shifts what's on screen.
+  // `messages` state itself stays oldest-first — everything else
+  // (pagination cursor, pinned strip, unread search) reads it as before.
+  const invertedData = useMemo(() => [...messages].reverse(), [messages]);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  // Initial-landing target for this mount/reload — covers two cases that
-  // share the same "jump to a specific row, no scroll-to-bottom default"
-  // machinery:
+  // Initial-landing target for this mount/reload — the two cases that
+  // need to land somewhere other than the inverted list's natural resting
+  // point (offset 0 = the newest message):
   //  1. A Highlights row's ?messageId= (fetched as its own centered
   //     window via fetchMessagesAround, since a pinned/announced message
   //     is often well outside the plain newest-page) — animated, with a
   //     brief highlight flash, so it's visually obvious you jumped.
-  //  2. Plain chat entry — lands on the first *unread* message (per
-  //     channel_reads.last_read_at, read before markChannelRead advances
-  //     it) so opening a chat never yanks you through a visible
-  //     scroll-to-bottom motion; falls back to the last loaded message
-  //     (silently, still no visible motion) once fully caught up.
+  //  2. Plain chat entry *with unread messages* — lands on the first
+  //     unread (per channel_reads.last_read_at, read before
+  //     markChannelRead advances it). With nothing unread this stays
+  //     null and no scroll happens at all: the inverted list already
+  //     sits on the latest message.
   // Tracks the still-unhandled jump across renders without re-triggering
   // on every subsequent `messages` update. Deliberately NOT initialized
   // from targetMessageId here — this route can be reached from
@@ -238,25 +242,20 @@ export default function ChatScreen({
   const { messageId: targetMessageId } = useLocalSearchParams<{ messageId?: string }>();
   const pendingScrollToMessageIdRef = useRef<{ id: string; animated: boolean; highlight: boolean } | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  // A fresh mount/reload starts scrolled to offset 0 (the top) by
-  // definition, before the initial scroll-to-bottom (or jump-to-message)
-  // has had a chance to run — which trivially satisfies FlatList's own
-  // "near the start" check, firing onStartReached immediately and loading
-  // an unwanted extra older page right as the real scroll is still
-  // settling. Sat false until shortly after that initial scroll attempt
-  // has had time to land, so handleLoadEarlier can ignore this spurious
-  // first fire; only ever matters right after a (re)load, so a ref (no
-  // re-render needed) rather than state.
+  // During the first render passes (and an unread/Highlights landing
+  // mid-flight), FlatList's measurement churn can fire onEndReached — in
+  // the inverted list that means "load older" — before the user has
+  // scrolled anywhere, pulling in an unwanted extra page. Sat false until
+  // shortly after the initial load settles so handleLoadEarlier ignores
+  // those spurious fires; only ever matters right after a (re)load, so a
+  // ref (no re-render needed) rather than state.
   const readyForLoadEarlierRef = useRef(false);
-  // Whether new content should auto-scroll the view down — true once the
-  // user is at/near the bottom (updated live by onScroll below), false
-  // while they've scrolled up to read history, so a realtime reload
-  // merging in someone else's new message doesn't yank the view out from
-  // under them. Starts false for a Highlights-jump load (landing deep in
-  // history is the whole point) — reset inside the data-loading effect,
-  // same reasoning as pendingScrollToMessageIdRef above, not seeded once
-  // here, so a reused screen instance picks up a *new* jump correctly.
-  // Doubles as the "jump to latest" button's visibility (`!followTail`).
+  // Whether the user is at/near the visual bottom (offset < 150 in the
+  // inverted list, updated live by onScroll below). Its one job now is
+  // the "jump to latest" button's visibility (`!followTail`) — the
+  // inverted list itself handles keeping/revealing new messages. Starts
+  // false for a Highlights-jump load (landing deep in history is the
+  // whole point).
   const [followTail, setFollowTail] = useState(!targetMessageId);
 
   // The header is fully custom (glass-blur, matching the Stitch chat
@@ -311,14 +310,10 @@ export default function ChatScreen({
   useEffect(() => {
     setLoading(true);
     readyForLoadEarlierRef.current = false;
-    // Placeholder, non-null pending target — set synchronously, before
-    // either branch below `await`s anything, so an onContentSizeChange
-    // fire during that window (e.g. leftover content from a previous
-    // channel still mounted) can't fall through to the default
-    // scroll-to-bottom branch before the real target is known. Matches
-    // nothing in `messages`, so it's a harmless no-op if ever consumed
-    // as-is; each branch overwrites it with the real target once ready.
-    pendingScrollToMessageIdRef.current = { id: "", animated: false, highlight: false };
+    // Reset any leftover jump from a previous channel/load; each branch
+    // below sets its own target (or leaves this null to rest on the
+    // newest message).
+    pendingScrollToMessageIdRef.current = null;
     let cancelled = false;
 
     async function load() {
@@ -350,10 +345,13 @@ export default function ChatScreen({
         setMessages(initial);
         setHasMoreOlder(initial.length === PAGE_SIZE);
 
+        // With unread messages, jump to the first one. With everything
+        // read, leave the target null: the inverted list already rests on
+        // the newest message at the bottom, so doing nothing IS the
+        // correct landing — instant, no scroll motion.
         const firstUnread = lastReadAt ? initial.find((m) => m.createdAt > lastReadAt) : undefined;
-        const landingTarget = firstUnread ?? initial[initial.length - 1];
-        pendingScrollToMessageIdRef.current = landingTarget
-          ? { id: landingTarget.id, animated: false, highlight: false }
+        pendingScrollToMessageIdRef.current = firstUnread
+          ? { id: firstUnread.id, animated: false, highlight: false }
           : null;
       } finally {
         if (!cancelled) setLoading(false);
@@ -370,10 +368,10 @@ export default function ChatScreen({
 
     load().finally(() => {
       if (cancelled) return;
-      // Longer than the scroll-settle retries elsewhere so
-      // onStartReached's spurious first-fire (see readyForLoadEarlierRef's
-      // own comment) is reliably ignored before "load earlier" is allowed
-      // to act on a real one.
+      // Long enough for the initial render/landing to settle so
+      // onEndReached's spurious early fires (see readyForLoadEarlierRef's
+      // own comment) are reliably ignored before "load earlier" is
+      // allowed to act on a real one.
       setTimeout(() => {
         readyForLoadEarlierRef.current = true;
       }, 600);
@@ -483,10 +481,10 @@ export default function ChatScreen({
         before: messages[0].createdAt,
       });
       if (older.length > 0) {
-        // Content size won't change (and onContentSizeChange won't fire to
-        // clear this) if older comes back empty, so only arm it when
-        // there's actually something being prepended.
-        olderPagePrependedCountRef.current = older.length;
+        // In the inverted list an older page lands at the END of the
+        // rendered data (the visual top), after everything currently on
+        // screen — existing rows keep their offsets, so no scroll
+        // restoration is needed.
         setMessages((prev) => mergeMessages(prev, older));
       }
       setHasMoreOlder(older.length === PAGE_SIZE);
@@ -711,6 +709,21 @@ export default function ChatScreen({
     }
   };
 
+  // Tapping a pinned notice jumps to the pinned message itself, with the
+  // same brief highlight flash as a Highlights jump. If the message is in
+  // the loaded window, scroll straight to it; otherwise fall back to the
+  // ?messageId= machinery, which refetches a window centered on it.
+  const handlePinnedNoticePress = (message: DisplayMessage) => {
+    const index = invertedData.findIndex((m) => m.id === message.id);
+    if (index === -1) {
+      router.setParams({ messageId: message.id });
+      return;
+    }
+    flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.7 });
+    setHighlightedMessageId(message.id);
+    setTimeout(() => setHighlightedMessageId((current) => (current === message.id ? null : current)), 2500);
+  };
+
   const handleBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace(backFallback);
@@ -738,76 +751,54 @@ export default function ChatScreen({
     >
       <FlatList
         ref={flatListRef}
-        data={messages}
+        // Inverted chat list: data is newest-first and the list renders
+        // flipped, so offset 0 is the newest message at the visual bottom.
+        // Opening a chat starts there by construction — no scroll-to-bottom
+        // pass, nothing to land short. See invertedData's comment above.
+        data={invertedData}
+        inverted
         keyExtractor={(item) => item.id}
-        // Default initialNumToRender (10) leaves most of a full 50-message
-        // page unrendered/unmeasured at mount, which is the root cause
-        // behind both the scrollToIndex and scrollToEnd gotchas below —
-        // rendering the whole page up front sidesteps it, and chat bubbles
-        // are cheap enough (mostly text) that this isn't a real perf cost.
+        // Native-only (react-native-web ignores it): keeps the view pinned
+        // to what the user is reading when new messages are prepended
+        // while they're scrolled up in history, and auto-reveals new
+        // messages when they're already within 150px of the bottom.
+        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 150 }}
+        // Default initialNumToRender (10) leaves most of a full page
+        // unrendered/unmeasured at mount, which makes the first
+        // scrollToIndex (unread landing / Highlights jump) fail into
+        // onScrollToIndexFailed below — rendering the whole page up front
+        // sidesteps it, and chat bubbles are cheap enough (mostly text)
+        // that this isn't a real perf cost.
         initialNumToRender={PAGE_SIZE}
-        contentContainerStyle={[styles.list, { paddingTop: listPaddingTop }]}
+        // The list is inverted, so the content container's paddings render
+        // flipped: paddingBottom here is the VISUAL TOP clearance for the
+        // floating header + pinned strip, paddingTop the small breathing
+        // space above the composer at the visual bottom.
+        contentContainerStyle={[styles.list, { paddingBottom: listPaddingTop, paddingTop: spacing.stackSm }]}
         onContentSizeChange={() => {
-          // "Jump to this message" (see the ref's own comment above) takes
-          // priority over every other case below. FlatList can fire this
-          // once already, with an empty/stale `data`, before the async
-          // fetch has actually resolved — bail without consuming the ref
-          // in that case so the *real* content-size change (once messages
-          // are in) still gets a turn, instead of silently losing the jump.
+          // Initial landing (first unread) or a Highlights jump. This can
+          // fire before the async fetch has resolved — bail without
+          // consuming the ref in that case so the real content-size change
+          // (once messages are in) still gets a turn. Once consumed, later
+          // fires (sends, reactions, realtime merges) do nothing here.
           const target = pendingScrollToMessageIdRef.current;
-          if (target !== null) {
-            if (messages.length === 0) return;
-            pendingScrollToMessageIdRef.current = null;
-            const index = messages.findIndex((m) => m.id === target.id);
-            if (index !== -1) {
-              requestAnimationFrame(() => {
-                flatListRef.current?.scrollToIndex({ index, animated: target.animated, viewPosition: 0.3 });
-              });
-              if (target.highlight) {
-                setHighlightedMessageId(target.id);
-                setTimeout(() => setHighlightedMessageId((current) => (current === target.id ? null : current)), 2500);
-              }
-            }
-            return;
-          }
-          // After prepending an older page, jump back to the message the
-          // user was reading (now sitting right below the new page)
-          // instead of the default scroll-to-bottom every other change
-          // triggers here (initial load, send, react, pin, realtime reload).
-          const prependedCount = olderPagePrependedCountRef.current;
-          if (prependedCount !== null) {
-            olderPagePrependedCountRef.current = null;
+          if (target === null) return;
+          if (invertedData.length === 0) return;
+          pendingScrollToMessageIdRef.current = null;
+          const index = invertedData.findIndex((m) => m.id === target.id);
+          if (index !== -1) {
             requestAnimationFrame(() => {
-              flatListRef.current?.scrollToIndex({ index: prependedCount, animated: false });
+              // viewPosition is in the inverted list's flipped coordinates:
+              // 0 = visual bottom, 1 = visual top. 0.7 puts the target
+              // ~30% from the visual top — below the floating header, with
+              // the unread flow continuing downward.
+              flatListRef.current?.scrollToIndex({ index, animated: target.animated, viewPosition: 0.7 });
             });
-            return;
+            if (target.highlight) {
+              setHighlightedMessageId(target.id);
+              setTimeout(() => setHighlightedMessageId((current) => (current === target.id ? null : current)), 2500);
+            }
           }
-          // Skip the default scroll-to-bottom unless the user is already
-          // at/near the bottom (`followTail`, kept live by onScroll below)
-          // — covers both a Highlights jump landing deep in history
-          // (followTail seeded false for that load, see the effect above)
-          // and plain manual scroll-up during live chat: a realtime
-          // reload merging in someone else's new message shouldn't yank
-          // the view back down in either case. This also matters because
-          // this callback keeps re-firing on this platform even when
-          // content hasn't actually grown (see the jump branch above) —
-          // without this guard, those spurious re-fires would undo a
-          // landed jump immediately.
-          if (!followTail) return;
-          // Same rAF-wrapped pattern as the prepend branch above: calling
-          // scrollToEnd synchronously inside this callback can land short
-          // of the true bottom — the DOM/layout for the just-added content
-          // hasn't fully committed yet at this point. For a big cold load
-          // (e.g. the initial 50-message page) a single follow-up call can
-          // still fall well short, since FlatList only knows about content
-          // it's rendered/measured so far; two more delayed retries give
-          // virtualization time to catch up, same fix as the "jump to
-          // latest" button below. Harmless no-ops once actually at bottom.
-          requestAnimationFrame(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 400);
-          });
         }}
         onScrollToIndexFailed={(info) => {
           // FlatList can fail to scroll to an index it hasn't measured yet
@@ -820,24 +811,24 @@ export default function ChatScreen({
           // only then retrying `scrollToIndex` for the precise position.
           flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
           setTimeout(() => {
-            // Match the jump branch's own viewPosition (used for every
-            // scrollToIndex call in this FlatList — the initial landing,
-            // whether on the first unread message or a Highlights jump,
-            // and the prepend-restore branch below) so a retry doesn't
-            // settle the target flush against the top edge, behind the
-            // floating header/pinned-notice overlay.
-            flatListRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.3 });
+            // Same flipped viewPosition as the landing/jump above.
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.7 });
           }, 100);
         }}
         onScroll={(e) => {
-          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
-          setFollowTail(distanceFromBottom < 150);
+          // Inverted list: contentOffset.y IS the distance from the visual
+          // bottom (the newest message). Doubles as the "jump to latest"
+          // button's visibility (`!followTail`).
+          setFollowTail(e.nativeEvent.contentOffset.y < 150);
         }}
         scrollEventThrottle={100}
-        onStartReached={handleLoadEarlier}
-        onStartReachedThreshold={0.5}
-        ListHeaderComponent={
+        // Inverted list: the "end" of the data is the OLDEST loaded
+        // message at the visual top, so reaching it means "load earlier".
+        onEndReached={handleLoadEarlier}
+        onEndReachedThreshold={0.5}
+        // Footer of the inverted data renders at the visual top — exactly
+        // where the older page is about to appear.
+        ListFooterComponent={
           loadingOlder ? (
             <View style={styles.loadEarlierRow}>
               <ActivityIndicator size="small" color={colors.primary} />
@@ -865,7 +856,7 @@ export default function ChatScreen({
 
           if (item.messageType === "announcement" && !item.deletedAt) {
             return (
-              <View style={styles.announcementWrap}>
+              <View style={[styles.announcementWrap, isJumpTarget && styles.messageRowJumpTarget]}>
                 <View style={styles.announcementCard}>
                   <Text style={styles.announcementWatermark}>INFO</Text>
                   <View style={styles.announcementContent}>
@@ -1068,7 +1059,7 @@ export default function ChatScreen({
         >
           {pinnedMessages.map((m) => (
             <BlurView key={m.id} intensity={60} tint="light" style={styles.pinnedCard}>
-              <TouchableOpacity style={styles.pinnedCardTouchable} onPress={() => router.push(`${highlightsPath}?tab=pinned`)}>
+              <TouchableOpacity style={styles.pinnedCardTouchable} onPress={() => handlePinnedNoticePress(m)}>
                 <View style={styles.pinnedIconBadge}>
                   <MaterialIcons name="push-pin" size={16} color={colors.primary} />
                 </View>
@@ -1221,19 +1212,11 @@ export default function ChatScreen({
           style={styles.jumpToLatestButton}
           onPress={() => {
             setFollowTail(true);
-            // A single scrollToEnd from far up the list often falls short
-            // of the true bottom — FlatList only knows about content it's
-            // rendered/measured so far, and jumping from way up means most
-            // of what's below hasn't been yet. Same root cause as the
-            // scrollToIndex gotcha in onScrollToIndexFailed above; the fix
-            // here is simpler since scrollToEnd needs no target index —
-            // just call it again after each attempt gives virtualization
-            // a moment to render further down.
-            requestAnimationFrame(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 400);
-            });
+            // In the inverted list the newest message IS offset 0 — a
+            // fixed, always-valid target, so one call lands exactly (no
+            // scrollToEnd retry dance; that offset never depends on what
+            // virtualization has measured).
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
           }}
         >
           <MaterialIcons name="expand-more" size={22} color={colors.onPrimary} />
@@ -1656,7 +1639,7 @@ const styles = StyleSheet.create({
   pinnedLabel: { ...typography.labelSm, fontSize: 9, color: colors.primary },
   pinnedText: { ...typography.bodyMd, fontSize: 12, color: colors.onSurface },
   pinnedDismiss: { padding: spacing.unit },
-  list: { paddingHorizontal: spacing.stackSm, paddingBottom: spacing.stackSm, gap: spacing.stackMd },
+  list: { paddingHorizontal: spacing.stackSm, gap: spacing.stackMd },
   loadEarlierRow: { alignItems: "center", paddingVertical: spacing.stackSm },
   messageRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.stackSm, marginBottom: spacing.unit },
   messageRowMine: { justifyContent: "flex-end" },

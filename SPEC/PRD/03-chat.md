@@ -62,7 +62,7 @@ Replace GroupMe with a chat that carries the structure a club actually needs: re
 4. **Opening a chat marks it read**, which clears its unread count everywhere. Nothing else clears it - see [Notifications](10-notifications.md).
 5. **Only an admin of that space can post an announcement or pin a message.** In race chat that means a club admin who is also on the roster; in Eboard chat every member qualifies.
 6. **A pin is separate from an announcement.** Pinning an ordinary message does not notify anyone; posting an announcement notifies everyone in that space.
-7. **The pinned strip floats over the conversation and can be dismissed locally** - dismissing it does not unpin the message for anyone.
+7. **The pinned strip floats over the conversation and can be dismissed locally** - dismissing it does not unpin the message for anyone. Tapping a pinned notice jumps the conversation to that message and briefly highlights it.
 8. **@mentioning a member notifies them individually**, and the mention is highlighted in the rendered message. A mention only notifies someone who can actually access that chat.
 9. **A message can be deleted by its sender or by an admin of that space.** Deletion leaves a "This message was deleted" tombstone rather than removing it from history.
 10. **Anyone can report a message they did not send.** Reporting twice is a no-op. Reports surface only to admins, in a Reports tab in Highlights, where they can delete the message or dismiss the report.

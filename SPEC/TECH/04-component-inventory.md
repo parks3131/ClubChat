@@ -86,7 +86,7 @@ Tapping the icon again (it becomes a keyboard glyph) or focusing the text input 
 
 - Custom `expo-blur` `BlurView` header (`intensity={80} tint="light"`), height `92 + insets.top`. The native Stack header is disabled via `navigation.setOptions({headerShown: false})`.
 - The bottom tab bar is hidden while chat is open, by walking `getParent()` up until a navigator of type `"tab"` is found (race chat sits one Stack deeper than club/eboard chat, so a fixed hop count would break).
-- Pinned messages render as a floating, locally-dismissible `BlurView` overlay (`intensity={60}`) - dismissing does **not** unpin. Tapping opens `${highlightsPath}?tab=pinned`.
+- Pinned messages render as a floating, locally-dismissible `BlurView` overlay (`intensity={60}`) - dismissing does **not** unpin. Tapping a card jumps to the pinned message itself with the same 2.5s highlight flash as a Highlights jump: direct `scrollToIndex` when the message is in the loaded window, else `router.setParams({ messageId })` to engage the `fetchMessagesAround` machinery. (The announcement render branch also applies the jump-target flash style, since pinned messages are often announcements.)
 - Per-message `⋮` opens a popup with the six-emoji reaction row plus Pin (admin), Delete (sender or channel admin), Report (anyone else). Long-press is native-only, so `⋮` is the trigger that also works on web.
 
 ### Pagination, jump-to-message, scroll
@@ -95,21 +95,26 @@ Tapping the icon again (it becomes a keyboard glyph) or focusing the text input 
 
 Two entry modes, both routed through one `pendingScrollToMessageIdRef`:
 
+The message list is an **inverted FlatList** fed newest-first data (a memoized reverse of the oldest-first `messages` state): offset 0 *is* the newest message at the visual bottom, so a caught-up chat opens on the latest message by construction, with no scroll-to-bottom pass to land short. Older pages append to the end of the inverted data (the visual top), which never shifts what's on screen. The content container's paddings render flipped - `paddingBottom` is the visual-top clearance for the floating header/pinned strip.
+
 | Mode | Trigger | Fetch | Landing |
 | --- | --- | --- | --- |
-| Jump | `?messageId=` from Highlights | `fetchMessagesAround(channelId, id)` | Animated scroll + highlight flash; `followTail = false` |
-| Plain | no param | `fetchMessages(channelId, {limit: PAGE_SIZE})` | First **unread** message (per `fetchChannelLastReadAt`, read *before* `markChannelRead` advances it), no visible motion; falls back to the last message |
+| Jump | `?messageId=` from Highlights | `fetchMessagesAround(channelId, id)` | Animated `scrollToIndex` + highlight flash; `followTail = false` |
+| Plain, unread | no param, unread exists | `fetchMessages(channelId, {limit: PAGE_SIZE})` | First **unread** message (per `fetchChannelLastReadAt`, read *before* `markChannelRead` advances it), instant `scrollToIndex` |
+| Plain, caught up | no param, nothing unread | same | **No scroll at all** - the inverted list already rests on the newest message |
 
 Supporting machinery, each of which fixes a real bug:
 
 | Mechanism | Reason |
 | --- | --- |
-| `initialNumToRender={PAGE_SIZE}` | FlatList's default 10 leaves most of a page unmeasured, so `scrollToEnd`/`scrollToIndex` fall short |
-| `readyForLoadEarlierRef` (false for 600ms after load) | A fresh mount sits at offset 0, which trivially satisfies `onStartReachedThreshold` and fires a spurious extra page fetch |
+| `inverted` + newest-first data | Newest sits at offset 0, so entry/send/jump-to-latest never depend on what virtualization has measured |
+| `initialNumToRender={PAGE_SIZE}` | FlatList's default 10 leaves most of a page unmeasured, so the landing `scrollToIndex` falls into `onScrollToIndexFailed` |
+| `maintainVisibleContentPosition` (native only; web ignores it) | Keeps the view pinned while reading history as new messages prepend; auto-reveals them within 150px of the bottom |
+| `readyForLoadEarlierRef` (false for 600ms after load) | Measurement churn during first render can fire `onEndReached` (= "load older" when inverted) before any real scrolling |
 | `pendingScrollToMessageIdRef` set **inside** the loading effect, never seeded at `useRef` declaration | React Navigation reuses the screen instance, so a `useRef` initializer captures a stale route param |
-| `onContentSizeChange` skips its scroll-to-bottom branch while a jump target is active | That callback re-fires spuriously and would yank a jump back to the tail |
 | `onScrollToIndexFailed` → `scrollToOffset(averageItemLength * index)` then retry | Retrying the same `scrollToIndex` renders nothing new and fails identically forever |
-| `followTail` state + triple `scrollToEnd` at 0/150/400ms | Auto-scroll only when the user is at the bottom; also drives the "jump to latest" button's visibility |
+| `followTail` state (offset < 150) | Drives the "jump to latest" button's visibility; the button itself is a single exact `scrollToOffset({offset: 0})` |
+| `viewPosition: 0.7` on every `scrollToIndex` | viewPosition is in the flipped coordinates (0 = visual bottom), so 0.7 places a target ~30% from the visual top, clear of the header overlay |
 
 Realtime: `subscribeToNewMessages(channelId, reload)` on mount, unsubscribed on unmount. `markChannelRead` runs once per mount, then `refetchNotifications()` from `useNotifications()`.
 
@@ -130,7 +135,7 @@ Pinned / Announcements / admin-only "Reports (N)" tabs over the same channel dat
 | `isAdmin` | `boolean` (default `false`) | Shows the Reports tab |
 | `backFallback` | `string` | Custom-header back target |
 
-Mounted by `clubs/[clubId]/highlights.tsx`, `race/[raceId]/highlights.tsx`, `eboard/highlights.tsx`. Reads `?tab=` to open directly on Announcements. **Every row is tappable**, navigating to `${backFallback}?messageId=${item.id}` - which works because `backFallback` already equals that scope's chat route at all three call sites. The avatar tap and the Reports Delete/Dismiss buttons stay independent via `stopPropagation` on the outer touchable. Deleting a reported message also calls `dismissReports`, so it can't linger in the queue.
+Mounted by `clubs/[clubId]/highlights.tsx`, `race/[raceId]/highlights.tsx`, `eboard/highlights.tsx`. Reads `?tab=` to open directly on Announcements. **Pinned/Announcement rows are view-only** (founder call) - jumping to a message in the conversation is the pinned strip's job in `ChatScreen`; only the avatar keeps its tap-to-profile. Poll/event/meeting rows have no `body`, so the screen hydrates a one-line `typePreview` for the rows it displays (`📊 question` via `fetchPoll`, `📅`/`🗓️` titles via `fetchEvent`/`fetchMeeting`, `📄 documentName` needing no fetch), mirroring `ChatScreen`'s pinned-strip previews - without it a pinned poll rendered as an empty card. The admin **Reports** rows stay tappable, navigating to `${backFallback}?messageId=${item.id}` (moderation needs the context) - which works because `backFallback` already equals that scope's chat route at all three call sites; their Delete/Dismiss buttons stay independent via `stopPropagation`. Deleting a reported message also calls `dismissReports`, so it can't linger in the queue.
 
 ---
 

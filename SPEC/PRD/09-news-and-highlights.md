@@ -47,7 +47,7 @@ Give a club a durable, scrollable record of its own news - results, recaps, phot
 | Content | Standalone posts authored for the feed | Messages already sent in chat |
 | Author | Any club admin | Whoever sent the message |
 | Reached from | The club hub | The chat header |
-| Tapping a row | Opens the post | Jumps to that message in the conversation |
+| Tapping a row | Opens the post | Nothing - the list is view-only; jumping to a message is the pinned strip's job in chat |
 | Scope | Club only | Club, race, and Eboard chats each have their own |
 | Reactions | Yes | Chat's own reactions, on the underlying message |
 

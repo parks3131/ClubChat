@@ -5,6 +5,9 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radii, spacing, typography } from "../constants/theme";
+import { useAuth } from "../contexts/AuthProvider";
+import { fetchEvent } from "../lib/calendar";
+import { fetchMeeting } from "../lib/eboard";
 import {
   deleteMessage,
   dismissReports,
@@ -13,6 +16,7 @@ import {
   type DisplayMessage,
   type ReportedMessage,
 } from "../lib/messages";
+import { fetchPoll } from "../lib/polls";
 import { highlightMentions, type MentionCandidate } from "../lib/mentions";
 import { reportError } from "../lib/reportError";
 
@@ -79,6 +83,48 @@ export default function HighlightsScreen({ channelId, memberPath, isAdmin = fals
       .then(setMessages)
       .finally(() => setLoading(false));
   }, [channelId]);
+
+  // Poll/event/meeting chat-card messages carry no body of their own, so
+  // without this their Highlights rows render blank (a pinned poll showed
+  // as an empty card). Hydrate a one-line title preview for just the rows
+  // this screen displays, mirroring ChatScreen's pinned-strip previews.
+  const { session } = useAuth();
+  const [titleByMessageId, setTitleByMessageId] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!session) return;
+    const rows = messages.filter((m) => (m.pinned || m.messageType === "announcement") && !m.deletedAt);
+    const jobs: Promise<[string, string] | null>[] = [];
+    for (const m of rows) {
+      if (m.messageType === "poll" && m.pollId) {
+        jobs.push(
+          fetchPoll(m.pollId, session.user.id)
+            .then((p) => [m.id, `📊 ${p.question}`] as [string, string])
+            .catch(() => null)
+        );
+      } else if (m.messageType === "event" && m.eventId) {
+        jobs.push(
+          fetchEvent(m.eventId)
+            .then((e) => (e ? ([m.id, `📅 ${e.title}`] as [string, string]) : null))
+            .catch(() => null)
+        );
+      } else if (m.messageType === "meeting" && m.meetingId) {
+        jobs.push(
+          fetchMeeting(m.meetingId)
+            .then((mt) => (mt ? ([m.id, `🗓️ ${mt.title}`] as [string, string]) : null))
+            .catch(() => null)
+        );
+      }
+    }
+    if (jobs.length === 0) return;
+    let cancelled = false;
+    Promise.all(jobs).then((entries) => {
+      if (cancelled) return;
+      setTitleByMessageId(new Map(entries.filter((e): e is [string, string] => e !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, session]);
 
   const reloadReports = () => {
     fetchReportedMessages(channelId)
@@ -196,7 +242,18 @@ export default function HighlightsScreen({ channelId, memberPath, isAdmin = fals
               tab={tab}
               memberPath={memberPath}
               router={router}
-              onOpenInChat={() => router.push(`${backFallback}?messageId=${item.id}`)}
+              typePreview={
+                item.messageType === "document"
+                  ? `📄 ${item.documentName ?? "Document"}`
+                  : titleByMessageId.get(item.id) ??
+                    (item.messageType === "poll"
+                      ? "📊 Poll"
+                      : item.messageType === "event"
+                        ? "📅 Event"
+                        : item.messageType === "meeting"
+                          ? "🗓️ Meeting"
+                          : null)
+              }
             />
           )}
         />
@@ -205,21 +262,27 @@ export default function HighlightsScreen({ channelId, memberPath, isAdmin = fals
   );
 }
 
+// Deliberately view-only (founder call): pinned/announcement rows don't
+// navigate anywhere - jumping to the message in chat is the pinned
+// strip's job. Only the avatar keeps its usual tap-to-profile.
 function HighlightRow({
   item,
   tab,
   memberPath,
   router,
-  onOpenInChat,
+  typePreview,
 }: {
   item: DisplayMessage;
   tab: Tab;
   memberPath: (userId: string) => string;
   router: ReturnType<typeof useRouter>;
-  onOpenInChat: () => void;
+  // One-line stand-in body for message types that have none of their own
+  // (poll/event/meeting titles, document names) - see the hydration
+  // effect above.
+  typePreview: string | null;
 }) {
   return (
-    <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={onOpenInChat}>
+    <View style={styles.row}>
       <TouchableOpacity
         onPress={(e) => {
           e.stopPropagation?.();
@@ -248,10 +311,12 @@ function HighlightRow({
             {item.body ? <Text style={styles.body}>{renderBodyWithMentions(item.body, item.mentions)}</Text> : null}
           </View>
         ) : (
-          <Text style={styles.body}>{item.body ? renderBodyWithMentions(item.body, item.mentions) : null}</Text>
+          <Text style={styles.body}>
+            {typePreview ?? (item.body ? renderBodyWithMentions(item.body, item.mentions) : null)}
+          </Text>
         )}
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 

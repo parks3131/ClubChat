@@ -102,6 +102,8 @@ Triggers run in the caller's transaction, so the whole `messages` insert aborted
 
 All four were caught only by watching failures live, never by reading the code.
 
+> **Update: the chat list is now `inverted`** (newest-first data, offset 0 = newest message at the visual bottom). The non-inverted design needed a scroll-to-bottom pass after every load, and that pass could land short of the true bottom - reproduced live as a caught-up chat opening a full screen above the latest message - because `scrollToEnd`'s notion of "the end" is only ever as good as what virtualization has measured. Inversion makes "at the latest message" the resting state instead of a scroll target, which **retires 5c and the `scrollToEnd` half of 5d entirely** (both branches no longer exist). Still live and load-bearing: **5a** (route-param refs), **5b** (`onScrollToIndexFailed`, now for the unread/Highlights landing), and 5d's mount-time guard (now on `onEndReached`, which is "load older" when inverted). Two inversion-specific facts worth knowing: `viewPosition` runs in the flipped coordinates (0 = visual bottom), and the content container's `paddingTop`/`paddingBottom` render swapped.
+
 ### 5a. A `useRef(initialValue)` seeded from a route param goes stale
 
 **Symptom.** Chat → Highlights → tap a pinned message → chat opens but never scrolls to it; it silently falls through to the default behavior.

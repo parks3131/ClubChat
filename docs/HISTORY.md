@@ -4553,3 +4553,115 @@ application tier. `npx tsc --noEmit` clean (the rate-limit objects are
 internal-only, so `types/database.ts` needs no change); full `npm test`
 passing (35 tests). Live app-side verification (spamming from the running
 client) left to confirm.
+
+## Inverted chat list: entry lands on latest/first-unread exactly (ChatScreen rework)
+
+Founder report: opening a club main chat landed "a little bit up" from the
+bottom, and the entry visibly scrolled to get wherever it landed. First
+diagnosis pass looked like the unread-aware landing (Task 54) was placing
+the newest message with `viewPosition: 0.3` when there was nothing unread;
+a one-line fix (leave the pending target null when caught up, let the
+follow-tail branch pin to the bottom) type-checked but did NOT fix the
+symptom live. Measured in the browser: on a caught-up entry the list sat
+886px above the true bottom (scrollTop 3466 of 5118, viewport 766) - a
+full screen short - yet forcing `scrollTop = scrollHeight` reached 0px,
+proving the bottom was reachable and the scroll-to-bottom pass itself was
+landing short. Root cause: the non-inverted list has to *scroll* to the
+newest message after load, and `scrollToEnd`'s idea of "the end" is only
+as good as what virtualization has measured (the same class of bug as
+pitfalls 5c/5d, papered over with the 0/150/400ms retry stack - late
+image loads could still outgrow it).
+
+Founder set the requirement explicitly: open chat -> latest message
+facing you if caught up; first unread if not; keep the corner
+jump-to-latest button for scroll-up reading. Chose (with founder
+approval) the structural fix over another patch: **invert the list**, the
+way chat apps are normally built. `ChatScreen` now feeds a memoized
+newest-first reverse of the oldest-first `messages` state to an
+`inverted` FlatList, so offset 0 IS the newest message at the visual
+bottom - a caught-up entry starts there by construction, with no scroll
+pass to land short and no visible motion.
+
+What the inversion deleted outright: the triple-`scrollToEnd` retry stack
+(both in `onContentSizeChange` and the jump-to-latest button, which is
+now a single exact `scrollToOffset({offset: 0})`),
+`olderPagePrependedCountRef` scroll restoration (older pages append to
+the END of inverted data - the visual top - so existing rows never move),
+and `onContentSizeChange`'s entire default scroll-to-bottom branch (which
+retires pitfalls 5c and the scrollToEnd half of 5d; note added to the
+pitfalls doc). What flipped: "load older" moved from `onStartReached` to
+`onEndReached` (the data's end is the visual top when inverted) with the
+spinner moving from ListHeader to ListFooter; `onScroll`'s follow-tail
+check became simply `contentOffset.y < 150`; every `scrollToIndex` uses
+`viewPosition: 0.7` because viewPosition runs in the flipped coordinates
+(0 = visual bottom), landing targets ~30% from the visual top as before;
+and the content container's paddings render swapped, so the floating
+header clearance is now `paddingBottom`. Added
+`maintainVisibleContentPosition` (native-only; react-native-web ignores
+it - verified RNW 0.21.2 does ship a wheel-direction patch for inverted
+lists, so web scrolling is correct). Unread landing and the Highlights
+`?messageId=` jump keep the same `pendingScrollToMessageIdRef` machinery,
+now against the inverted indices.
+
+Verified live on web (fresh server on :8082 to rule out the stale-bundle
+trap that muddied the first fix attempt): caught-up entry rests at
+scrollTop 0 with the newest message above the composer and no motion;
+33-unread entry lands on the first unread ("Sean O Donnell joined the
+club") ~30% from the top with the chevron showing; the chevron jumps
+exactly to the newest message in one tap and hides itself; sending
+appears at the bottom; realtime messages from a second device merged in
+live during the test. `npx tsc --noEmit` clean, all 35 tests pass.
+Component-inventory and pitfalls docs updated in the same change. One
+diagnostic lesson for next time: `CI=1` Metro serves a stale bundle
+through route-level lazy chunks too - restarting on a fresh port is the
+reliable way to prove which code is actually running.
+
+## Pinned notice tap: jump to the message with a highlight flash
+
+Founder suspected tapping a pinned notice card didn't go to the message -
+confirmed by reproduction: it navigated to the Highlights screen's Pinned
+tab instead. Rewired the card's onPress to jump to the pinned message
+itself, reusing the existing jump machinery: if the message is in the
+loaded window, a direct animated `scrollToIndex` (viewPosition 0.7) plus
+the 2.5s `highlightedMessageId` flash; if it's outside the window,
+`router.setParams({ messageId })` engages the same
+`fetchMessagesAround`-centered load the Highlights jump uses (pitfall 5a's
+effect-keyed param handling makes this work on the already-mounted
+screen). Also applied the jump-target flash style to the announcement
+render branch, which previously didn't render it - pinned messages are
+often announcements, so the blink would have been invisible on exactly
+the rows most likely to be pinned. The header's Highlights button still
+opens the Highlights screen; only the pinned cards changed. Verified live
+on web: tapping the "hi @Luke Belardo" pinned card jumped the
+conversation to that message (out-of-window path, refetch centered on
+it). `npx tsc --noEmit` clean, 35 tests pass. PRD 03 and the
+component-inventory doc updated in the same change.
+
+## Highlights rows made view-only
+
+Follow-on founder call after the pinned-strip jump landed: with the
+pinned notices in chat now jumping to their message, the Highlights
+screen's pinned/announcement rows should NOT navigate anywhere - it's a
+place to view, not a second jump surface. Removed `onOpenInChat` from
+`HighlightRow` and turned its outer touchable into a plain View; the
+avatar keeps its tap-to-profile, and the admin Reports tab keeps its
+open-in-chat (moderation needs the message's context - flagged to the
+founder as a deliberate exception, overridable). This reverses the
+tap-to-jump half of Task 53; the `?messageId=` jump machinery itself
+stays, now driven by the pinned strip and Reports rows. Verified live:
+tapping a pinned row on the Highlights screen does nothing. `npx tsc
+--noEmit` clean, 35 tests pass. PRD 09 and the component inventory
+updated in the same change.
+
+## Highlights rows: type previews for poll/event/meeting/document messages
+
+Founder spotted a pinned poll rendering as an empty card on the
+Highlights screen - poll/event/meeting chat-card messages have no `body`,
+and `HighlightRow` only knew text and photos. Added a `typePreview`: the
+screen hydrates one-line titles for just the rows it displays (`📊
+question` via fetchPoll, `📅 title` via fetchEvent, `🗓️ title` via
+fetchMeeting, `📄 documentName` straight off the message), mirroring the
+chat pinned-strip's preview logic, with generic fallbacks while loading.
+Verified live: the pinned "ffyk" poll now shows "📊 ffyk" instead of an
+empty row. `npx tsc --noEmit` clean, 35 tests pass. Component inventory
+updated in the same change.
