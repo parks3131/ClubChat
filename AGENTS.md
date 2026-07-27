@@ -164,7 +164,11 @@ Order matters. Each step catches a class the previous one cannot.
    loads into every session's context and detail there is expensive.
 3. If a decision was architectural and non-obvious, write an ADR in
    `SPEC/decisions/` using [the template](SPEC/templates/adr-template.md).
-4. Commit only when asked, and branch first if on `main`. No agent co-author line.
+4. Commit only when asked. No agent co-author line.
+5. **This is a solo repo: commit and push directly to `main`.** Do not branch or open
+   a PR unless explicitly asked. CI (`tsc --noEmit` + `npm test`) runs on the push; if
+   it goes red, fix forward or revert the commit. The one exception is a change the
+   author flags as risky and wants reviewed first.
 
 ---
 
