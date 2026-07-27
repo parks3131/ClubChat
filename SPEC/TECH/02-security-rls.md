@@ -273,7 +273,7 @@ Poll authorship rights by scope:
 ## Known gaps
 
 - **The Eboard request/approve flow is largely vestigial** now that admin-tier membership auto-syncs. The policies and the RPCs still exist and still work, but a normal club never exercises them.
-- No rate limiting anywhere: a member can spam messages, reports, reactions, or join requests as fast as the network allows.
+- Rate limiting is enforced **in the database** (see [ADR-0003](../decisions/0003-rate-limiting-edge-tier-and-in-db-triggers.md)): a `rate_limits` token-bucket table + a `security definer` `rate_limit_spend()` drive a `before insert` trigger on `messages` (0083; burst 30, refill 1/sec per sender; raises `PT429` → HTTP 429). Direct client execute on `rate_limit_spend` is revoked. **Not yet throttled:** `message_reports`, `message_reactions`, `club_join_requests`. A volumetric DDoS is deliberately out of scope - the DB must process each request to reject it, so that is a future CDN/WAF concern, not an application tier.
 - `message_reports` has no UPDATE policy, so "reviewed but not dismissed" is not representable - a report is either open or deleted.
 - Storage objects have no cleanup path; deleting the parent row leaves the file. See [Media & storage](07-media-and-storage.md).
 - `poll_options` are immutable after creation (no UPDATE/DELETE policy) - editing a poll's options requires deleting and recreating the poll.

@@ -184,7 +184,7 @@ Explicitly **not** reasons to leave: connection counts (PostgREST is stateless, 
 
 ## Known gaps
 
-- No rate limiting anywhere. A member can spam messages, reports, reactions and join requests as fast as the network allows.
+- Rate limiting lives in the database ([ADR-0003](../decisions/0003-rate-limiting-edge-tier-and-in-db-triggers.md)): a token-bucket `before insert` trigger throttles message sends (0083). Reports, reactions and join requests are not yet throttled; a volumetric DDoS is deliberately out of scope (a CDN/WAF in front, not an app tier, is the future answer).
 - No error monitoring. Sentry via the community supabase-js integration is the documented path and works for the Swift client through Sentry's own SDK.
 - Storage objects are excluded from database backups on every plan, and no cleanup path exists, so deleting a message orphans its file.
 - No staging environment. Supabase Branching gives each PR its own instance and is the natural fit, since most of the logic here is RLS and trigger shaped and only testable against real Postgres.

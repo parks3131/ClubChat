@@ -232,7 +232,7 @@ When you run it, drive it with the *specific* §3 scenarios, not a generic "chec
 
 **Known gaps the skill will (correctly) flag - already tracked, not regressions:**
 
-- **No rate limiting anywhere.** A member can spam messages, reports, reactions, or join requests as fast as the network allows. There is no AI/paid endpoint to bankrupt, so the *financial* blast radius is low, but it's still a DoS/abuse vector. See [remediation plan](../TECH/14-remediation-plan.md).
+- **Rate limiting: message sends are throttled** by an in-DB token-bucket trigger (0083, [ADR-0003](../decisions/0003-rate-limiting-edge-tier-and-in-db-triggers.md)); `message_reports`, `message_reactions`, and `club_join_requests` are not yet throttled. There is no AI/paid endpoint to bankrupt, so the *financial* blast radius is low, but the un-throttled endpoints remain a DoS/abuse vector. See [remediation plan](../TECH/14-remediation-plan.md).
 - **`notifications.resolved_outcome`** is writable via the recipient's own UPDATE policy (only ever set by `decide_*` RPCs in practice).
 - **Storage objects have no cleanup path** - deleting a parent row orphans the file.
 - **`message_reports` has no UPDATE policy** - a report is open or deleted, never "reviewed."

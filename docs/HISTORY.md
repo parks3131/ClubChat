@@ -4508,3 +4508,48 @@ denied, second call a no-op), single approve (unchanged), and not-found (still r
 `npx tsc --noEmit` clean (RPC signatures unchanged, no `types/database.ts` edit),
 `npm test` 35/35. Live DB, no reset (shared with the founder's data and the learning
 session). App-side confirmation left for the founder.
+
+## In-database rate limiting for message sends (migration 0083, ADR-0003)
+
+Came out of a learning session on rate limiting. RLS answers "are you
+allowed?" but not "how often?" - a member with permission can still spam.
+The question was how to add rate limiting given the deliberate two-tier
+architecture (client -> PostgREST -> Postgres, no app server).
+
+Considered and rejected an Upstash Redis + Supabase Edge Functions tier:
+it would make the design three-tier and, for any PostgREST-reachable
+operation, force hand-rebuilding the auto-generated API as bespoke
+functions. The decisive realization (recorded in ADR-0003): an edge rate
+limit only works if the operation is reachable *only* through the edge,
+because an attacker calls PostgREST directly with the public publishable
+key and skips any edge function the honest app uses. Postgres is the one
+chokepoint no client can bypass - the same reason authorization lives
+there as RLS - so the rate limit belongs there too.
+
+Built `0083_message_rate_limit.sql`: a `rate_limits(key, tokens,
+updated_at)` token-bucket table (RLS on, no policies, grants revoked - only
+the definer functions touch it); a generic `rate_limit_spend(key,
+capacity, refill_per_sec)` that refills by elapsed time, spends a token
+under a `for update` row lock, and raises with errcode `PT429` (which
+PostgREST maps to HTTP 429); and a `before insert` trigger on `messages`
+(burst 30, refill 1/sec per sender; system/no-sender messages exempt).
+
+Verified live on the local DB, all in rolled-back transactions
+impersonating a member via `set local role authenticated` +
+`request.jwt.claim.sub`: a member's spam loop inserted exactly 30 messages
+and the 31st raised `PT429`. Real bug caught during verification: the
+first draft revoked execute on `rate_limit_spend` from `PUBLIC` only, but
+Supabase's default privileges grant execute *directly* to
+`authenticated`/`anon`, so the client could still call it (and drain
+another user's bucket). Fixed by revoking from `public, authenticated,
+anon` explicitly; re-verified the client is now blocked
+(`insufficient_privilege`) while the trigger still limits at 30.
+
+Not yet throttled: `message_reports`, `message_reactions`,
+`club_join_requests` (extend the same `rate_limit_spend` to them).
+Volumetric DDoS is deliberately out of scope - the DB must process each
+request to reject it, so that is a future CDN/WAF concern, not an
+application tier. `npx tsc --noEmit` clean (the rate-limit objects are
+internal-only, so `types/database.ts` needs no change); full `npm test`
+passing (35 tests). Live app-side verification (spamming from the running
+client) left to confirm.

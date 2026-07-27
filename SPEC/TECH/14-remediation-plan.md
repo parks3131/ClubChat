@@ -296,7 +296,7 @@ The goal is not full history mirroring. It is "chat opens instantly, and a send 
 
 | Gap | Fix | When |
 |---|---|---|
-| No rate limiting anywhere | A member can spam messages, reports, reactions and join requests as fast as the network allows. Add per-user insert throttles as a `before insert` trigger against a counter table, or accept and monitor during the closed beta | Before public launch |
+| Rate limiting: messages done, rest pending | Message sends are now throttled by an in-DB token-bucket `before insert` trigger (0083, [ADR-0003](../decisions/0003-rate-limiting-edge-tier-and-in-db-triggers.md)). Extend the same `rate_limit_spend()` to `message_reports`, `message_reactions` and `club_join_requests`. Volumetric DDoS stays out of scope (CDN/WAF later, not an app tier) | Before public launch |
 | No error monitoring | Sentry via the community supabase-js integration; works for the Swift client through Sentry's own SDK | Before public launch |
 | Orphaned storage objects | Deleting a message leaves its file. Add a cleanup path or a scheduled sweep | Before public launch |
 | No staging environment | Supabase Branching gives each PR its own instance, which suits a codebase whose logic is mostly RLS and triggers and only testable against real Postgres | When a second developer exists |
