@@ -13,7 +13,11 @@ These apply to every task in this repo, always, without being restated.
 
 1. **Never use an em dash (U+2014).** Use a plain hyphen (`-`) instead. Applies to
    code, comments, docs, commit messages, and anything shown to the user. Grep for it
-   with `grep -rnP '\xe2\x80\x94' .` rather than pasting the character into a doc.
+   with `grep -rn $'—' .` rather than pasting the character into a doc.
+   (The old suggestion here, `grep -rnP '\xe2\x80\x94' .`, silently matches
+   **nothing** on macOS's BSD grep - it reports a clean result on a file full
+   of em dashes. If you use a variant, verify it against a file you know has
+   one before trusting a zero.)
 2. **Never add an agent name as a commit co-author.** Commit messages carry the
    author's intent, not the tool's byline. No `Co-Authored-By` line for an assistant.
 

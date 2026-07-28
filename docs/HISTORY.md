@@ -4724,3 +4724,51 @@ stated acceptance criterion. Done live on web with a throwaway account
 granted membership by SQL, per the testing doc's protocol. `npx tsc --noEmit`
 clean, 43 tests pass including 8 new ones covering memo reuse, per-bucket
 isolation, intra-batch dedupe, expiry re-signing, and clearing.
+
+## Pinned-notice jump landed short on the first tap (pitfall 5e)
+
+Founder report: entering the Binghamton club chat and tapping the "hi @Luke
+Belardo howzit going" pinned notice scrolled partway and stopped somewhere
+else; tapping the same notice again landed correctly, every time. Only ever
+wrong on the first tap after entering the chat.
+
+**Reproduced first, on web, exactly as described** - the first tap stopped at
+the *other* pinned message (the ffyk poll, which sits between), the second
+landed on the target with its highlight flash. No console error of any kind.
+
+**The measurement that found it.** Instrumenting showed `onScrollToIndexFailed`
+never fired, and the target was index 26 of 40 with `initialNumToRender={40}`,
+so nothing was unrendered. DOM content height was stable at 5698px within
+milliseconds, ruling out "heights still settling". Reading the FlatList
+instance's own frame cache off the React fiber gave the answer: it reported
+`_highestMeasuredFrameIndex: 39` with all 40 frames flagged `inLayout`, yet its
+frame lengths summed to only **4590px** against that real 5698px. Rows holding
+a poll card and an event card were each recorded at ~96-108px - plain text
+bubble height. The target's cached offset was 3548; scrolling to it put the
+list at 3052, and the correct resting offset was 3930.
+
+**Root cause.** Poll/event/meeting cards hydrate their contents asynchronously
+and grow after their first layout. FlatList caches the pre-growth height and
+never re-syncs, but still reports every frame as measured - so the existing
+pitfall-5b safety net, which only runs on *failure*, never engages. The jump
+silently lands short. The second tap works only because the first tap's scroll
+forces the rows it passed to re-measure.
+
+**Fix.** One `scrollToMessageIndex(index, animated)` helper now serves both jump
+sites (the pinned-notice tap and the `onContentSizeChange` landing used by
+Highlights jumps and the unread landing - the second had the identical defect
+and would have been reported next). It re-issues the scroll up to
+`JUMP_CORRECTION_PASSES` (3) times, `JUMP_CORRECTION_DELAY_MS` (250ms) apart,
+and stops as soon as the list settles at the same offset twice, so a correctly
+landed jump costs one redundant no-op scroll and an unreachable target cannot
+loop. Only the first pass animates, so the stale-cache case reads as one scroll
+landing slightly late rather than two competing animations. `onScroll` now also
+records the offset into `scrollOffsetRef` and `scrollEventThrottle` dropped from
+100 to 16 so a correction pass reads a settled value.
+
+**Verified live on web**, fresh entry each time: both pinned notices now land on
+their message on the *first* tap, with the highlight flash. `npx tsc --noEmit`
+clean, 43 tests pass. Written up as pitfall 5e, whose real lesson is that
+`onScrollToIndexFailed` catches *unmeasured* rows but is blind to *wrongly
+measured* ones - the exact failure mode any list mixing text rows with
+async-hydrating cards will hit.

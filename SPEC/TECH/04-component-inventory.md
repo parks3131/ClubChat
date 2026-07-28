@@ -97,6 +97,8 @@ Two entry modes, both routed through one `pendingScrollToMessageIdRef`:
 
 The message list is an **inverted FlatList** fed newest-first data (a memoized reverse of the oldest-first `messages` state): offset 0 *is* the newest message at the visual bottom, so a caught-up chat opens on the latest message by construction, with no scroll-to-bottom pass to land short. Older pages append to the end of the inverted data (the visual top), which never shifts what's on screen. The content container's paddings render flipped - `paddingBottom` is the visual-top clearance for the floating header/pinned strip.
 
+**Every jump goes through `scrollToMessageIndex(index, animated)`, which scrolls more than once on purpose.** Poll/event/meeting cards hydrate asynchronously and grow after their first layout, leaving FlatList's row-height cache too small while still reporting itself fully measured - so `onScrollToIndexFailed` never fires and a single `scrollToIndex` silently lands short. The helper re-issues the scroll up to `JUMP_CORRECTION_PASSES` times, `JUMP_CORRECTION_DELAY_MS` apart, stopping as soon as the list settles at the same offset twice (`scrollOffsetRef`, fed by `onScroll` at `scrollEventThrottle={16}`). Only the first pass animates. See [pitfall 5e](12-engineering-pitfalls.md).
+
 | Mode | Trigger | Fetch | Landing |
 | --- | --- | --- | --- |
 | Jump | `?messageId=` from Highlights | `fetchMessagesAround(channelId, id)` | Animated `scrollToIndex` + highlight flash; `followTail = false` |

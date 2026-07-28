@@ -78,6 +78,12 @@ function formatTime(iso: string) {
 const PAGE_SIZE = 40;
 const HEADER_HEIGHT = 92;
 const PINNED_NOTICE_HEIGHT = 72;
+// How many times a jump re-issues its scroll to correct FlatList's stale row
+// heights, and how long it waits for each pass to settle first. Three is one
+// more than the two the measured worst case needed; the passes stop early the
+// moment the list lands in the same place twice. See scrollToMessageIndex.
+const JUMP_CORRECTION_PASSES = 3;
+const JUMP_CORRECTION_DELAY_MS = 250;
 
 // createdAt is a Postgres timestamptz rendered as ISO 8601 with a
 // consistent offset, so lexicographic comparison sorts it correctly —
@@ -252,6 +258,10 @@ export default function ChatScreen({
   // those spurious fires; only ever matters right after a (re)load, so a
   // ref (no re-render needed) rather than state.
   const readyForLoadEarlierRef = useRef(false);
+  // Live scroll offset, kept in a ref so the jump-correction pass below can
+  // tell whether the list actually settled somewhere new without forcing a
+  // re-render on every scroll event.
+  const scrollOffsetRef = useRef(0);
   // Whether the user is at/near the visual bottom (offset < 150 in the
   // inverted list, updated live by onScroll below). Its one job now is
   // the "jump to latest" button's visibility (`!followTail`) — the
@@ -711,6 +721,45 @@ export default function ChatScreen({
     }
   };
 
+  // Every scrollToIndex jump goes through this, and it deliberately scrolls
+  // more than once.
+  //
+  // FlatList caches each row's measured height. Poll / event / meeting cards
+  // hydrate their own contents asynchronously and grow well after their first
+  // layout, so the cached heights for those rows stay at roughly a plain text
+  // bubble's size. Measured live on a 40-row page: cached frames summed to
+  // 4590px against a real 5698px of content, putting a target 26 rows up ~880px
+  // off. The cache still reports every frame as measured, so
+  // `onScrollToIndexFailed` never fires and the safety net below never gets a
+  // turn - the jump just silently lands short, which is exactly why tapping the
+  // same pinned notice a second time used to work.
+  //
+  // Scrolling re-measures whatever it passes, so re-issuing the scroll
+  // converges: the first pass corrects the cache, the second uses the corrected
+  // numbers. Passes stop as soon as the list settles in the same place twice,
+  // and are capped so a genuinely unreachable target cannot loop.
+  const scrollToMessageIndex = (index: number, animated: boolean) => {
+    const runPass = (pass: number, offsetBefore: number) => {
+      // Only the first pass animates; the corrections are snaps, so a stale
+      // cache reads as one scroll that lands slightly late rather than two
+      // visibly competing animations.
+      flatListRef.current?.scrollToIndex({ index, animated: animated && pass === 0, viewPosition: 0.7 });
+      if (pass + 1 >= JUMP_CORRECTION_PASSES) return;
+      setTimeout(() => {
+        const settled = scrollOffsetRef.current;
+        if (Math.abs(settled - offsetBefore) < 1) return;
+        runPass(pass + 1, settled);
+      }, JUMP_CORRECTION_DELAY_MS);
+    };
+    // NaN start: the first comparison must never read as "already settled".
+    runPass(0, Number.NaN);
+  };
+
+  const flashHighlight = (messageId: string) => {
+    setHighlightedMessageId(messageId);
+    setTimeout(() => setHighlightedMessageId((current) => (current === messageId ? null : current)), 2500);
+  };
+
   // Tapping a pinned notice jumps to the pinned message itself, with the
   // same brief highlight flash as a Highlights jump. If the message is in
   // the loaded window, scroll straight to it; otherwise fall back to the
@@ -721,9 +770,8 @@ export default function ChatScreen({
       router.setParams({ messageId: message.id });
       return;
     }
-    flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.7 });
-    setHighlightedMessageId(message.id);
-    setTimeout(() => setHighlightedMessageId((current) => (current === message.id ? null : current)), 2500);
+    scrollToMessageIndex(index, true);
+    flashHighlight(message.id);
   };
 
   const handleBack = () => {
@@ -793,13 +841,12 @@ export default function ChatScreen({
               // viewPosition is in the inverted list's flipped coordinates:
               // 0 = visual bottom, 1 = visual top. 0.7 puts the target
               // ~30% from the visual top — below the floating header, with
-              // the unread flow continuing downward.
-              flatListRef.current?.scrollToIndex({ index, animated: target.animated, viewPosition: 0.7 });
+              // the unread flow continuing downward. Same stale-row-height
+              // correction as the pinned jump: a Highlights landing sits at
+              // an arbitrary depth and lands short for the identical reason.
+              scrollToMessageIndex(index, target.animated);
             });
-            if (target.highlight) {
-              setHighlightedMessageId(target.id);
-              setTimeout(() => setHighlightedMessageId((current) => (current === target.id ? null : current)), 2500);
-            }
+            if (target.highlight) flashHighlight(target.id);
           }
         }}
         onScrollToIndexFailed={(info) => {
@@ -820,10 +867,15 @@ export default function ChatScreen({
         onScroll={(e) => {
           // Inverted list: contentOffset.y IS the distance from the visual
           // bottom (the newest message). Doubles as the "jump to latest"
-          // button's visibility (`!followTail`).
+          // button's visibility (`!followTail`), and feeds the jump
+          // correction pass's "did the list actually settle somewhere new"
+          // check.
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
           setFollowTail(e.nativeEvent.contentOffset.y < 150);
         }}
-        scrollEventThrottle={100}
+        // Fast enough that a jump correction pass 250ms later reads a settled
+        // offset rather than a stale one.
+        scrollEventThrottle={16}
         // Inverted list: the "end" of the data is the OLDEST loaded
         // message at the visual top, so reaching it means "load earlier".
         onEndReached={handleLoadEarlier}

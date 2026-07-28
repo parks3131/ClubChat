@@ -148,6 +148,18 @@ All four were caught only by watching failures live, never by reading the code.
 
 **Rule.** Fixing a virtualization symptom can be worse than fixing its cause - and fixing the cause can surface a new, previously-impossible bug at the boundary where "content exists" and "real user scrolling" stop being the same signal. Treat `onStartReached`/`onEndReached` as suspect during the first render after any (re)mount.
 
+### 5e. A measured frame cache can still be wrong, and then nothing warns you
+
+**Symptom.** Tapping a pinned notice scrolled part of the way and stopped at some unrelated message. Tapping the *same* notice again landed correctly, every time. Only ever wrong on the first tap after entering the chat.
+
+**Root cause.** FlatList caches each row's height as it lays out. Poll, event and meeting cards hydrate their own contents asynchronously (`fetchPoll` / `fetchEvent` / `fetchMeeting`) and **grow after their first layout**, and nothing re-syncs the cache. Measured live on a 40-row page: the cached frames summed to **4590px** against **5698px** of real content, with rows containing a poll card and an event card all recorded at ~96-108px, i.e. plain-text-bubble height. A target 26 rows up was cached at offset 3548 but really sat at ~3930 - so the jump landed ~880px short, which happened to be another pinned message.
+
+The trap is the *second* half. Every frame was still flagged measured and `_highestMeasuredFrameIndex` was 39 of 40, so **`onScrollToIndexFailed` never fired**. The 5b safety net only runs on failure, so it never got a turn. There is no warning, no console error, and no failure callback - just a scroll that quietly stops in the wrong place. The second tap works because the first tap's scroll forces the rows it passed to re-measure.
+
+**Fix.** Route every jump through one `scrollToMessageIndex(index, animated)` that re-issues the scroll up to `JUMP_CORRECTION_PASSES` times, `JUMP_CORRECTION_DELAY_MS` apart, stopping as soon as the list settles at the same offset twice (tracked via `scrollOffsetRef`, fed by `onScroll`). Pass one corrects the cache by scrolling through it; pass two uses the corrected numbers. Only the first pass animates, so a stale cache reads as one scroll landing slightly late rather than two competing animations. `scrollEventThrottle` is 16 so the settled offset is fresh when a pass checks it.
+
+**Rule.** `onScrollToIndexFailed` only catches *unmeasured* rows. It cannot catch **wrongly measured** ones, which is what you get whenever a row's content arrives after its first layout. For any list mixing text rows with async-hydrating cards, treat a single `scrollToIndex` as a best guess and verify where it actually landed - and when diagnosing, compare the sum of the cached frame lengths against the real content height rather than trusting `highestMeasuredFrameIndex`.
+
 ---
 
 ## 6. Navigation

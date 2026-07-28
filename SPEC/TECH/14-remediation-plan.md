@@ -230,7 +230,12 @@ The subquery becomes an initPlan evaluated once, producing a set the planner can
 
 ---
 
-### R12. Stop signing media URLs per fetch
+### R12. Stop signing media URLs per fetch - PARTIALLY ADDRESSED, do not close
+
+**Status: the per-device half is fixed and shipped. The cross-user half is not, and cannot be fixed by the approach shipped.** A signed URL's payload embeds `iat` at one-second resolution, so no client-side memo can make two devices hold the same URL for one object. N viewers is still N origin downloads. Anyone revisiting media cost, CDN behaviour, or egress billing should start from [ADR-0004](../decisions/0004-memoize-signed-media-urls.md)'s alternatives table, not from this item's original text.
+
+**Read this before changing the media architecture.** Closing the remaining half means choosing between a long-lived URL minted at upload time and stored on the row, or public buckets with unguessable paths. Both trade per-user authorization at fetch time for unguessable-until-expiry. That trade should be made against measured egress, which does not exist yet. Do not make it incidentally as part of some other change.
+
 
 | | |
 |---|---|
