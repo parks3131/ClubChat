@@ -1,5 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
+import { clearSignedUrlCache } from "../lib/signedUrlCache";
 import { supabase } from "../lib/supabase";
 
 interface AuthContextValue {
@@ -43,7 +44,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setInitializing(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Memoized signed URLs outlive the session that minted them, so a
+      // second account signing in on this device would otherwise inherit
+      // URLs for media it may not be allowed to see.
+      if (event === "SIGNED_OUT") clearSignedUrlCache();
       setSession(newSession);
     });
 

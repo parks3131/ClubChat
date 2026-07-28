@@ -38,7 +38,8 @@
           "cameraPermission": "ClubChat uses your camera to let you take and share photos in chat."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-image"
     ],
     "extra": {
       "router": {},

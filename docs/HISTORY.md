@@ -4665,3 +4665,62 @@ chat pinned-strip's preview logic, with generic fallbacks while loading.
 Verified live: the pinned "ffyk" poll now shows "📊 ffyk" instead of an
 empty row. `npx tsc --noEmit` clean, 35 tests pass. Component inventory
 updated in the same change.
+
+## R12: signed media URLs memoized so the cache can actually warm
+
+Every fetch minted a fresh signed URL for photos and documents that had not
+changed. The signature rides in the query string, the query string is part
+of every cache key, so no two requests for the same object ever matched and
+the cache never warmed - opening a chat re-downloaded every photo, and each
+realtime-triggered refetch did it again.
+
+**Reproduced before fixing, and the reproduction changed the plan.** Signing
+the same object twice against local storage returned a byte-identical URL
+when both calls landed in the same second, and a different URL 2.5 seconds
+apart. The signature payload embeds `iat` at one-second resolution. That
+kills the remediation plan's stated outcome - "so all users and all renders
+share one URL for its lifetime" - because a client-side memo can make one
+device agree with itself but can never make two devices agree with each
+other. Recorded in ADR-0004 along with the two options that *would* collapse
+cross-user fetches (a URL stored on the row at upload time, or public
+buckets with unguessable paths), both deliberately not taken without
+measured egress to justify the authorization tradeoff.
+
+**What shipped.** `lib/signedUrlCache.ts` exposes one `signStorageUrls(bucket,
+paths)` memoized by `(bucket, path)` with a seven day TTL and a re-sign an
+hour before expiry; only uncached paths are sent to be signed. All three
+private buckets route through it, replacing the two near-identical
+`signPhotoUrls` helpers in `lib/messages.ts` and `lib/clubPosts.ts`. The memo
+is cleared on `SIGNED_OUT` - it outlives the session that created it, so a
+second account on a shared device would otherwise inherit URLs for media it
+may not be allowed to see.
+
+Photo render sites moved to `expo-image` with `cachePolicy="memory-disk"` and
+an explicit `source.cacheKey` of the URL with its query string stripped. That
+last part is load-bearing and easy to miss: the memo is in memory, so a cold
+start re-signs everything, and a disk cache keyed on the full URL would miss
+on every launch. The path prefix never rotates. Note both props are
+Android/iOS only; on web the browser's HTTP cache keys on the full URL, which
+is precisely why the memo carries that platform.
+
+**The third part of R12 was dropped, not deferred.** The plan called for
+storing `width`/`height` plus a generated thumbnail "so the list reserves
+correct space before the image loads." Every photo render site already sets an
+explicit fixed height and a placeholder background - bubble 220x220, highlight
+thumb 160x160, gallery cell `aspectRatio: 1`, news banner 220, viewers 100%.
+There is no layout shift. WhatsApp needs dimensions because its bubbles
+preserve the real aspect ratio; ours are fixed and crop. Storing dimensions
+would pay off only alongside a redesign, which is a product decision rather
+than a defect fix. Plan doc corrected in the same change.
+
+**Verification.** A first measurement nearly produced a false pass: the
+browser reported `transferSize: 0` for the second load's images, which looks
+like a cache hit but is actually just opaque timing data (cross-origin
+without `Timing-Allow-Origin` zeroes the size fields). The honest measurement
+was the storage container's own log. Across two full chat loads of a channel
+with two photos, total origin traffic was one batch sign call and one GET per
+photo - the second load produced zero storage requests, which is the item's
+stated acceptance criterion. Done live on web with a throwaway account
+granted membership by SQL, per the testing doc's protocol. `npx tsc --noEmit`
+clean, 43 tests pass including 8 new ones covering memo reuse, per-bucket
+isolation, intra-batch dedupe, expiry re-signing, and clearing.

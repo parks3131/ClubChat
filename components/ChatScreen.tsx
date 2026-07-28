@@ -1,6 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
+import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -53,6 +54,7 @@ import { fetchChannelLastReadAt, markChannelRead } from "../lib/notifications";
 import { pickDocumentOnWeb } from "../lib/pickDocumentOnWeb";
 import { pickImageOnWeb } from "../lib/pickImageOnWeb";
 import { castVote, deletePoll, fetchPoll, setPollClosed, type PollDetail } from "../lib/polls";
+import { storageCacheKey } from "../lib/signedUrlCache";
 import { reportError } from "../lib/reportError";
 import { PollCard } from "./PollCard";
 
@@ -904,7 +906,13 @@ export default function ChatScreen({
                 ) : item.messageType === "photo" && item.photoUrl ? (
                   <View>
                     <TouchableOpacity onPress={() => setViewerPhotoUrl(item.photoUrl)}>
-                      <Image source={{ uri: item.photoUrl }} style={styles.photoBubbleImage} resizeMode="cover" />
+                      <ExpoImage
+                        source={{ uri: item.photoUrl, cacheKey: storageCacheKey(item.photoUrl) }}
+                        style={styles.photoBubbleImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={item.id}
+                      />
                     </TouchableOpacity>
                     {item.body ? (
                       <Text style={[styles.photoCaption, isMine && styles.bodyMine, { marginTop: spacing.unit }]}>
@@ -1292,7 +1300,14 @@ export default function ChatScreen({
 
       <Modal visible={viewerPhotoUrl !== null} transparent animationType="fade" onRequestClose={() => setViewerPhotoUrl(null)}>
         <TouchableOpacity style={styles.viewerBackdrop} activeOpacity={1} onPress={() => setViewerPhotoUrl(null)}>
-          {viewerPhotoUrl && <Image source={{ uri: viewerPhotoUrl }} style={styles.viewerImage} resizeMode="contain" />}
+          {viewerPhotoUrl && (
+            <ExpoImage
+              source={{ uri: viewerPhotoUrl, cacheKey: storageCacheKey(viewerPhotoUrl) }}
+              style={styles.viewerImage}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          )}
         </TouchableOpacity>
       </Modal>
 

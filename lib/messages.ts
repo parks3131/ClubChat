@@ -1,4 +1,5 @@
 import type { MentionCandidate } from "./mentions";
+import { signStorageUrls } from "./signedUrlCache";
 import { supabase } from "./supabase";
 import { readUploadBody } from "./uploadBody";
 import { randomUUID } from "./uuid";
@@ -28,36 +29,11 @@ export interface DisplayMessage {
 // message-photos/message-documents are private buckets (see
 // 0027_message_photos_storage.sql / 0068_message_documents_storage.sql)
 // gated by the same is_channel_member check as the messages table itself,
-// so a displayable URL has to be a short-lived signed URL fetched per
-// request rather than a stored public URL.
-const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;
-const DOCUMENT_SIGNED_URL_TTL_SECONDS = 3600;
-
-async function signDocumentUrls(paths: string[]): Promise<Map<string, string>> {
-  if (paths.length === 0) return new Map();
-  const { data, error } = await supabase.storage
-    .from("message-documents")
-    .createSignedUrls(paths, DOCUMENT_SIGNED_URL_TTL_SECONDS);
-  if (error) throw error;
-  const byPath = new Map<string, string>();
-  for (const entry of data ?? []) {
-    if (entry.signedUrl) byPath.set(entry.path ?? "", entry.signedUrl);
-  }
-  return byPath;
-}
-
-async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
-  if (paths.length === 0) return new Map();
-  const { data, error } = await supabase.storage
-    .from("message-photos")
-    .createSignedUrls(paths, PHOTO_SIGNED_URL_TTL_SECONDS);
-  if (error) throw error;
-  const byPath = new Map<string, string>();
-  for (const entry of data ?? []) {
-    if (entry.signedUrl) byPath.set(entry.path ?? "", entry.signedUrl);
-  }
-  return byPath;
-}
+// so a displayable URL has to be a signed URL rather than a stored public
+// one. signStorageUrls memoizes by path so the URL stays byte-identical
+// across fetches and a cache can hit it (ADR-0004).
+const signDocumentUrls = (paths: string[]) => signStorageUrls("message-documents", paths);
+const signPhotoUrls = (paths: string[]) => signStorageUrls("message-photos", paths);
 
 async function attachSendersAndReactions(
   messages: {

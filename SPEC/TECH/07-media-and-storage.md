@@ -32,23 +32,31 @@ Notes that matter:
 
 ## Signed URLs for private buckets
 
-Private-bucket paths are stored in the database; a **displayable** URL is generated per fetch and expires.
+Private-bucket paths are stored in the database; a **displayable** URL is signed on demand and expires. Every signing call in the app goes through `lib/signedUrlCache.ts`, never through `createSignedUrls` directly.
 
 ```ts
-const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;   // lib/messages.ts, lib/clubPosts.ts
+// lib/signedUrlCache.ts
+const TTL_SECONDS = 60 * 60 * 24 * 7;      // 7 days
+const REFRESH_MARGIN_MS = 60 * 60 * 1000;  // re-sign an hour early
 
-await supabase.storage.from("message-photos").createSignedUrls(paths, TTL);
+signStorageUrls(bucket, paths)  // memoized by `${bucket} ${path}`
 ```
 
-**Signing is batched, never per-row.** `attachSendersAndReactions` collects every photo path and every document path in the page, issues exactly one `createSignedUrls` call per bucket, and resolves them into a `Map<path, signedUrl>` - all inside the same `Promise.all` that fetches profiles, reactions and mentions. A 50-message page therefore costs 2 signing calls, not 50.
+**The URL must stay byte-identical across fetches, or nothing caches.** The signature rides in the query string and the query string is part of every cache key, so a freshly minted URL per fetch guarantees a permanent miss. The signature payload also embeds `iat` at one-second resolution, so re-signing the same path a second later genuinely produces a different URL. The memo is what holds it stable. See [ADR-0004](../decisions/0004-memoize-signed-media-urls.md) for the tradeoff and the rejected alternatives.
+
+**Signing is batched, never per-row.** `attachSendersAndReactions` collects every photo path and every document path in the page, issues exactly one signing call per bucket for whatever is not already memoized, and resolves them into a `Map<path, signedUrl>` - all inside the same `Promise.all` that fetches profiles, reactions and mentions. A 50-message page therefore costs at most 2 signing calls, not 50, and zero on a revisit.
+
+**Render sites must pass an explicit `cacheKey`.** The memo lives in memory, so a cold start re-signs everything; an `expo-image` disk cache keyed on the whole URL would miss on every launch. Photo sites pass `source.cacheKey = storageCacheKey(url)` (the URL with its query string stripped), which never rotates, plus `cachePolicy="memory-disk"`. Note both props are Android/iOS only - on web the browser's own HTTP cache is the only cache, and it keys on the full URL, which is exactly why the memo matters there.
 
 The **Gallery** screen (`fetchChannelPhotos` → `components/GalleryScreen.tsx`, mounted for club / race / Eboard) reuses the same `signPhotoUrls` helper: one query for every `message_type = 'photo'` row in the channel, then **one** `createSignedUrls` call for the whole set. Rows whose signing fails are filtered out rather than rendered broken. Because it signs a channel's entire photo history in one call, it is the heaviest signing path in the app and the first place a per-page limit would be needed.
 
 Consequences to keep in mind:
 
-- URLs are **not stored** and **not stable**. Nothing may cache a signed URL past the fetch that produced it.
-- A chat screen left open longer than an hour holds expired URLs until its next refetch. In practice realtime keeps refetching; a genuinely idle screen would show broken images.
-- `DisplayMessage.photoUrl` / `.documentUrl` are always the signed form; `media_url` (the raw path) is not exposed to components.
+- URLs are **not stored in the database**, but they are **stable for a device** for up to seven days. Caching one is now expected rather than forbidden.
+- The memo is per device and per process. Two devices still hold different URLs for the same object, so N viewers is still N origin downloads; only the repeat-fetch multiplier is gone.
+- The memo is cleared on `SIGNED_OUT` (`contexts/AuthProvider.tsx`) so a second account on a shared device cannot inherit URLs for media it may not be allowed to see.
+- A screen left open cannot go stale the way it used to: entries re-sign an hour before the seven day expiry.
+- `DisplayMessage.photoUrl` / `.documentUrl` are always the signed form; `media_url` (the raw path) is not exposed to components. `storageCacheKey()` recovers the stable part from the signed URL for render sites that need it.
 
 Public buckets use `getPublicUrl(path)` instead and store the resulting URL in the row (`profiles.avatar_url`, `clubs.avatar_url`, `races.avatar_url`, `eboard_channels.avatar_url`).
 

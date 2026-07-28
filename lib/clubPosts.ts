@@ -1,3 +1,4 @@
+import { signStorageUrls } from "./signedUrlCache";
 import { supabase } from "./supabase";
 import { readUploadBody } from "./uploadBody";
 import { randomUUID } from "./uuid";
@@ -15,23 +16,9 @@ export interface ClubPost {
 }
 
 // club-post-photos is a private bucket (0062_club_post_photos_storage.sql)
-// gated the same way message-photos is — a displayable URL has to be a
-// short-lived signed URL fetched per request, mirroring
-// lib/messages.ts's signPhotoUrls.
-const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;
-
-async function signPhotoUrls(paths: string[]): Promise<Map<string, string>> {
-  if (paths.length === 0) return new Map();
-  const { data, error } = await supabase.storage
-    .from("club-post-photos")
-    .createSignedUrls(paths, PHOTO_SIGNED_URL_TTL_SECONDS);
-  if (error) throw error;
-  const byPath = new Map<string, string>();
-  for (const entry of data ?? []) {
-    if (entry.signedUrl) byPath.set(entry.path ?? "", entry.signedUrl);
-  }
-  return byPath;
-}
+// gated the same way message-photos is, and signed through the same
+// memoizing helper so the URL stays stable enough to cache (ADR-0004).
+const signPhotoUrls = (paths: string[]) => signStorageUrls("club-post-photos", paths);
 
 export async function fetchClubPosts(clubId: string): Promise<ClubPost[]> {
   const { data: posts, error } = await supabase

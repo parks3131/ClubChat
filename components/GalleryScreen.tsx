@@ -1,8 +1,10 @@
+import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { colors, spacing, typography } from "../constants/theme";
 import { fetchChannelPhotos, type GalleryPhoto } from "../lib/messages";
+import { storageCacheKey } from "../lib/signedUrlCache";
 import { LoadError } from "./LoadError";
 
 const GUTTER = 2;
@@ -63,7 +65,13 @@ export default function GalleryScreen({ channelId }: { channelId: string }) {
         contentContainerStyle={styles.grid}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.thumbWrap} onPress={() => setViewerPhotoUrl(item.photoUrl)}>
-            <Image source={{ uri: item.photoUrl }} style={styles.thumb} resizeMode="cover" />
+            <ExpoImage
+              source={{ uri: item.photoUrl, cacheKey: storageCacheKey(item.photoUrl) }}
+              style={styles.thumb}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={item.id}
+            />
           </TouchableOpacity>
         )}
         ListEmptyComponent={<Text style={styles.empty}>No photos yet.</Text>}
@@ -71,7 +79,14 @@ export default function GalleryScreen({ channelId }: { channelId: string }) {
 
       <Modal visible={viewerPhotoUrl !== null} transparent animationType="fade" onRequestClose={() => setViewerPhotoUrl(null)}>
         <TouchableOpacity style={styles.viewerBackdrop} activeOpacity={1} onPress={() => setViewerPhotoUrl(null)}>
-          {viewerPhotoUrl && <Image source={{ uri: viewerPhotoUrl }} style={styles.viewerImage} resizeMode="contain" />}
+          {viewerPhotoUrl && (
+            <ExpoImage
+              source={{ uri: viewerPhotoUrl, cacheKey: storageCacheKey(viewerPhotoUrl) }}
+              style={styles.viewerImage}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          )}
         </TouchableOpacity>
       </Modal>
     </View>

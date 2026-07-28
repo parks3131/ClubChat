@@ -1,5 +1,6 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -17,6 +18,7 @@ import {
   type ReportedMessage,
 } from "../lib/messages";
 import { fetchPoll } from "../lib/polls";
+import { storageCacheKey } from "../lib/signedUrlCache";
 import { highlightMentions, type MentionCandidate } from "../lib/mentions";
 import { reportError } from "../lib/reportError";
 
@@ -307,7 +309,13 @@ function HighlightRow({
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : item.messageType === "photo" && item.photoUrl ? (
           <View>
-            <Image source={{ uri: item.photoUrl }} style={styles.photoThumb} resizeMode="cover" />
+            <ExpoImage
+              source={{ uri: item.photoUrl, cacheKey: storageCacheKey(item.photoUrl) }}
+              style={styles.photoThumb}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={item.id}
+            />
             {item.body ? <Text style={styles.body}>{renderBodyWithMentions(item.body, item.mentions)}</Text> : null}
           </View>
         ) : (
@@ -363,7 +371,13 @@ function ReportRow({
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : item.messageType === "photo" && item.photoUrl ? (
           <View>
-            <Image source={{ uri: item.photoUrl }} style={styles.photoThumb} resizeMode="cover" />
+            <ExpoImage
+              source={{ uri: item.photoUrl, cacheKey: storageCacheKey(item.photoUrl) }}
+              style={styles.photoThumb}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={item.id}
+            />
             {item.body ? <Text style={styles.body}>{renderBodyWithMentions(item.body, item.mentions)}</Text> : null}
           </View>
         ) : (

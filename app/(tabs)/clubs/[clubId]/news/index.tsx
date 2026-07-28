@@ -1,4 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -7,6 +8,7 @@ import { colors, radii, spacing, typography } from "../../../../../constants/the
 import { useAuth } from "../../../../../contexts/AuthProvider";
 import { deleteClubPost, fetchClubPosts, toggleClubPostReaction, type ClubPost } from "../../../../../lib/clubPosts";
 import { timeAgo } from "../../../../../lib/dates";
+import { storageCacheKey } from "../../../../../lib/signedUrlCache";
 import { useClub } from "../_layout";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "🔥", "🎉", "😮"];
@@ -86,7 +88,15 @@ export default function NewsFeedScreen() {
 
           return (
             <View style={styles.card}>
-              {item.photoUrl && <Image source={{ uri: item.photoUrl }} style={styles.photo} resizeMode="cover" />}
+              {item.photoUrl && (
+                <ExpoImage
+                  source={{ uri: item.photoUrl, cacheKey: storageCacheKey(item.photoUrl) }}
+                  style={styles.photo}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={item.id}
+                />
+              )}
               <View style={styles.cardBody}>
                 <View style={styles.headerRow}>
                   {item.createdByAvatarUrl ? (

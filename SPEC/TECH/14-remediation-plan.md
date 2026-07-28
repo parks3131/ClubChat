@@ -238,13 +238,17 @@ The subquery becomes an initPlan evaluated once, producing a set the planner can
 | Root cause | `lib/messages.ts` and `lib/clubPosts.ts` generate a fresh signed URL on every fetch. The signature lives in the query string, which is part of the CDN cache key, so no two requests ever share a cache entry. Supabase's docs state this verbatim: the cache never warms and every request hits the origin |
 | Concepts | Cache keys, TTL, CDN semantics, cache invalidation |
 
-**Fix.** Sign once per storage object with a long expiry and memoize by storage path, in a module-level map keyed by path with the expiry recorded, so all users and all renders share one URL for its lifetime. Separately, confirm `expo-image` disk caching is enabled, or every scroll re-downloads regardless.
+**Fix, as shipped.** `lib/signedUrlCache.ts` signs once per storage object with a seven day expiry and memoizes by `(bucket, path)` in a module-level map that records the expiry, re-signing an hour before it lapses. `lib/messages.ts` (photos and documents) and `lib/clubPosts.ts` both route through it. The memo is cleared on `SIGNED_OUT` so a second account on the same device cannot inherit URLs for media it may not be allowed to see.
 
-Also add `width` and `height` plus a small client-generated thumbnail to the message row, so the list reserves correct space before the image loads. This is what WhatsApp does and it removes layout shift.
+Photo render sites use `expo-image` with `cachePolicy="memory-disk"` and, critically, an explicit `source.cacheKey` set to the URL with its query string stripped. The memo is in-memory, so a cold start re-signs everything; a device cache keyed on the whole URL would therefore miss on every launch. The path prefix never rotates, so it is the stable key.
+
+**What this does and does not buy.** The signature payload embeds `iat` at one-second resolution, so two calls in different seconds produce different URLs and a client-side memo cannot make two *devices* agree on one URL. Measured directly against local storage. This fix therefore removes the per-device repeat-fetch multiplier (one chat open plus N realtime refetches went from N+1 downloads of the same photo to 1), but N users still means N origin downloads. Collapsing that last factor needs a URL stored server-side at upload time, or public buckets with unguessable paths - deliberately not done, see [ADR-0004](../decisions/0004-memoize-signed-media-urls.md).
+
+**Dimensions and thumbnails: dropped, not deferred.** This item previously called for `width`/`height` plus a client-generated thumbnail on the message row "so the list reserves correct space". Every photo render site already has an explicit fixed height and a placeholder background token - `photoBubbleImage` 220x220, `photoThumb` 160x160, the gallery cell at `aspectRatio: 1`, the news banner at height 220. Space is already reserved and there is no shift to remove. Storing dimensions would only pay off alongside a redesign to aspect-ratio-preserving bubbles, which is a product decision and not part of this defect.
 
 **The tradeoff, stated plainly.** Access degrades from per-user authorization at fetch time to unguessable-until-expiry. Every major messenger accepts this; Signal's blobs are opaque and content-addressed at one stable URL shared by all recipients. Club photos are semi-private, not secret.
 
-**Verification.** Load a chat with photos twice. The second load must produce zero storage origin requests. Check the dashboard's cached versus uncached egress split.
+**Verification.** Load a chat with photos twice. The second load must produce zero storage origin requests.
 
 ---
 
